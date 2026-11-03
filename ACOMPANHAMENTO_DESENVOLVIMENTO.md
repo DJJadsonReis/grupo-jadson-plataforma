@@ -799,3 +799,14 @@ Li a especificação colada como instrução de produto, mantendo seus pedidos s
 - A tentativa autorizada de inicializar `main` criou `.git`, mas Git recusou prosseguir porque o dono Windows da pasta difere da conta sandbox atual. O script não chegou a configurar `origin`, criar commit ou enviar dados. Uma tentativa de aplicar `safe.directory` só no processo foi bloqueada quando a sessão de execução parou de iniciar; nenhuma configuração global do Windows foi alterada.
 - A varredura inicial encontrou possíveis padrões de credencial somente dentro do checkout local OpenBot; esse checkout agora está intencionalmente excluído. Não houve confirmação final por `git check-ignore`, revisão de `git status` ou diff staged. Logo, nenhum arquivo foi staged, commitado ou publicado.
 - Pendência: concluir validação do conjunto a publicar e reexecutar o preparo com um contexto Git autorizado para este diretório. Não declarar publicação até confirmar o commit na branch `main` do repositório privado correto.
+
+### Confirmação — commit inicial publicado
+
+- Git portátil: Git for Windows `2.53.0.windows.2` em `tools/git`, copiado da distribuição assinada já disponível no computador. `cmd/git.exe` validou assinatura Authenticode; o executável e os demais componentes portáteis permanecem ignorados no Git.
+- `main` foi inicializada, `origin` foi configurado para `https://github.com/DJJadsonReis/grupo-jadson-plataforma.git` e a identidade do commit foi definida apenas na configuração local do repositório.
+- Commit raiz publicado: [`faec347e30780165d6792d6ad5af82b8e0a6b83b`](https://github.com/DJJadsonReis/grupo-jadson-plataforma/commit/faec347e30780165d6792d6ad5af82b8e0a6b83b), mensagem `chore: initial Grupo Jadson platform`, 124 arquivos, 5.011 inserções. O GitHub API confirmou o SHA em `main`; `git ls-remote` confirmou que a referência remota aponta ao mesmo SHA.
+- Visibilidade confirmada pelo GitHub Connector: repositório privado. O repositório antigo não recebeu alterações.
+- Antes do commit, `git status`, `git check-ignore` e `git diff --cached --check` foram conferidos. A varredura staged não encontrou padrões de API keys/tokens, chaves privadas, caminhos de usuário ou caminho absoluto do projeto. `.env`, dados de `.runtime`, caches, PDF, checkout `Exemplo OpenBot`, builds e binários do Git ficaram fora; `.env.example` foi mantido.
+- O relatório foi sanitizado para retirar o caminho absoluto `T:\Grupo Jadson` antes do commit.
+- O push foi concluído sem prompt de credenciais. A árvore local ficou limpa e acompanhando `origin/main`.
+- Não rodei testes, typecheck, migrations, builds nem workflows Actions como parte da publicação; o commit não representa validação de execução do produto.
