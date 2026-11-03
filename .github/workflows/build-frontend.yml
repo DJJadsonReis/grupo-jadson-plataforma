@@ -1,0 +1,46 @@
+name: Frontend build
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Install workspace dependencies
+        shell: pwsh
+        run: |
+          if (-not (Test-Path pnpm-lock.yaml)) { throw 'pnpm-lock.yaml ausente. Execute o workflow Generate pnpm lockfile, revise e commit o artifact antes da validação.' }
+          pnpm install --frozen-lockfile
+      - name: Run desktop tests
+        run: pnpm --filter @grupo-jadson/desktop exec vitest run --reporter=json --outputFile="$env:GITHUB_WORKSPACE/desktop-test-results.json"
+      - name: Upload desktop test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-test-results
+          path: desktop-test-results.json
+          if-no-files-found: ignore
+      - name: Build frontend
+        run: pnpm --filter @grupo-jadson/desktop build
+      - name: Upload frontend build
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: grupo-jadson-frontend
+          path: |
+            apps/desktop/dist/**
+            desktop-test-results.json
+            pnpm-lock.yaml
+          if-no-files-found: error

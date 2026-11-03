@@ -1,0 +1,37 @@
+name: Backend tests
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Install workspace dependencies
+        run: |
+          if (-not (Test-Path pnpm-lock.yaml)) { throw 'pnpm-lock.yaml ausente. Execute o workflow Generate pnpm lockfile, revise e commit o artifact antes da validação.' }
+          pnpm install --frozen-lockfile
+        shell: pwsh
+      - name: Run backend tests
+        run: pnpm --filter @grupo-jadson/backend exec jest --runInBand --json --outputFile="$env:GITHUB_WORKSPACE/backend-test-results.json"
+      - name: Upload test result files
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-test-results
+          path: |
+            apps/backend/coverage/**
+            backend-test-results.json
+            pnpm-lock.yaml
+          if-no-files-found: ignore

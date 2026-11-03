@@ -1,0 +1,21 @@
+{
+  "name": "grupo-jadson",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@9.15.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @grupo-jadson/backend --filter @grupo-jadson/desktop dev",
+    "dev:backend": "pnpm --filter @grupo-jadson/backend dev",
+    "dev:desktop": "pnpm --filter @grupo-jadson/desktop dev",
+    "build": "pnpm --filter @grupo-jadson/backend --filter @grupo-jadson/desktop build",
+    "build:desktop": "pnpm --filter @grupo-jadson/desktop build:desktop",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm --filter @grupo-jadson/backend --filter @grupo-jadson/desktop typecheck",
+    "test": "pnpm --filter @grupo-jadson/backend --filter @grupo-jadson/desktop test",
+    "format": "prettier --write ."
+  },
+  "devDependencies": {
+    "prettier": "^3.4.2",
+    "typescript": "^5.7.2"
+  }
+}

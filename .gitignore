@@ -1,0 +1,49 @@
+node_modules/
+dist/
+build/
+target/
+.tauri/
+.env
+.env.*
+!.env.example
+coverage/
+.DS_Store
+*.log
+*.tmp
+*.temp
+*.bak
+*.swp
+*.swo
+*~
+*.sqlite
+*.db
+
+# Portable development toolchains and local runtime data
+/tools/*
+!/tools/git/
+/tools/git/*
+!/tools/git/.gitkeep
+/node/**
+/pnpm/**
+/rust/**
+/cargo/**
+/postgresql/**
+/redis/**
+/binaries/**
+/.cache/**
+/.runtime/**
+
+*-test-results.*
+
+# Local credentials and private key material
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Presentation PDF pending manual content review
+Apresentacao_Grupo_Jadson_2026.pdf
+
+# Local reference checkout; the project uses its own implementation and documents the comparison
+Exemplo OpenBot/
+tools/redis/redis.conf.bak-*
