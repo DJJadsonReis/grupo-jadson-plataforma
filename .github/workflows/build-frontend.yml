@@ -1,46 +1,61 @@
-name: Frontend build
-
+name: Frontend tests and build
 on:
+  pull_request:
   workflow_dispatch:
-
 permissions:
   contents: read
-
+concurrency:
+  group: frontend-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
       - uses: pnpm/action-setup@v4
         with:
           version: 9.15.0
           run_install: false
-      - name: Install workspace dependencies
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Verify pinned tools
         shell: pwsh
         run: |
-          if (-not (Test-Path pnpm-lock.yaml)) { throw 'pnpm-lock.yaml ausente. Execute o workflow Generate pnpm lockfile, revise e commit o artifact antes da validação.' }
+          node --version
+          if ((pnpm --version) -ne '9.15.0') { throw 'Expected pnpm 9.15.0.' }
+      - name: Install frozen dependencies
+        shell: pwsh
+        run: |
+          if (-not (Test-Path pnpm-lock.yaml)) { throw 'Approved pnpm-lock.yaml is required.' }
           pnpm install --frozen-lockfile
       - name: Run desktop tests
-        run: pnpm --filter @grupo-jadson/desktop exec vitest run --reporter=json --outputFile="$env:GITHUB_WORKSPACE/desktop-test-results.json"
-      - name: Upload desktop test results
+        shell: pwsh
+        run: |
+          pnpm --filter @grupo-jadson/desktop exec vitest run --reporter=json --outputFile="$env:GITHUB_WORKSPACE/desktop-test-results.json"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Build frontend
+        shell: pwsh
+        run: |
+          pnpm --filter @grupo-jadson/desktop build *> frontend-build.log
+          $result = $LASTEXITCODE
+          Get-Content frontend-build.log
+          if ($result -ne 0) { exit $result }
+      - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: desktop-test-results
-          path: desktop-test-results.json
+          name: frontend-logs-${{ github.sha }}-windows-x64
+          path: |
+            desktop-test-results.json
+            frontend-build.log
           if-no-files-found: ignore
-      - name: Build frontend
-        run: pnpm --filter @grupo-jadson/desktop build
-      - name: Upload frontend build
+          retention-days: 14
+      - name: Upload frontend output
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: grupo-jadson-frontend
-          path: |
-            apps/desktop/dist/**
-            desktop-test-results.json
-            pnpm-lock.yaml
+          name: grupo-jadson-frontend-${{ github.sha }}-windows-x64
+          path: apps/desktop/dist/**
           if-no-files-found: error
+          retention-days: 30

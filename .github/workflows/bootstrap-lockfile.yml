@@ -1,0 +1,48 @@
+name: Bootstrap pnpm lockfile
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: bootstrap-lockfile-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  generate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+          run_install: false
+      - name: Verify pinned tools
+        shell: pwsh
+        run: |
+          node --version
+          if ((pnpm --version) -ne '9.15.0') { throw 'Expected pnpm 9.15.0.' }
+      - name: Resolve lockfile without package scripts
+        shell: pwsh
+        run: |
+          pnpm install --lockfile-only --ignore-scripts --no-frozen-lockfile
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          if (-not (Test-Path pnpm-lock.yaml)) { throw 'pnpm-lock.yaml was not generated.' }
+          git diff --exit-code HEAD -- package.json apps packages
+          if ($LASTEXITCODE -ne 0) { throw 'Lockfile generation modified a package manifest.' }
+          @(
+            "commit=${{ github.sha }}"
+            "branch=${{ github.ref_name }}"
+            "node=$(node --version)"
+            "pnpm=$(pnpm --version)"
+            "generated_at_utc=$([DateTime]::UtcNow.ToString('o'))"
+          ) | Set-Content -LiteralPath lockfile-review.txt -Encoding utf8
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pnpm-lockfile-review-${{ github.sha }}
+          path: |
+            pnpm-lock.yaml
+            lockfile-review.txt
+          if-no-files-found: error
+          retention-days: 14
