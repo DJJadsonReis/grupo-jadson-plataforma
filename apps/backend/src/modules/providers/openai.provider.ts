@@ -20,15 +20,22 @@ export class OpenAiProvider implements LanguageModelProvider {
 
     const response = await fetch(process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1/chat/completions", {
       method: "POST",
-      signal,
+      signal: signal ?? null,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({ model: input.model || process.env.OPENAI_MODEL || "gpt-4o-mini", messages: input.messages, stream: true }),
+      body: JSON.stringify({
+        model: input.model || process.env.OPENAI_MODEL || "gpt-4o-mini", messages: input.messages, stream: true,
+        ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
+        ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
+      }),
     });
 
     if (!response.ok) {
+      const hasImage = input.messages.some((message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image_url"));
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_REQUEST_FAILED",
-        message: `O provedor OpenAI respondeu com HTTP ${response.status}.`,
+        message: hasImage
+          ? `O provedor OpenAI respondeu com HTTP ${response.status}; confirme se o modelo selecionado aceita imagens.`
+          : `O provedor OpenAI respondeu com HTTP ${response.status}.`,
       });
     }
     if (!response.body) throw new ServiceUnavailableException("O provedor não retornou um fluxo de dados.");

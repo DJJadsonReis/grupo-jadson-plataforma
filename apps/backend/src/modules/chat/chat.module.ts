@@ -4,6 +4,7 @@ import { DatabaseModule } from "../database/database.module";
 import { ChatController } from "./chat.controller";
 import { ConversationsController } from "./conversations.controller";
 import { ConversationsService } from "./conversations.service";
+import { AgentsModule } from "../agents/agents.module";
 
-@Module({ imports: [ProvidersModule, DatabaseModule], controllers: [ChatController, ConversationsController], providers: [ConversationsService] })
+@Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule], controllers: [ChatController, ConversationsController], providers: [ConversationsService] })
 export class ChatModule {}

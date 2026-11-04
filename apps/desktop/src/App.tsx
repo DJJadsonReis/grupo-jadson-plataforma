@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
-import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation } from "./lib/workspace";
+import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
-  Activity, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, CircleHelp,
-  Clock3, Cpu, FileText, FolderOpen, Gauge, ListTodo, LoaderCircle, MessageSquare, Paperclip,
-  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, ChevronLeft, ChevronRight,
+  Activity, ArrowUp, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
+  CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
+  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X
 } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
 
@@ -12,23 +12,25 @@ type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
+
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "dashboard", label: "Início", icon: Gauge },
-  { id: "agents", label: "Meus agentes", icon: Bot },
+  { id: "agents", label: "Galeria de Agentes", icon: Bot },
   { id: "conversations", label: "Conversas", icon: MessageSquare },
   { id: "groups", label: "Grupos de agentes", icon: Boxes },
   { id: "automations", label: "Rotinas", icon: Workflow },
   { id: "tools", label: "Ferramentas", icon: FolderOpen },
   { id: "memory", label: "Memória", icon: BrainCircuit },
   { id: "files", label: "Arquivos", icon: FileText },
-  { id: "activity", label: "Histórico de atividades", icon: Activity },
-  { id: "settings", label: "Configurações", icon: Settings },
+  { id: "activity", label: "Atividades", icon: Activity },
 ];
+
 const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
-  { id: "computers", label: "Workspace do agente", icon: Cpu },
   { id: "models", label: "Modelos e provedores", icon: BrainCircuit },
   { id: "monitoring", label: "Monitoramento", icon: Activity },
+  { id: "settings", label: "Configurações", icon: Settings },
 ];
+
 const STORAGE_KEY = "grupo-jadson.workspace.v1";
 
 function readWorkspace() {
@@ -53,6 +55,7 @@ export default function App() {
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
+  const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
   const [agentPersistence, setAgentPersistence] = useState<"checking" | "connected" | "local" | "error">("checking");
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
@@ -89,7 +92,14 @@ export default function App() {
         setProviders(status);
         setConfiguredProviders(status.filter((provider) => provider.configured).length);
       })
-      .catch(() => { if (!controller.signal.aborted) { setHealth((value) => value === "checking" ? "unavailable" : value); setPostgresHealth((value) => value === "checking" ? "unavailable" : value); setVectorHealth((value) => value === "checking" ? "unavailable" : value); setRedisHealth((value) => value === "checking" ? "unavailable" : value); } });
+      .catch(() => {
+        if (!controller.signal.aborted) {
+          setHealth((value) => value === "checking" ? "unavailable" : value);
+          setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
+          setVectorHealth((value) => value === "checking" ? "unavailable" : value);
+          setRedisHealth((value) => value === "checking" ? "unavailable" : value);
+        }
+      });
     return () => controller.abort();
   }, []);
 
@@ -99,13 +109,27 @@ export default function App() {
     fetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const remote = await response.json() as { id: string; title: string; agentId?: string | null; messages: { role: string; content: string }[]; updatedAt: string }[];
+        const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
             const saved = localById.get(item.id);
             const messages = item.messages.filter((message): message is ChatMessage => message.role === "user" || message.role === "assistant");
-            return saved ? { ...saved, ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}), title: item.title || saved.title, messages: saved.messages.length >= messages.length ? saved.messages : messages, updatedAt: Math.max(saved.updatedAt, Date.parse(item.updatedAt) || 0) } : { id: item.id, title: item.title, messages, updatedAt: Date.parse(item.updatedAt) || Date.now(), ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}) };
+            return saved ? {
+              ...saved,
+              ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
+              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
+              title: item.title || saved.title,
+              messages: saved.messages.length >= messages.length ? saved.messages : messages,
+              updatedAt: Math.max(saved.updatedAt, Date.parse(item.updatedAt) || 0)
+            } : {
+              id: item.id,
+              title: item.title,
+              messages,
+              updatedAt: Date.parse(item.updatedAt) || Date.now(),
+              ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
+              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {})
+            };
           });
           const remoteIds = new Set(remote.map((item) => item.id));
           return [...merged, ...local.filter((item) => !remoteIds.has(item.id))].sort((a, b) => b.updatedAt - a.updatedAt);
@@ -128,7 +152,12 @@ export default function App() {
         for (const localAgent of readWorkspace().agents) {
           if (knownIds.has(localAgent.id)) continue;
           try {
-            const created = await fetch(`${API_URL}/agents`, { method: "POST", signal: controller.signal, headers: { "Content-Type": "application/json" }, body: JSON.stringify(localAgent) });
+            const created = await fetch(`${API_URL}/agents`, {
+              method: "POST",
+              signal: controller.signal,
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify(localAgent)
+            });
             if (!created.ok) throw new Error("Não foi possível migrar um agente local.");
             const saved = await created.json() as Agent;
             knownIds.add(saved.id);
@@ -141,7 +170,6 @@ export default function App() {
         setRemoteAgentIds([...knownIds]);
         setAgents((current) => {
           const merged = new Map(remote.map((agent) => [agent.id, agent]));
-          // Keep any same-ID local record until the user explicitly saves changes.
           for (const agent of current) merged.set(agent.id, agent);
           return [...merged.values()];
         });
@@ -152,13 +180,31 @@ export default function App() {
   }, [postgresHealth]);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents }));
-  }, [conversations, agents]);
+    if (postgresHealth !== "connected") return;
+    const controller = new AbortController();
+    fetch(`${API_URL}/groups`, { signal: controller.signal }).then(async (response) => {
+      if (!response.ok) return;
+      const remote = await response.json() as (Omit<Group, "createdAt"> & { createdAt: string })[];
+      setGroups(remote.map((item) => ({ ...item, createdAt: Date.parse(item.createdAt) || Date.now() })));
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [postgresHealth]);
+
+  useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents, groups }));
+  }, [conversations, agents, groups]);
   useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => { localStorage.setItem("grupo-jadson.favorite-agents", JSON.stringify(favoriteAgentIds)); }, [favoriteAgentIds]);
 
-  function newConversation(agentId?: string) {
-    const conversation: Conversation = { id: crypto.randomUUID(), title: "Nova conversa", messages: [], updatedAt: Date.now(), ...(agentId ? { agentId } : {}) };
+  function newConversation(agentId?: string, groupId?: string) {
+    const conversation: Conversation = {
+      id: crypto.randomUUID(),
+      title: "Nova conversa",
+      messages: [],
+      updatedAt: Date.now(),
+      ...(agentId ? { agentId } : {}),
+      ...(groupId ? { groupId, type: "group" as const } : {})
+    };
     setConversations((items) => [conversation, ...items]);
     setActiveConversation(conversation.id);
     setPage("chat");
@@ -174,9 +220,9 @@ export default function App() {
     if (next === "chat" && !activeConversation) newConversation();
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = []) {
     const content = contentInput.trim();
-    if (!content || busy) return;
+    if ((!content && !selectedFiles.length) || busy) return;
     let conversationId = activeConversation;
     if (!conversationId) {
       const conversation: Conversation = { id: crypto.randomUUID(), title: content.slice(0, 48), messages: [], updatedAt: Date.now() };
@@ -185,17 +231,41 @@ export default function App() {
       setConversations((items) => [conversation, ...items]);
     }
     const id = conversationId;
-    const userMessage: ChatMessage = { role: "user", content };
+    const userMessage: ChatMessage = { role: "user", content: content || "Analise a imagem anexada." };
     const current = conversations.find((item) => item.id === id);
     const prior = current?.messages ?? [];
-    setConversations((items) => items.map((item) => item.id === id ? { ...item, ...(agent ? { agentId: agent.id } : {}), title: item.messages.length ? item.title : content.slice(0, 48), messages: [...item.messages, userMessage], updatedAt: Date.now() } : item));
+    setConversations((items) => items.map((item) => item.id === id ? {
+      ...item,
+      ...(agent ? { agentId: agent.id } : {}),
+      title: item.messages.length ? item.title : (content || "Imagem enviada").slice(0, 48),
+      messages: [...item.messages, userMessage],
+      updatedAt: Date.now()
+    } : item));
     setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(agent?.id ?? null);
     const controller = new AbortController(); abortRef.current = controller;
     try {
+      const attachments = await Promise.all(selectedFiles.map(async (file) => ({
+        id: crypto.randomUUID(), name: file.name, type: file.type, size: file.size,
+        dataUrl: await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader(); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Não foi possível ler o anexo."));
+          reader.onerror = () => reject(new Error("Não foi possível ler o anexo.")); reader.readAsDataURL(file);
+        })
+      })));
+      if (attachments.some((attachment) => !["image/png", "image/jpeg", "image/webp"].includes(attachment.type) || attachment.size > 5 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
+        throw new Error("Anexe até 5 MB de imagens PNG, JPEG ou WebP por mensagem.");
+      }
+      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
       const response = await fetch(`${API_URL}/chat/completions`, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ conversationId: id, ...(agent ? { agentId: agent.id } : {}), messages: [...(agent?.instructions.trim() ? [{ role: "system", content: agent.instructions.trim() } as const] : []), ...prior, userMessage], ...(model.trim() ? { model: model.trim() } : {}) }),
+        body: JSON.stringify({
+          conversationId: id,
+          ...(agent ? { agentId: agent.id } : {}),
+          ...(current?.groupId ? { groupId: current.groupId } : {}),
+          attachments,
+          messages: [...prior, userMessage],
+          ...(model.trim() ? { model: model.trim() } : {})
+        }),
       });
       if (!response.ok) {
         const body = await response.json().catch(() => ({})) as { message?: string };
@@ -204,7 +274,7 @@ export default function App() {
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
       const decoder = new TextDecoder(); let answer = ""; let pending = "";
-      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "" }] } : item));
+      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(agent ? { agentId: agent.id } : {}) }] } : item));
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -216,14 +286,18 @@ export default function App() {
           try {
             const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[]; content?: string };
             answer += parsed.choices?.[0]?.delta?.content ?? parsed.content ?? "";
-            setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "assistant" ? { ...message, content: answer } : message), updatedAt: Date.now() } : item));
-          } catch { /* ignore incomplete SSE frames */ }
+            setConversations((items) => items.map((item) => item.id === id ? {
+              ...item,
+              messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "assistant" ? { ...message, content: answer } : message),
+              updatedAt: Date.now()
+            } : item));
+          } catch { /* ignore incomplete frames */ }
         }
       }
       if (!answer) throw new Error("O provedor encerrou a resposta sem conteúdo.");
     } catch (cause) {
       const aborted = cause instanceof DOMException && cause.name === "AbortError";
-      if (!aborted) setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0) } : item));
+      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0) } : item));
       if (!aborted) setError(cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.");
     } finally { setBusy(false); setActiveAgentId(null); abortRef.current = null; }
   }
@@ -237,12 +311,33 @@ export default function App() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agent),
       });
-      if (!response.ok) throw new Error("Não foi possível salvar o agente no PostgreSQL.");
+      if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
       const saved = await response.json() as Agent;
       setRemoteAgentIds((ids) => ids.includes(saved.id) ? ids : [...ids, saved.id]);
       setAgents((items) => items.map((item) => item.id === agent.id ? saved : item));
       setAgentPersistence("connected");
     } catch { setAgentPersistence("error"); }
+  }
+
+  async function persistGroup(group: Group) {
+    if (postgresHealth === "connected") {
+      try {
+        const response = await fetch(`${API_URL}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
+        if (!response.ok) throw new Error("Não foi possível salvar o grupo no PostgreSQL.");
+        const saved = await response.json() as Omit<Group, "createdAt"> & { createdAt: string };
+        setGroups((items) => [{ ...saved, createdAt: Date.parse(saved.createdAt) || Date.now() }, ...items.filter((item) => item.id !== saved.id)]);
+        return;
+      } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao salvar grupo."); }
+    }
+    setGroups((items) => [group, ...items.filter((item) => item.id !== group.id)]);
+  }
+
+  async function archiveGroup(id: string) {
+    if (postgresHealth === "connected") {
+      try { const response = await fetch(`${API_URL}/groups/${id}`, { method: "DELETE" }); if (!response.ok) throw new Error("Não foi possível arquivar o grupo."); }
+      catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao arquivar grupo."); return; }
+    }
+    setGroups((items) => items.filter((item) => item.id !== id));
   }
 
   function toggleAgent(id: string) {
@@ -262,157 +357,1171 @@ export default function App() {
   }
 
   const viewedAgent = agents.find((agent) => agent.id === viewedAgentId) ?? null;
-  const title = page === "agent-detail" ? viewedAgent?.name ?? "Perfil do agente" : [...NAV, ...SECONDARY_NAV, { id: "chat" as PageId, label: "Nova conversa", icon: MessageSquare }].find((item) => item.id === page)?.label ?? "Início";
-  const serviceLabel = health === "connected" ? "API conectada" : health === "checking" ? "Verificando API" : "API indisponível";
-
+  const title = page === "agent-detail" ? viewedAgent?.name ?? "Perfil do agente" : [...NAV, ...SECONDARY_NAV, { id: "chat" as PageId, label: "Conversa", icon: MessageSquare }].find((item) => item.id === page)?.label ?? "Início";
+  const serviceLabel = health === "connected" ? "Controlador Conectado" : health === "checking" ? "Verificando API" : "Modo Local";
 
   const visibleSidebarAgents = agents.filter((agent) => agent.name.toLocaleLowerCase().includes(agentSearch.trim().toLocaleLowerCase())).sort((a, b) => Number(favoriteAgentIds.includes(b.id)) - Number(favoriteAgentIds.includes(a.id))).slice(0, 6);
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
+
   return (
     <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""}`}>
       <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"><Boxes size={19} /></button>
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
+
+      {/* SIDEBAR PREMIUM */}
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-        <div className="brand"><img src={logo} alt="Logo Grupo Jadson" /><div><strong>GRUPO JADSON</strong><span>AI AGENT PLATFORM</span></div><button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"} title={sidebarCollapsed ? "Expandir navegação" : "Recolher navegação"}>{sidebarCollapsed ? <ChevronRight size={17} /> : <ChevronLeft size={17} />}</button></div>
-        <button className="new-chat" onClick={newConversation} aria-label="Nova conversa"><Plus size={16} /><span>Nova conversa</span></button>
-        <nav aria-label="Navegação principal">
-          {NAV.map(({ id, label, icon: Icon }) => <button className={`nav-item ${page === id || (id === "conversations" && page === "chat") ? "active" : ""}`} key={id} onClick={() => changePage(id)} title={sidebarCollapsed ? label : undefined} aria-current={page === id ? "page" : undefined}><Icon size={17} /><span>{label}</span></button>)}
+        <div className="brand">
+          <div className="brand-logo-wrap">
+            <img src={logo} alt="Logo Grupo Jadson" />
+          </div>
+          <div className="brand-copy">
+            <strong>GRUPO JADSON</strong>
+            <span>CONTROLADOR DE IA</span>
+          </div>
+          <button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}>
+            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          </button>
+        </div>
+
+        {/* NOVA CONVERSA - DESTAQUE */}
+        <button className="new-chat" onClick={() => newConversation()} aria-label="Nova conversa">
+          <Plus size={16} />
+          <span>Nova conversa</span>
+        </button>
+
+        {/* NAVEGAÇÃO PRINCIPAL */}
+        <nav className="nav-primary" aria-label="Navegação principal">
+          {NAV.slice(0, 3).map(({ id, label, icon: Icon }) => (
+            <button
+              className={`nav-item ${page === id || (id === "conversations" && page === "chat") ? "active" : ""}`}
+              key={id}
+              onClick={() => changePage(id)}
+              title={sidebarCollapsed ? label : undefined}
+              aria-current={page === id ? "page" : undefined}
+            >
+              <Icon size={17} />
+              <span>{label}</span>
+            </button>
+          ))}
         </nav>
-        <div className="sidebar-agents"><span className="section-label">SEUS AGENTES</span>{!sidebarCollapsed && agents.length > 0 && <label className="sidebar-agent-search"><Search size={13} /><input value={agentSearch} onChange={(event) => setAgentSearch(event.target.value)} placeholder="Buscar agentes" aria-label="Buscar agentes" /></label>}{visibleSidebarAgents.map((agent) => <div key={agent.id} className="sidebar-agent-row"><button className="sidebar-agent" title={sidebarCollapsed ? agent.name + " · " + (activeAgentId === agent.id ? "Pensando" : agent.enabled ? "Ativado" : "Desativado") : undefined} onClick={() => agent.enabled && newConversation(agent.id)} disabled={!agent.enabled} aria-label={"Conversar com " + agent.name}><span className="agent-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span><span className="sidebar-agent-copy"><b>{agent.name}</b><small>{activeAgentId === agent.id ? "Pensando" : agent.enabled ? "Ativado" : "Desativado"}</small></span><i className={"agent-presence " + (activeAgentId === agent.id ? "thinking" : agent.enabled ? "enabled" : "")} aria-label={activeAgentId === agent.id ? "Pensando" : agent.enabled ? "Ativado" : "Desativado"} /></button>{!sidebarCollapsed && <button className={"favorite-agent " + (favoriteAgentIds.includes(agent.id) ? "is-favorite" : "")} onClick={() => toggleFavoriteAgent(agent.id)} aria-label={favoriteAgentIds.includes(agent.id) ? "Remover " + agent.name + " dos favoritos" : "Favoritar " + agent.name} aria-pressed={favoriteAgentIds.includes(agent.id)} title={favoriteAgentIds.includes(agent.id) ? "Remover dos favoritos" : "Favoritar agente"}><Star size={13} fill={favoriteAgentIds.includes(agent.id) ? "currentColor" : "none"} /></button>}</div>)}{agents.length === 0 && !sidebarCollapsed && <small className="sidebar-empty">Seus agentes aparecem aqui.</small>}{agents.length > 0 && visibleSidebarAgents.length === 0 && !sidebarCollapsed && <small className="sidebar-empty">Nenhum agente encontrado.</small>}</div>
-        {conversations.length > 0 && <div className="history"><span className="section-label">CONVERSAS RECENTES</span>{conversations.slice(0, 5).map((item) => <button key={item.id} className={`history-item ${activeConversation === item.id ? "history-active" : ""}`} onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}><MessageSquare size={13} /><span>{item.title}</span></button>)}</div>}
-        <div className="sidebar-secondary">{SECONDARY_NAV.map(({ id, label, icon: Icon }) => <button className={`nav-item ${page === id ? "active" : ""}`} key={id} onClick={() => changePage(id)} title={sidebarCollapsed ? label : undefined}><Icon size={16} /><span>{label}</span></button>)}</div>
-        <div className="sidebar-bottom"><span className={`connection-dot ${health}`} /><span>{health === "connected" ? "Backend conectado" : health === "checking" ? "Conferindo serviços…" : "Backend desconectado"}</span></div>
+
+        {/* SEUS AGENTES (ACESSO RÁPIDO) */}
+        <div className="sidebar-agents">
+          <div className="sidebar-section-header">
+            <span className="section-label">AGENTES</span>
+            {!sidebarCollapsed && <span className="agent-count-pill">{agents.length}</span>}
+          </div>
+          {!sidebarCollapsed && agents.length > 3 && (
+            <label className="sidebar-agent-search">
+              <Search size={13} />
+              <input value={agentSearch} onChange={(event) => setAgentSearch(event.target.value)} placeholder="Filtrar agentes…" aria-label="Buscar agentes" />
+            </label>
+          )}
+          <div className="sidebar-agent-list">
+            {visibleSidebarAgents.map((agent) => (
+              <div key={agent.id} className="sidebar-agent-row">
+                <button
+                  className="sidebar-agent"
+                  title={sidebarCollapsed ? agent.name + " · " + (activeAgentId === agent.id ? "Pensando" : agent.enabled ? "Ativado" : "Desativado") : undefined}
+                  onClick={() => agent.enabled && newConversation(agent.id)}
+                  disabled={!agent.enabled}
+                  aria-label={"Conversar com " + agent.name}
+                >
+                  <span className="agent-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+                  <span className="sidebar-agent-copy">
+                    <b>{agent.name}</b>
+                    <small>{activeAgentId === agent.id ? "Em execução…" : agent.enabled ? "Pronto" : "Desativado"}</small>
+                  </span>
+                  <i className={"agent-presence " + (activeAgentId === agent.id ? "thinking" : agent.enabled ? "enabled" : "")} />
+                </button>
+                {!sidebarCollapsed && (
+                  <button
+                    className={"favorite-agent " + (favoriteAgentIds.includes(agent.id) ? "is-favorite" : "")}
+                    onClick={() => toggleFavoriteAgent(agent.id)}
+                    aria-label={favoriteAgentIds.includes(agent.id) ? "Remover dos favoritos" : "Favoritar"}
+                    title={favoriteAgentIds.includes(agent.id) ? "Remover dos favoritos" : "Favoritar"}
+                  >
+                    <Star size={13} fill={favoriteAgentIds.includes(agent.id) ? "currentColor" : "none"} />
+                  </button>
+                )}
+              </div>
+            ))}
+            {agents.length === 0 && !sidebarCollapsed && <small className="sidebar-empty">Nenhum agente configurado.</small>}
+          </div>
+        </div>
+
+        {/* CONVERSAS RECENTES */}
+        {conversations.length > 0 && (
+          <div className="history">
+            <span className="section-label">HISTÓRICO RECENTE</span>
+            <div className="history-list">
+              {conversations.slice(0, 5).map((item) => (
+                <button
+                  key={item.id}
+                  className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
+                  onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
+                  title={item.title}
+                >
+                  <MessageSquare size={14} />
+                  <span>{item.title || "Nova conversa"}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* NAVEGAÇÃO SECUNDÁRIA INFERIOR */}
+        <div className="sidebar-secondary">
+          {SECONDARY_NAV.map(({ id, label, icon: Icon }) => (
+            <button className={`nav-item ${page === id ? "active" : ""}`} key={id} onClick={() => changePage(id)} title={sidebarCollapsed ? label : undefined}>
+              <Icon size={16} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* RODAPÉ E STATUS */}
+        <div className="sidebar-bottom">
+          <span className={`connection-dot ${health}`} />
+          <span className="status-text">{health === "connected" ? "Controlador Online" : health === "checking" ? "Verificando…" : "Modo Local Seguro"}</span>
+        </div>
       </aside>
+
+      {/* ÁREA PRINCIPAL */}
       <main className="main">
-        <header className="topbar"><div className="breadcrumb">Workspace <span>/</span> <b>{title}</b></div><div className={`status status-${health}`}><i />{serviceLabel}</div></header>
-        {page === "dashboard" && <Dashboard health={health} postgresHealth={postgresHealth} vectorHealth={vectorHealth} redisHealth={redisHealth} configuredProviders={configuredProviders} agents={agents} conversations={conversations} busy={busy} activeAgentName={agents.find((agent) => agent.id === activeAgentId)?.name} onNavigate={changePage} onStartTask={(task, agentId) => { setDraft(task); newConversation(agentId); }} onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }} />}
-        {page === "chat" && <ChatPage conversation={active} agents={agents} draft={draft} busy={busy} activeAgentId={activeAgentId} error={error} files={files} setDraft={setDraft} setFiles={setFiles} onSend={sendMessage} onCancel={() => abortRef.current?.abort()} onDismissError={() => setError(null)} onChooseFiles={() => inputRef.current?.click()} inputRef={inputRef} />}
-        {page === "agents" && <AgentsPage agents={agents} remoteAgentIds={remoteAgentIds} persistence={agentPersistence} onCreate={() => setAgentEditor({ id: crypto.randomUUID(), name: "", description: "", instructions: "", model: "", enabled: true })} onEdit={setAgentEditor} onToggle={toggleAgent} onChat={(id) => newConversation(id)} onOpen={openAgentProfile} />}
-        {page === "agent-detail" && viewedAgent && <AgentDetailPage agent={viewedAgent} conversations={conversations} persistence={agentPersistence} onBack={() => setPage("agents")} onEdit={() => setAgentEditor(viewedAgent)} onChat={() => newConversation(viewedAgent.id)} onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }} />}
-        {page === "conversations" && <ConversationsPage conversations={conversations} agents={agents} onNew={newConversation} onOpen={(id) => { setActiveConversation(id); setPage("chat"); }} />}
+        <header className="topbar">
+          <div className="breadcrumb">
+            <span className="breadcrumb-root">Controlador</span>
+            <span className="breadcrumb-separator">/</span>
+            <b>{title}</b>
+          </div>
+          <div className={`status status-${health}`}>
+            <i />
+            {serviceLabel}
+          </div>
+        </header>
+
+        {page === "dashboard" && (
+          <Dashboard
+            health={health}
+            postgresHealth={postgresHealth}
+            vectorHealth={vectorHealth}
+            redisHealth={redisHealth}
+            configuredProviders={configuredProviders}
+            agents={agents}
+            conversations={conversations}
+            busy={busy}
+            activeAgentName={agents.find((agent) => agent.id === activeAgentId)?.name}
+            onNavigate={changePage}
+            onStartTask={(task, agentId) => { setDraft(task); newConversation(agentId); }}
+            onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }}
+          />
+        )}
+        {page === "chat" && (
+          <ChatPage
+            conversation={active}
+            agents={agents}
+            groups={groups}
+            draft={draft}
+            busy={busy}
+            activeAgentId={activeAgentId}
+            error={error}
+            files={files}
+            setDraft={setDraft}
+            setFiles={setFiles}
+            onSend={sendMessage}
+            onCancel={() => abortRef.current?.abort()}
+            onDismissError={() => setError(null)}
+            onChooseFiles={() => inputRef.current?.click()}
+            inputRef={inputRef}
+          />
+        )}
+        {page === "agents" && (
+          <AgentsPage
+            agents={agents}
+            remoteAgentIds={remoteAgentIds}
+            persistence={agentPersistence}
+            onCreate={() => setAgentEditor({ id: crypto.randomUUID(), name: "", description: "", instructions: "", model: "", enabled: true })}
+            onEdit={setAgentEditor}
+            onToggle={toggleAgent}
+            onChat={(id) => newConversation(id)}
+            onOpen={openAgentProfile}
+          />
+        )}
+        {page === "agent-detail" && viewedAgent && (
+          <AgentDetailPage
+            agent={viewedAgent}
+            conversations={conversations}
+            persistence={agentPersistence}
+            onBack={() => setPage("agents")}
+            onEdit={() => setAgentEditor(viewedAgent)}
+            onChat={() => newConversation(viewedAgent.id)}
+            onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }}
+          />
+        )}
+        {page === "conversations" && (
+          <ConversationsPage
+            conversations={conversations}
+            agents={agents}
+            onNew={newConversation}
+            onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
+          />
+        )}
+        {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} />}
-        {page === "monitoring" && <MonitoringPage health={health} postgres={postgresHealth} vector={vectorHealth} redis={redisHealth} providerCount={configuredProviders} />}
-        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "models", "settings", "monitoring"] as PageId[]).includes(page) && <ComingSoonPage page={page} onNavigate={changePage} />}
+        {page === "monitoring" && (
+          <MonitoringPage
+            health={health}
+            postgres={postgresHealth}
+            vector={vectorHealth}
+            redis={redisHealth}
+            providerCount={configuredProviders}
+          />
+        )}
+        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring"] as PageId[]).includes(page) && (
+          <ComingSoonPage page={page} onNavigate={changePage} />
+        )}
       </main>
-      {agentEditor && <AgentModal agent={agentEditor} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />}
+
+      {agentEditor && (
+        <AgentModal agent={agentEditor} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
+      )}
     </div>
   );
 }
 
-function Dashboard({ health, postgresHealth, vectorHealth, redisHealth, configuredProviders, agents, conversations, busy, activeAgentName, onNavigate, onStartTask, onOpenConversation }: { health: Health; postgresHealth: Health; vectorHealth: Health; redisHealth: Health; configuredProviders: number | null; agents: Agent[]; conversations: Conversation[]; busy: boolean; activeAgentName?: string; onNavigate: (page: PageId) => void; onStartTask: (task: string, agentId?: string) => void; onOpenConversation: (id: string) => void }) {
+/* =========================================================================
+   DASHBOARD / LAUNCHER DE IA (COMMAND CENTER)
+   ========================================================================= */
+function Dashboard({
+  health, postgresHealth, vectorHealth, redisHealth, configuredProviders, agents, conversations,
+  busy, activeAgentName, onNavigate, onStartTask, onOpenConversation
+}: {
+  health: Health; postgresHealth: Health; vectorHealth: Health; redisHealth: Health;
+  configuredProviders: number | null; agents: Agent[]; conversations: Conversation[];
+  busy: boolean; activeAgentName?: string | undefined;
+  onNavigate: (page: PageId) => void;
+  onStartTask: (task: string, agentId?: string) => void;
+  onOpenConversation: (id: string) => void;
+}) {
   const [task, setTask] = useState("");
   const [agentId, setAgentId] = useState("");
-  const recent = conversations.slice(0, 3);
+  const recent = conversations.slice(0, 4);
   const selectedAgent = agents.find((agent) => agent.id === agentId && agent.enabled);
   const hour = new Date().getHours();
   const greeting = hour < 12 ? "Bom dia, Jadson." : hour < 18 ? "Boa tarde, Jadson." : "Boa noite, Jadson.";
+
   function startTask(value = task) {
     const next = value.trim();
     if (!next) return;
     setTask("");
     onStartTask(next, selectedAgent?.id);
   }
-  return <div className="page-content dashboard-page workspace-home">
-    <section className="home-intro"><div><p className="eyebrow"><Sparkles size={14} /> SEU ESPAÇO DE TRABALHO</p><h1>{greeting}</h1><p className="muted text-pretty">Que trabalho vamos avançar hoje?</p></div><div className={"home-presence " + (busy ? "is-working" : "")}><i />{busy ? "Em execução" + (activeAgentName ? " · " + activeAgentName : "") : health === "connected" ? "Workspace pronto" : "Modo local"}</div></section>
-    <section className="task-launcher" aria-label="Iniciar tarefa"><div className="task-launcher-top"><span className="task-launcher-mark"><Sparkles size={18} /></span><div><strong>Comece por aqui</strong><span>Descreva o que você precisa. A solicitação será enviada pelo chat.</span></div></div><form className="task-launcher-form" onSubmit={(event) => { event.preventDefault(); startTask(); }}><textarea value={task} onChange={(event) => setTask(event.target.value)} rows={2} placeholder="Peça ao Grupo Jadson para ajudar com uma tarefa…" aria-label="Descreva sua tarefa" /><div className="task-launcher-actions"><label className="agent-picker"><Bot size={15} /><select aria-label="Agente para a tarefa" value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">Escolher agente (opcional)</option>{agents.filter((agent) => agent.enabled).map((agent) => <option value={agent.id} key={agent.id}>{agent.name}</option>)}</select><ChevronDown size={13} /></label><button className="task-submit" type="submit" disabled={!task.trim()}><span>Iniciar tarefa</span><ArrowUpRight size={16} /></button></div></form><div className="task-suggestions"><span>Sugestões</span>{["Resumir um texto", "Planejar uma tarefa", "Explorar uma ideia"].map((suggestion) => <button key={suggestion} onClick={() => startTask(suggestion)}>{suggestion}<ArrowUpRight size={12} /></button>)}</div></section>
-    <div className="home-columns"><section className="home-section team-section"><div className="home-section-heading"><div><span className="section-label">SUA EQUIPE</span><h2>Agentes</h2></div><button className="text-button" onClick={() => onNavigate("agents")}>Ver todos <ArrowUpRight size={14} /></button></div>{agents.length === 0 ? <div className="home-empty"><Bot size={18} /><span>Nenhum agente configurado ainda.</span><button onClick={() => onNavigate("agents")}>Criar agente <Plus size={14} /></button></div> : <div className="home-agent-list">{agents.slice(0, 4).map((agent) => <button className="home-agent" key={agent.id} onClick={() => { if (!agent.enabled) return; setAgentId(agent.id); document.querySelector<HTMLTextAreaElement>(".task-launcher-form textarea")?.focus(); }} disabled={!agent.enabled} title={agent.enabled ? "Selecionar no início de tarefa" : agent.name + " está desativado"}><span className="agent-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span><span className="home-agent-copy"><b>{agent.name}</b><small>{agent.description || "Agente pessoal"}</small></span><span className={"status-tag " + (agent.enabled ? "configured" : "disabled")}><i />{agent.enabled ? "Ativado" : "Desativado"}</span></button>)}</div>}</section>
-      <section className="home-section execution-section"><div className="home-section-heading"><div><span className="section-label">AGORA</span><h2>Execução</h2></div><ListTodo size={17} /></div>{busy ? <button className="execution-item" onClick={() => onNavigate("chat")}><span className="execution-indicator"><LoaderCircle className="spin" size={16} /></span><span><b>{activeAgentName ? activeAgentName + " está trabalhando" : "Resposta em andamento"}</b><small>Streaming ativo nesta conversa</small></span><ArrowUpRight size={14} /></button> : <div className="execution-empty"><span className="execution-indicator"><Clock3 size={15} /></span><span><b>Nenhuma tarefa em execução</b><small>Uma execução aparecerá aqui quando o chat estiver gerando uma resposta.</small></span></div>}</section></div>
-    <div className="home-columns home-columns-lower"><section className="home-section recent-section"><div className="home-section-heading"><div><span className="section-label">RETOMAR</span><h2>Conversas recentes</h2></div><button className="text-button" onClick={() => onNavigate("conversations")}>Histórico <ArrowUpRight size={14} /></button></div>{recent.length === 0 ? <div className="home-empty"><MessageSquare size={17} /><span>Suas conversas salvas aparecerão aqui.</span><button onClick={() => onNavigate("chat")}>Abrir chat <ArrowUpRight size={13} /></button></div> : recent.map((conversation) => <button className="home-conversation" key={conversation.id} onClick={() => onOpenConversation(conversation.id)}><span className="conversation-card-icon"><MessageSquare size={15} /></span><span><b>{conversation.title || "Nova conversa"}</b><small>{conversation.messages.length} mensagens · {new Date(conversation.updatedAt).toLocaleDateString()}</small></span><ArrowUpRight size={14} /></button>)}</section>
-      <section className="home-section services-section"><div className="home-section-heading"><div><span className="section-label">CONECTIVIDADE</span><h2>Serviços</h2></div><button className="text-button" onClick={() => onNavigate("monitoring")}>Detalhes <ArrowUpRight size={14} /></button></div><ServiceRow name="API NestJS" detail={health === "connected" ? "Verificação confirmada" : "Sem conexão confirmada"} status={health} /><ServiceRow name="PostgreSQL" detail={postgresHealth === "connected" ? "Conectado" : "Não conectado"} status={postgresHealth} /><ServiceRow name="pgvector" detail={vectorHealth === "connected" ? "Conectado" : "Não conectado"} status={vectorHealth} /><ServiceRow name="Redis" detail={redisHealth === "connected" ? "Conectado" : "Não conectado"} status={redisHealth} /><div className="service-row provider-config-row"><span className="provider-config-mark" /><div><b>Provedor de IA</b><small>{configuredProviders === null ? "Ainda não verificado" : configuredProviders > 0 ? configuredProviders + " configurado(s)" : "Nenhum configurado"}</small></div><span className="provider-config-state">{configuredProviders === null ? "Verificando" : configuredProviders > 0 ? "Configurado" : "Pendente"}</span></div></section></div>
-  </div>;
+
+  return (
+    <div className="page-content dashboard-page workspace-home">
+      {/* HERO SECTION */}
+      <section className="home-hero">
+        <div className="home-hero-text">
+          <div className="home-badge">
+            <Sparkles size={13} className="text-gold" />
+            <span>CONTROLADOR DE IA • GRUPO JADSON</span>
+          </div>
+          <h1>{greeting}</h1>
+          <p className="home-subtitle">O que você gostaria de explorar, orquestrar ou construir agora?</p>
+        </div>
+        <div className={"home-presence-badge " + (busy ? "is-working" : "")}>
+          <i />
+          <span>{busy ? "Em execução" + (activeAgentName ? " · " + activeAgentName : "") : health === "connected" ? "Controlador Pronto" : "Modo Local"}</span>
+        </div>
+      </section>
+
+      {/* ACTION LAUNCHER (O CAMPO PRINCIPAL DE INÍCIO) */}
+      <section className="task-launcher" aria-label="Iniciar tarefa">
+        <form
+          className="task-launcher-form"
+          onSubmit={(event) => { event.preventDefault(); startTask(); }}
+        >
+          <textarea
+            value={task}
+            onChange={(event) => setTask(event.target.value)}
+            rows={2}
+            placeholder="Como o Grupo Jadson pode ajudar você agora? Digite sua ideia ou comando…"
+            aria-label="Descreva sua tarefa"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                startTask();
+              }
+            }}
+          />
+          <div className="task-launcher-bottom">
+            <div className="task-launcher-options">
+              <label className="agent-picker-pill">
+                <Bot size={15} />
+                <select
+                  aria-label="Agente para a tarefa"
+                  value={agentId}
+                  onChange={(event) => setAgentId(event.target.value)}
+                >
+                  <option value="">Assistente Geral (Padrão)</option>
+                  {agents.filter((agent) => agent.enabled).map((agent) => (
+                    <option value={agent.id} key={agent.id}>{agent.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={13} />
+              </label>
+            </div>
+            <button className="task-submit-btn" type="submit" disabled={!task.trim()} title="Enviar tarefa">
+              <span>Iniciar</span>
+              <ArrowUp size={16} />
+            </button>
+          </div>
+        </form>
+
+        {/* SUGESTÕES DE PROMPTS */}
+        <div className="task-chips">
+          <span className="chips-label">Sugestões rápidas:</span>
+          {[
+            "Resumir documentos e extrair insights",
+            "Criar plano estratégico para novo projeto",
+            "Analisar código e sugerir melhorias",
+            "Rascunhar comunicado executivo"
+          ].map((suggestion) => (
+            <button key={suggestion} className="chip-btn" onClick={() => startTask(suggestion)}>
+              <span>{suggestion}</span>
+              <ArrowUpRight size={13} />
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {/* SEÇÃO PRINCIPAL DE AÇÃO: AGENTES E CONVERSAS RECENTES */}
+      <div className="home-dashboard-grid">
+        {/* AGENTES ESPECIALISTAS */}
+        <section className="home-card team-card">
+          <div className="home-card-header">
+            <div>
+              <span className="section-label">EQUIPE DE IA</span>
+              <h2>Agentes Especialistas</h2>
+            </div>
+            <button className="view-all-link" onClick={() => onNavigate("agents")}>
+              Ver galeria <ArrowUpRight size={14} />
+            </button>
+          </div>
+
+          {agents.length === 0 ? (
+            <div className="home-card-empty">
+              <Bot size={22} />
+              <span>Nenhum perfil de agente criado ainda.</span>
+              <button className="btn-secondary-sm" onClick={() => onNavigate("agents")}>
+                Criar primeiro agente <Plus size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="home-agents-grid">
+              {agents.slice(0, 4).map((agent) => (
+                <button
+                  className="agent-quick-card"
+                  key={agent.id}
+                  onClick={() => {
+                    if (!agent.enabled) return;
+                    setAgentId(agent.id);
+                    document.querySelector<HTMLTextAreaElement>(".task-launcher-form textarea")?.focus();
+                  }}
+                  disabled={!agent.enabled}
+                  title={agent.enabled ? "Selecionar no lançador de tarefas" : "Agente desativado"}
+                >
+                  <div className="agent-avatar-ring">
+                    <span className="agent-avatar-text">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+                  </div>
+                  <div className="agent-quick-info">
+                    <b>{agent.name}</b>
+                    <small>{agent.description || "Especialista Grupo Jadson"}</small>
+                  </div>
+                  <span className={"agent-status-dot " + (agent.enabled ? "is-active" : "is-inactive")} />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+
+        {/* CONTINUAR CONVERSAS */}
+        <section className="home-card recent-card">
+          <div className="home-card-header">
+            <div>
+              <span className="section-label">HISTÓRICO</span>
+              <h2>Continuar Conversas</h2>
+            </div>
+            <button className="view-all-link" onClick={() => onNavigate("conversations")}>
+              Ver todas <ArrowUpRight size={14} />
+            </button>
+          </div>
+
+          {recent.length === 0 ? (
+            <div className="home-card-empty">
+              <MessageSquare size={22} />
+              <span>Nenhuma conversa ativa no momento.</span>
+              <button className="btn-secondary-sm" onClick={() => onNavigate("chat")}>
+                Abrir chat <ArrowUpRight size={13} />
+              </button>
+            </div>
+          ) : (
+            <div className="home-recent-list">
+              {recent.map((conv) => (
+                <button
+                  className="recent-conv-item"
+                  key={conv.id}
+                  onClick={() => onOpenConversation(conv.id)}
+                >
+                  <div className="conv-icon-wrap">
+                    <MessageSquare size={15} />
+                  </div>
+                  <div className="conv-copy">
+                    <b>{conv.title || "Nova conversa"}</b>
+                    <small>{conv.messages.length} mensagens • {new Date(conv.updatedAt).toLocaleDateString()}</small>
+                  </div>
+                  <ArrowUpRight size={15} className="conv-arrow" />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
+
+      {/* DISCRETA BARRA DE STATUS DOS SERVIÇOS (SEM POLUIÇÃO CORPORATIVA) */}
+      <footer className="home-system-bar">
+        <div className="system-status-pills">
+          <span className="system-pill">
+            <span className={`status-dot ${health}`} />
+            API: {health === "connected" ? "Online" : "Local"}
+          </span>
+          <span className="system-pill">
+            <span className={`status-dot ${postgresHealth}`} />
+            PostgreSQL: {postgresHealth === "connected" ? "Sincronizado" : "Local"}
+          </span>
+          <span className="system-pill">
+            <span className={`status-dot ${configuredProviders && configuredProviders > 0 ? "connected" : "unavailable"}`} />
+            Provedor IA: {configuredProviders && configuredProviders > 0 ? `${configuredProviders} Ativo(s)` : "Padrão"}
+          </span>
+        </div>
+        <button className="system-detail-btn" onClick={() => onNavigate("monitoring")}>
+          Observabilidade <ArrowUpRight size={12} />
+        </button>
+      </footer>
+    </div>
+  );
 }
 
-function ServiceRow({ name, detail, status }: { name: string; detail: string; status: Health }) { return <div className="service-row"><span className={`connection-dot ${status}`} /><div><b>{name}</b><small>{detail}</small></div><span className={`service-state ${status}`}>{status === "connected" ? "Conectado" : status === "checking" ? "Verificando" : "Pendente"}</span></div>; }
-
-function ProviderCredentialRow({ name, detail, configured }: { name: string; detail: string; configured: boolean }) {
-  return <div className="service-row provider-config-row"><span className={"provider-config-mark " + (configured ? "is-configured" : "")} /><div><b>{name}</b><small>{detail}</small></div><span className="provider-config-state">{configured ? "Configurado" : "Não configurado"}</span></div>;
-}
-
-function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversations: Conversation[]; agents: Agent[]; onNew: () => void; onOpen: (id: string) => void }) {
-  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
-  return <div className="page-content conversations-page">
-    <div className="page-title-row"><div><span className="section-label">SEU HISTÓRICO</span><h1>Conversas</h1><p className="muted text-pretty">Retome um diálogo salvo neste dispositivo ou no PostgreSQL quando conectado.</p></div><button className="primary" onClick={onNew}><Plus size={15} /> Nova conversa</button></div>
-    {conversations.length === 0 ? <EmptyState title="Sua próxima conversa começa aqui" text="As conversas aparecem neste espaço depois que você iniciar um chat." action={<button className="secondary" onClick={onNew}><MessageSquare size={14} /> Começar conversa</button>} /> : <div className="conversation-list">{conversations.map((conversation) => <button className="conversation-card" key={conversation.id} onClick={() => onOpen(conversation.id)}><span className="conversation-card-icon"><MessageSquare size={17} /></span><span className="conversation-card-copy"><b>{conversation.title || "Nova conversa"}</b><small>{conversation.messages.length} mensagens · {agentNames.get(conversation.agentId ?? "") ?? "Sem agente associado"}</small></span><span className="conversation-date">{new Date(conversation.updatedAt).toLocaleDateString()}</span><ChevronDown className="conversation-open-icon" size={16} /></button>)}</div>}
-    <p className="conversation-storage-note"><ShieldCheck size={14} /> Conversas e associação ao agente são sincronizadas com PostgreSQL quando o backend está disponível; o desktop mantém cópia local.</p>
-  </div>;
-}
-
-function ChatPage({ conversation, agents, draft, busy, activeAgentId, error, files, setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef }: { conversation: Conversation | null; agents: Agent[]; draft: string; busy: boolean; activeAgentId: string | null; error: string | null; files: File[]; setDraft: (value: string) => void; setFiles: (value: File[]) => void; onSend: (content: string, model: string, agent: Agent | undefined) => void; onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void; inputRef: RefObject<HTMLInputElement> }) {
+/* =========================================================================
+   CHAT PAGE (EXPERIÊNCIA CONVERSACIONAL MODERNA)
+   ========================================================================= */
+function ChatPage({
+  conversation, agents, groups, draft, busy, activeAgentId, error, files,
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef
+}: {
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
+  activeAgentId: string | null; error: string | null; files: File[];
+  setDraft: (value: string) => void; setFiles: (value: File[]) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[]) => void;
+  onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
+  inputRef: RefObject<HTMLInputElement>;
+}) {
   const [model, setModel] = useState("");
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
-  useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
-  const selectedAgent = agents.find((agent) => agent.id === agentId && agent.enabled);
-  const runningAgent = agents.find((agent) => agent.id === activeAgentId);
+  const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  return <div className={"chat-page " + (workspaceOpen ? "chat-workspace-open" : "")}>
-    <div className="chat-heading">
-      <div className="chat-title"><span className="section-label">CONVERSA</span><h1>{conversation?.title ?? "Nova conversa"}</h1></div>
-      <div className="chat-heading-actions">
-        <div className="chat-context"><span>MODELO</span><b>{model.trim() || "Padrão do provedor"}</b><span>AGENTE</span><b>{selectedAgent?.name ?? "Nenhum"}</b></div>
-        <button className={"workspace-toggle " + (workspaceOpen ? "selected" : "")} onClick={() => setWorkspaceOpen((open) => !open)} aria-expanded={workspaceOpen} aria-controls="chat-workspace"><PanelRight size={16} /><span>Workspace</span></button>
+  useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
+
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [conversation?.messages, busy]);
+
+  const currentGroup = groups.find((group) => group.id === conversation?.groupId);
+  const availableAgents = agents.filter((agent) => agent.enabled && (!currentGroup || currentGroup.agentIds.includes(agent.id)));
+  const selectedAgent = availableAgents.find((agent) => agent.id === agentId);
+  const runningAgent = agents.find((agent) => agent.id === activeAgentId);
+  const mentionQuery = currentGroup?.mode === "mention" ? /(?:^|\s)@([^\s@]*)$/.exec(draft)?.[1] : undefined;
+
+  return (
+    <div className={"chat-page " + (workspaceOpen ? "chat-workspace-open" : "")}>
+      {/* HEADER SUPERIOR DO CHAT */}
+      <div className="chat-heading">
+        <div className="chat-title-group">
+          <h1>{currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}</h1>
+          {selectedAgent && (
+            <span className="chat-agent-badge">
+              <Bot size={13} />
+              {selectedAgent.name}
+            </span>
+          )}
+        </div>
+        <div className="chat-heading-actions">
+          <div className="chat-model-indicator">
+            <Sparkles size={13} />
+            <span>{model.trim() || "Modelo Padrão"}</span>
+          </div>
+          <button
+            className={"workspace-toggle-btn " + (workspaceOpen ? "is-open" : "")}
+            onClick={() => setWorkspaceOpen((open) => !open)}
+            aria-expanded={workspaceOpen}
+            title="Painel de contexto"
+          >
+            <PanelRight size={16} />
+            <span>Contexto</span>
+          </button>
+        </div>
+      </div>
+
+      {/* ÁREA DE MENSAGENS */}
+      <div className="messages-area" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
+        {!conversation?.messages.length ? (
+          /* ESTADO INICIAL VAZIO: INSPIRADO EM CLAUDE / CHATGPT / GROK */
+          <div className="chat-empty-hero">
+            <div className="chat-hero-glow">
+              <img src={logo} alt="Grupo Jadson" className="chat-hero-logo" />
+            </div>
+            <h2>O que vamos construir hoje?</h2>
+            <p className="chat-hero-desc">
+              Envie instruções, analise dados ou orquestre agentes de IA para acelerar seus projetos.
+            </p>
+
+            <div className="chat-prompt-suggestions">
+              {[
+                { title: "Verificar serviços", desc: "Consultar conexões e APIs disponíveis", prompt: "Quais serviços e bancos de dados estão conectados no momento?" },
+                { title: "Consultar agentes", desc: "Listar perfis e especialidades ativas", prompt: "Quais agentes de IA estão configurados para operar comigo?" },
+                { title: "Elaborar plano de ação", desc: "Estruturar etapas para nova meta", prompt: "Ajude-me a estruturar um plano de ação completo para uma nova iniciativa." },
+                { title: "Analisar código e arquitetura", desc: "Revisar estrutura e boas práticas", prompt: "Quais são as melhores práticas para orquestração de IA moderna?" }
+              ].map((item) => (
+                <button
+                  key={item.title}
+                  className="prompt-card"
+                  onClick={() => setDraft(item.prompt)}
+                >
+                  <div className="prompt-card-top">
+                    <b>{item.title}</b>
+                    <ArrowUpRight size={14} className="prompt-card-arrow" />
+                  </div>
+                  <small>{item.desc}</small>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : (
+          /* FLUXO DE MENSAGENS CONVERSACIONAIS */
+          <div className="message-list-stream">
+            {conversation.messages.map((message, index) => (
+              <div
+                className={"message-row message-row-" + message.role}
+                key={index + "-" + message.role}
+              >
+                {message.role === "assistant" && (
+                  <div className="assistant-avatar-badge">
+                    <img src={logo} alt="GJ" />
+                  </div>
+                )}
+                <div className="message-bubble">
+                  <div className="message-header-author">
+                    <b>{message.role === "user" ? "Você" : agents.find((item) => item.id === message.agentId)?.name ?? "Grupo Jadson"}</b>
+                  </div>
+                  <div className="message-content">
+                    {message.attachments?.map((attachment) => attachment.dataUrl && <img key={attachment.id} className="message-image-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
+                    {message.content ? (
+                      <MarkdownContent content={message.content} />
+                    ) : busy ? (
+                      <div className="streaming-indicator">
+                        <span className="streaming-dot" />
+                        <span className="streaming-dot" />
+                        <span className="streaming-dot" />
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            ))}
+            <div ref={messagesEndRef} />
+          </div>
+        )}
+      </div>
+
+      {/* COMPOSER FLUTUANTE MODERNO */}
+      <div className="composer-wrapper">
+        {error && (
+          <div className="composer-error" role="alert">
+            <CircleHelp size={15} />
+            <span>{error}</span>
+            <button onClick={onDismissError} aria-label="Fechar erro"><X size={14} /></button>
+          </div>
+        )}
+
+        {files.length > 0 && (
+          <div className="composer-attachments">
+            {files.map((file) => (
+              <span key={file.name + "-" + file.size} className="attachment-pill">
+                <FilePreview file={file} />
+                {file.name}
+                <button onClick={() => setFiles(files.filter((item) => item !== file))} aria-label="Remover">
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
+        <form
+          className="composer-capsule"
+            onSubmit={(event) => { event.preventDefault(); onSend(draft, model, selectedAgent, files); }}
+        >
+          <textarea
+            value={draft}
+            onChange={(event) => setDraft(event.target.value)}
+            placeholder="Como o Grupo Jadson pode ajudar você hoje? (Shift+Enter para quebra de linha)"
+            rows={1}
+            aria-label="Mensagem"
+            onKeyDown={(event) => {
+              if (event.key === "Enter" && !event.shiftKey) {
+                event.preventDefault();
+                event.currentTarget.form?.requestSubmit();
+              }
+            }}
+            onPaste={(event) => { const images = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => Boolean(file)).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); if (images.length) setFiles([...files, ...images]); }}
+          />
+          {mentionQuery !== undefined && <div className="mention-suggestions" role="listbox">{availableAgents.filter((agent) => agent.name.toLocaleLowerCase().includes(mentionQuery.toLocaleLowerCase())).map((agent) => <button type="button" key={agent.id} role="option" onClick={() => setDraft(draft.replace(/@[^\s@]*$/, `@${agent.name} `))}><span className="mention-avatar">{agent.name.slice(0, 1)}</span><span><b>{agent.name}</b><small>{agent.role || agent.description || "Agente"}</small></span></button>)}</div>}
+
+          <div className="composer-toolbar">
+            <div className="composer-left-actions">
+              <input
+                ref={inputRef}
+                hidden
+                type="file"
+                multiple
+                accept="image/png,image/jpeg,image/webp"
+                onChange={(event) => setFiles([...files, ...Array.from(event.target.files ?? []).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))])}
+              />
+              <button
+                type="button"
+                className="toolbar-btn"
+                onClick={onChooseFiles}
+                title="Anexar arquivo"
+                aria-label="Anexar arquivo"
+              >
+                <Paperclip size={16} />
+              </button>
+
+              {/* SELETOR DE MODELO */}
+              <label className="toolbar-pill-label">
+                <Sparkles size={13} className="text-gold" />
+                <input
+                  className="model-inline-input"
+                  aria-label="ID do modelo"
+                  placeholder="Modelo padrão"
+                  value={model}
+                  onChange={(event) => setModel(event.target.value)}
+                />
+              </label>
+
+              {/* SELETOR DE PERFIL / AGENTE */}
+              <label className="toolbar-pill-label">
+                <Bot size={14} />
+                <select
+                  className="agent-inline-select"
+                  aria-label="Perfil associado"
+                  value={agentId}
+                  onChange={(event) => setAgentId(event.target.value)}
+                >
+                  <option value="">Sem perfil</option>
+                  {availableAgents.map((agent) => (
+                    <option key={agent.id} value={agent.id}>{agent.name}</option>
+                  ))}
+                </select>
+                <ChevronDown size={12} />
+              </label>
+            </div>
+
+            <div className="composer-right-actions">
+              {busy ? (
+                <button
+                  type="button"
+                  className="send-round-btn stop-action"
+                  onClick={onCancel}
+                  title="Parar geração"
+                  aria-label="Parar geração"
+                >
+                  <Square size={14} />
+                </button>
+              ) : (
+                <button
+                  type="submit"
+                  className="send-round-btn send-action"
+                  disabled={!draft.trim() && files.length === 0}
+                  title="Enviar mensagem"
+                  aria-label="Enviar mensagem"
+                >
+                  <ArrowUp size={18} />
+                </button>
+              )}
+            </div>
+          </div>
+        </form>
+
+        <p className="composer-disclaimer">
+          Grupo Jadson AI Controller · O histórico local é mantido neste dispositivo; sincronização PostgreSQL e geração dependem do backend configurado.
+        </p>
+      </div>
+
+      {/* WORKSPACE PANEL FLUTUANTE */}
+      {workspaceOpen && (
+        <aside className="chat-workspace-panel" id="chat-workspace" aria-label="Contexto da conversa">
+          <div className="workspace-panel-heading">
+            <div>
+              <span className="section-label">PAINEL DE EXECUÇÃO</span>
+              <h2>Contexto</h2>
+            </div>
+            <button className="icon-btn-close" onClick={() => setWorkspaceOpen(false)} aria-label="Fechar">
+              <X size={16} />
+            </button>
+          </div>
+
+          <div className="workspace-run-state">
+            <span className={"run-state-dot " + (busy ? "working" : "idle")} />
+            <div>
+              <b>{busy ? "Resposta em transmissão" : "Execução em repouso"}</b>
+              <small>{busy ? "O backend está gerando e transmitindo tokens SSE." : "Pronto para receber novos comandos."}</small>
+            </div>
+          </div>
+
+          <div className="workspace-fact">
+            <span>Conversa ativa</span>
+            <b>{conversation?.title || "Nova conversa"}</b>
+          </div>
+          <div className="workspace-fact">
+            <span>Agente vinculado</span>
+            <b>{busy && runningAgent ? runningAgent.name : selectedAgent?.name ?? "Assistente Geral"}</b>
+          </div>
+          <div className="workspace-fact">
+            <span>Total de mensagens</span>
+            <b>{conversation?.messages.length ?? 0}</b>
+          </div>
+
+          <div className="workspace-info-card">
+            <ShieldCheck size={16} />
+            <p>O backend aplica as instruções persistidas do agente. A disponibilidade do histórico e do provider depende das conexões configuradas.</p>
+          </div>
+        </aside>
+      )}
+    </div>
+  );
+}
+
+function GroupsPage({ groups, agents, persistence, onSave, onArchive, onChat }: { groups: Group[]; agents: Agent[]; persistence: Health; onSave: (group: Group) => void; onArchive: (id: string) => void; onChat: (group: Group) => void }) {
+  const [name, setName] = useState("");
+  const [avatar, setAvatar] = useState("");
+  const [mode, setMode] = useState<Group["mode"]>("manual");
+  const [agentIds, setAgentIds] = useState<string[]>([]);
+  const [participantRoles, setParticipantRoles] = useState<Record<string, string>>({});
+  const [coordinatorId, setCoordinatorId] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const enabled = agents.filter((agent) => agent.enabled);
+  function save(event: FormEvent) {
+    event.preventDefault(); if (!name.trim() || !agentIds.length) return;
+    const selectedCoordinator = coordinatorId && agentIds.includes(coordinatorId) ? coordinatorId : undefined;
+    onSave({ id: editingId ?? crypto.randomUUID(), name: name.trim(), avatar, agentIds, mode, createdAt: groups.find((group) => group.id === editingId)?.createdAt ?? Date.now(), participantRoles, ...(selectedCoordinator ? { coordinatorId: selectedCoordinator } : {}) });
+    setName(""); setAvatar(""); setAgentIds([]); setParticipantRoles({}); setCoordinatorId(""); setMode("manual"); setEditingId(null);
+  }
+  function edit(group: Group) { setEditingId(group.id); setName(group.name); setAvatar(group.avatar ?? ""); setMode(group.mode); setAgentIds(group.agentIds); setParticipantRoles(group.participantRoles ?? {}); setCoordinatorId(group.coordinatorId ?? ""); }
+  return <div className="page-content">
+    <div className="page-heading"><div><span className="section-label">ORQUESTRAÇÃO</span><h1>Grupos de agentes</h1><p>Monte equipes com perfis persistidos no PostgreSQL.</p></div></div>
+    <div className="gallery-notice-pill">{persistence === "connected" ? "Grupos sincronizados com PostgreSQL." : "Backend indisponível: grupos ficam como rascunhos locais até a conexão retornar."}</div>
+    <form className="agent-modal-dialog group-create-form" onSubmit={save}>
+      <label><span>Nome do grupo</span><input required maxLength={120} value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Revisão de produto" /></label>
+      <label><span>Avatar (URL ou imagem data URL)</span><input value={avatar} onChange={(event) => setAvatar(event.target.value)} placeholder="Opcional" /></label>
+      <label><span>Modo de roteamento</span><select value={mode} onChange={(event) => setMode(event.target.value as Group["mode"])}><option value="manual">Manual — escolher agente ao conversar</option><option value="mention">Por menção — @nome direciona</option><option value="coordinated">Coordenado — coordenador recebe a solicitação</option></select></label>
+      <fieldset><legend>Participantes e funções nesta equipe</legend>{enabled.length ? enabled.map((agent) => <div className="group-member-choice" key={agent.id}><input type="checkbox" aria-label={`Adicionar ${agent.name}`} checked={agentIds.includes(agent.id)} onChange={(event) => setAgentIds((ids) => event.target.checked ? [...ids, agent.id] : ids.filter((id) => id !== agent.id))} /><span><b>{agent.name}</b><small>{agent.role || agent.description || "Agente"}</small></span>{agentIds.includes(agent.id) && <input aria-label={`Função de ${agent.name} no grupo`} placeholder={agent.role || "Função no grupo"} value={participantRoles[agent.id] ?? ""} onChange={(event) => setParticipantRoles((roles) => ({ ...roles, [agent.id]: event.target.value }))} />}</div>) : <p>Crie e ative agentes antes de montar um grupo.</p>}</fieldset>
+      {mode === "coordinated" && <label><span>Agente coordenador</span><select value={coordinatorId} onChange={(event) => setCoordinatorId(event.target.value)}><option value="">Escolha entre participantes</option>{enabled.filter((agent) => agentIds.includes(agent.id)).map((agent) => <option key={agent.id} value={agent.id}>{agent.name} — {agent.role || "Agente"}</option>)}</select></label>}
+      <button className="btn-primary-gold" type="submit" disabled={!name.trim() || agentIds.length === 0}><Plus size={15} /> {editingId ? "Salvar alterações" : "Criar grupo"}</button>
+    </form>
+    <div className="group-list">{groups.length ? groups.map((group) => <article className="group-card" key={group.id}><div className="group-card-head"><div>{group.avatar && <img className="group-avatar-image" src={group.avatar} alt="" />}<span className="section-label">{group.mode === "manual" ? "MANUAL" : group.mode === "mention" ? "MENÇÕES" : "COORDENADO"}</span><h2>{group.name}</h2></div><button className="icon-btn-close" onClick={() => onArchive(group.id)} aria-label={`Arquivar ${group.name}`}><X size={16} /></button></div><div className="group-members-summary">{group.agentIds.map((id) => { const agent = agents.find((item) => item.id === id); return agent ? <span key={id}>{agent.name}<small>{group.participantRoles?.[id] || agent.role || "Participante"}</small></span> : null; })}</div>{group.coordinatorId && <small>Coordenador: {agents.find((agent) => agent.id === group.coordinatorId)?.name ?? "não disponível"}</small>}<div className="agent-actions-group"><button className="btn-outline-sm" onClick={() => edit(group)}>Editar</button><button className="btn-outline-sm" onClick={() => onChat(group)} disabled={!group.agentIds.some((id) => enabled.some((agent) => agent.id === id))}><MessageSquare size={14} /> Abrir conversa</button></div></article>) : <EmptyState title="Nenhum grupo criado" text="Selecione agentes ativos para criar uma equipe persistente." />}</div>
+  </div>;
+}
+
+/* =========================================================================
+   GALERIA DE AGENTES (AI CONTROLLER GALLERY)
+   ========================================================================= */
+function AgentsPage({
+  agents, remoteAgentIds, persistence, onCreate, onEdit, onToggle, onChat, onOpen
+}: {
+  agents: Agent[]; remoteAgentIds: string[]; persistence: "checking" | "connected" | "local" | "error";
+  onCreate: () => void; onEdit: (agent: Agent) => void;
+  onToggle: (id: string) => void; onChat: (id: string) => void; onOpen: (id: string) => void;
+}) {
+  const persistenceMessage = persistence === "connected"
+    ? "PostgreSQL conectado: perfis sincronizados em tempo real."
+    : "Modo Local: perfis e instruções salvos no armazenamento deste desktop.";
+
+  return (
+    <div className="page-content agents-gallery-page">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">EQUIPE DE INTELIGÊNCIAS</span>
+          <h1>Galeria de Agentes</h1>
+          <p className="page-subtitle">Configure e comande agentes especializados com diretrizes, papéis e modelos dedicados.</p>
+        </div>
+        <button className="btn-primary-gold" onClick={onCreate}>
+          <Plus size={16} />
+          <span>Criar Agente</span>
+        </button>
+      </div>
+
+      <div className="gallery-notice-pill">
+        <ShieldCheck size={15} />
+        <span>{persistenceMessage}</span>
+      </div>
+
+      {agents.length === 0 ? (
+        <EmptyState
+          title="Monte sua equipe de agentes"
+          text="Crie personas especializadas com instruções e objetivos distintos para tarefas específicas."
+          action={
+            <button className="btn-primary-gold" onClick={onCreate}>
+              <Plus size={15} /> Criar primeiro agente
+            </button>
+          }
+        />
+      ) : (
+        <div className="agents-gallery-grid">
+          {agents.map((agent) => (
+            <article className="agent-card-premium" key={agent.id}>
+              <div className="agent-card-header">
+                <div className="agent-avatar-wrap">
+                  {agent.avatar ? <img className="agent-avatar-char-image" src={agent.avatar} alt="" /> : <span className="agent-avatar-char">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>}
+                  <i className={"agent-badge-dot " + (agent.enabled ? "active" : "inactive")} />
+                </div>
+                <div className="agent-title-info">
+                  {agent.role && <span className="agent-role-tag">{agent.role}</span>}
+                  <button className="agent-link-title" onClick={() => onOpen(agent.id)}>
+                    <h2>{agent.name}</h2>
+                    <ArrowUpRight size={14} />
+                  </button>
+                  <span className="agent-model-tag">{agent.model || "Modelo padrão"}</span>
+                </div>
+                <button
+                  className={"switch-toggle " + (agent.enabled ? "switch-on" : "")}
+                  aria-label={agent.enabled ? "Desativar agente" : "Ativar agente"}
+                  aria-pressed={agent.enabled}
+                  onClick={() => onToggle(agent.id)}
+                  title={agent.enabled ? "Agente ativo" : "Agente desativado"}
+                >
+                  <span className="switch-thumb" />
+                </button>
+              </div>
+
+              <p className="agent-card-desc">{agent.description || "Agente com diretrizes específicas do Grupo Jadson."}</p>
+
+              <div className="agent-card-footer">
+                <div className="agent-card-tags">
+                  <span className="tag-pill">{remoteAgentIds.includes(agent.id) ? "PostgreSQL" : "Local"}</span>
+                </div>
+                <div className="agent-actions-group">
+                  <button className="btn-outline-sm" onClick={() => onEdit(agent)}>Configurar</button>
+                  <button className="btn-gold-sm" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>
+                    <MessageSquare size={13} />
+                    <span>Conversar</span>
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* =========================================================================
+   PERFIL DETALHADO DO AGENTE
+   ========================================================================= */
+function AgentDetailPage({
+  agent, conversations, persistence, onBack, onEdit, onChat, onOpenConversation
+}: {
+  agent: Agent; conversations: Conversation[]; persistence: "checking" | "connected" | "local" | "error";
+  onBack: () => void; onEdit: () => void; onChat: () => void;
+  onOpenConversation: (id: string) => void;
+}) {
+  const history = conversations.filter((conversation) => conversation.agentId === agent.id);
+  const persistenceLabel = persistence === "connected" ? "Sincronização Ativa" : "Armazenado Localmente";
+
+  return (
+    <div className="page-content agent-detail-page">
+      <button className="back-link-btn" onClick={onBack}>
+        <ChevronLeft size={16} />
+        <span>Voltar à galeria de agentes</span>
+      </button>
+
+      <section className="agent-detail-hero-box">
+        <div className="agent-hero-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</div>
+        <div className="agent-hero-info">
+          <span className="section-label">PERFIL DE IA</span>
+          <h1>{agent.name}</h1>
+          <p>{agent.description || "Nenhuma descrição informada."}</p>
+          <span className={"agent-detail-pill " + (agent.enabled ? "enabled" : "")}>
+            <i />
+            {agent.enabled ? "Ativo para seleção imediata" : "Desativado"}
+          </span>
+        </div>
+        <div className="agent-hero-actions">
+          <button className="btn-outline-sm" onClick={onEdit}>Editar Perfil</button>
+          <button className="btn-gold-sm" disabled={!agent.enabled} onClick={onChat}>
+            <MessageSquare size={14} />
+            <span>Iniciar Conversa</span>
+          </button>
+        </div>
+      </section>
+
+      <div className="agent-detail-columns">
+        <section className="detail-card">
+          <div className="detail-card-header">
+            <h3>Instruções de Sistema & Comportamento</h3>
+            <BrainCircuit size={18} className="text-gold" />
+          </div>
+          <div className="instructions-body">
+            <p>{agent.instructions.trim() || "Nenhuma instrução personalizada configurada."}</p>
+          </div>
+          <div className="detail-card-meta">
+            <span>Modelo: <b>{agent.model || "Padrão do Provedor"}</b></span>
+            <span>Persistência: <b>{persistenceLabel}</b></span>
+          </div>
+        </section>
+
+        <section className="detail-card">
+          <div className="detail-card-header">
+            <h3>Conversas com este Agente ({history.length})</h3>
+            <MessageSquare size={18} className="text-gold" />
+          </div>
+          {history.length === 0 ? (
+            <div className="detail-empty">
+              <span>Nenhuma conversa vinculada até o momento.</span>
+              <button className="btn-gold-sm" disabled={!agent.enabled} onClick={onChat}>
+                Iniciar primeira conversa
+              </button>
+            </div>
+          ) : (
+            <div className="agent-history-list">
+              {history.slice(0, 6).map((conv) => (
+                <button key={conv.id} className="history-row" onClick={() => onOpenConversation(conv.id)}>
+                  <span>{conv.title || "Nova conversa"}</span>
+                  <ArrowUpRight size={14} />
+                </button>
+              ))}
+            </div>
+          )}
+        </section>
       </div>
     </div>
-    <div className="messages-area">
-      {!conversation?.messages.length ? <div className="chat-empty"><img src={logo} alt="" /><span className="section-label">GRUPO JADSON</span><h2>O que vamos construir hoje?</h2><p>As respostas vêm do backend. Configure um provedor de IA para começar.</p><div className="suggestions"><button onClick={() => setDraft("Quais serviços estão conectados?")}>Verificar os serviços</button><button onClick={() => setDraft("Quais agentes estão configurados?")}>Consultar meus agentes</button></div></div> : <div className="message-list">{conversation.messages.map((message, index) => <div className={"message message-" + message.role} key={index + "-" + message.role}><span className="message-avatar">{message.role === "user" ? "J" : <img src={logo} alt="Grupo Jadson" />}</span><div className="message-body"><b>{message.role === "user" ? "Você" : "Grupo Jadson"}</b><div className="message-content">{message.content ? <MarkdownContent content={message.content} /> : (busy ? <LoaderCircle className="spin" size={15} /> : "")}</div></div></div>)}</div>}
-    </div>
-    <div className="composer-wrap">
-      {error && <div className="inline-error" role="alert"><CircleHelp size={15} /><span>{error}</span><button onClick={onDismissError} aria-label="Fechar erro"><X size={14} /></button></div>}
-      {files.length > 0 && <div className="attachment-list">{files.map((file) => <span key={file.name + "-" + file.size}><Paperclip size={12} />{file.name}<button onClick={() => setFiles(files.filter((item) => item !== file))} aria-label={"Remover anexo " + file.name}><X size={12} /></button></span>)}</div>}
-      <form className="composer" onSubmit={(event) => { event.preventDefault(); onSend(draft, model, selectedAgent); }}>
-        <textarea value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="Escreva uma mensagem…" rows={2} aria-label="Mensagem" onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-        <div className="composer-tools"><div><input ref={inputRef} hidden type="file" multiple accept="image/*,.pdf,.txt,.md,.csv,.doc,.docx" onChange={(event) => setFiles([...files, ...Array.from(event.target.files ?? [])])} /><button type="button" className="icon-button" onClick={onChooseFiles} title="Anexar arquivos" aria-label="Anexar arquivos"><Paperclip size={16} /></button><input className="model-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} /><select className="agent-select" aria-label="Agente" value={agentId} onChange={(event) => setAgentId(event.target.value)}><option value="">Sem agente</option>{agents.filter((agent) => agent.enabled).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}</select><span>Enter envia · Shift+Enter quebra linha</span></div>{busy ? <button type="button" className="send-button stop-button" onClick={onCancel} title="Cancelar geração" aria-label="Cancelar geração"><Square size={14} /></button> : <button type="submit" className="send-button" disabled={!draft.trim()} title="Enviar mensagem" aria-label="Enviar mensagem"><Send size={15} /></button>}</div>
-      </form>
-      <p className="composer-note">As conversas são salvas localmente e no PostgreSQL quando conectado. Anexos ainda não são enviados ao backend.</p>
-    </div>
-    {workspaceOpen && <aside className="chat-workspace-panel" id="chat-workspace" aria-label="Workspace da conversa">
-      <div className="workspace-panel-heading"><div><span className="section-label">CONTEXTO DA CONVERSA</span><h2>Workspace</h2></div><button className="icon-button" onClick={() => setWorkspaceOpen(false)} aria-label="Fechar workspace"><X size={16} /></button></div>
-      <div className="workspace-run-state"><span className={"run-state-dot " + (busy ? "working" : "idle")} /><div><b>{busy ? "Resposta em andamento" : "Nenhuma execução ativa"}</b><small>{busy ? "O backend está transmitindo conteúdo para esta conversa." : "O painel reflete apenas o estado disponível no app."}</small></div></div>
-      <div className="workspace-fact"><span>Conversa</span><b>{conversation?.title || "Nova conversa"}</b></div>
-      <div className="workspace-fact"><span>Agente</span><b>{busy && runningAgent ? runningAgent.name : selectedAgent?.name ?? "Nenhum selecionado"}</b></div>
-      <div className="workspace-fact"><span>Mensagens</span><b>{conversation?.messages.length ?? 0}</b></div>
-      <div className="workspace-unavailable"><ShieldCheck size={15} /><p>Eventos de ferramentas, arquivos acessados, logs e aprovações ainda não são fornecidos pela API atual.</p></div>
-    </aside>}
-  </div>;
+  );
 }
 
-function AgentsPage({ agents, remoteAgentIds, persistence, onCreate, onEdit, onToggle, onChat, onOpen }: { agents: Agent[]; remoteAgentIds: string[]; persistence: "checking" | "connected" | "local" | "error"; onCreate: () => void; onEdit: (agent: Agent) => void; onToggle: (id: string) => void; onChat: (id: string) => void; onOpen: (id: string) => void }) {
-  const persistenceMessage = persistence === "connected" ? "PostgreSQL confirmado. Alterações são enviadas ao salvar; os dados locais permanecem preservados." : persistence === "checking" ? "Verificando a persistência no backend. Os dados atuais continuam salvos localmente." : persistence === "error" ? "Não foi possível concluir a sincronização. As alterações permanecem no armazenamento local." : "PostgreSQL indisponível. Os perfis ficam no armazenamento local deste desktop.";
-  return <div className="page-content"><div className="page-title-row"><div><span className="section-label">EQUIPE PESSOAL</span><h1>Meus agentes</h1><p className="muted text-pretty">Perfis persistentes com identidade, instruções e modelo preferido.</p></div><button className="primary" onClick={onCreate}><Plus size={15} /> Criar agente</button></div><div className="notice"><ShieldCheck size={16} /><span>{persistenceMessage}</span></div>{agents.length === 0 ? <EmptyState title="Monte sua equipe de agentes" text="Crie um perfil com identidade e instruções. Ele ficará disponível para seleção no chat." action={<button className="secondary" onClick={onCreate}><Plus size={14} /> Criar primeiro agente</button>} /> : <div className="agent-grid">{agents.map((agent) => <article className="panel agent-card" key={agent.id}><div className="agent-card-top"><div className="agent-identity"><span className="agent-avatar agent-avatar-large">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span><span className="agent-state"><i className={agent.enabled ? "agent-presence enabled" : "agent-presence"} />{agent.enabled ? "Ativado" : "Desativado"}</span></div><button className={"toggle " + (agent.enabled ? "toggle-on" : "")} aria-label={agent.enabled ? "Desativar agente" : "Ativar agente"} aria-pressed={agent.enabled} onClick={() => onToggle(agent.id)}><span /></button></div><button className="agent-profile-link" onClick={() => onOpen(agent.id)}><h2>{agent.name}</h2><ArrowUpRight size={15} /></button><p>{agent.description || "Sem descrição"}</p><div className="agent-meta"><span>{agent.model || "Modelo padrão"}</span><span>{remoteAgentIds.includes(agent.id) ? "PostgreSQL" : "Apenas local"}</span></div><div className="agent-card-actions"><button className="secondary" onClick={() => onEdit(agent)}>Editar</button><button className="secondary" onClick={() => onOpen(agent.id)}>Perfil</button><button className="primary" disabled={!agent.enabled} onClick={() => onChat(agent.id)}><MessageSquare size={14} /> Conversar</button></div></article>)}</div>}</div>;
-}
-
-function AgentDetailPage({ agent, conversations, persistence, onBack, onEdit, onChat, onOpenConversation }: { agent: Agent; conversations: Conversation[]; persistence: "checking" | "connected" | "local" | "error"; onBack: () => void; onEdit: () => void; onChat: () => void; onOpenConversation: (id: string) => void }) {
-  const history = conversations.filter((conversation) => conversation.agentId === agent.id);
-  const persistenceLabel = persistence === "connected" ? "Sincronização conectada" : persistence === "checking" ? "Verificando sincronização" : persistence === "error" ? "Falha na sincronização; cópia local preservada" : "Armazenado localmente";
-  return <div className="page-content agent-detail-page">
-    <button className="back-link" onClick={onBack}><ChevronLeft size={15} /> Todos os agentes</button>
-    <section className="agent-detail-hero"><div className="agent-detail-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</div><div className="agent-detail-identity"><span className="section-label">PERFIL DO AGENTE</span><h1>{agent.name}</h1><p>{agent.description || "Este agente ainda não tem uma descrição."}</p><span className={"agent-detail-state " + (agent.enabled ? "enabled" : "")}><i />{agent.enabled ? "Ativado para seleção no chat" : "Desativado"}</span></div><div className="agent-detail-actions"><button className="secondary" onClick={onEdit}>Editar perfil</button><button className="primary" disabled={!agent.enabled} onClick={onChat}><MessageSquare size={14} /> Nova conversa</button></div></section>
-    <div className="agent-detail-grid"><section className="home-section"><div className="home-section-heading"><div><span className="section-label">CONFIGURAÇÃO</span><h2>Modelo e instruções</h2></div><BrainCircuit size={17} /></div><div className="workspace-fact"><span>Modelo preferido</span><b>{agent.model || "Padrão do provedor"}</b></div><div className="agent-instructions"><span>Instruções de sistema</span><p>{agent.instructions.trim() || "Nenhuma instrução personalizada foi definida."}</p></div><div className="agent-persistence"><ShieldCheck size={14} />{persistenceLabel}</div></section>
-      <section className="home-section"><div className="home-section-heading"><div><span className="section-label">CAPACIDADES</span><h2>Memória e ferramentas</h2></div><ShieldCheck size={17} /></div><div className="capability-row"><BrainCircuit size={15} /><span><b>Memória individual</b><small>Indisponível na API atual</small></span><span className="capability-state">Em desenvolvimento</span></div><div className="capability-row"><FolderOpen size={15} /><span><b>Ferramentas autorizadas</b><small>Não fornecidas pela API atual</small></span><span className="capability-state">Em desenvolvimento</span></div><p className="agent-detail-note">O estado ativado controla a seleção deste perfil no chat. Ele não indica uma execução ativa.</p></section>
+/* =========================================================================
+   PÁGINAS AUXILIARES (CONVERSAS, MODELOS, CONFIGURAÇÕES, ETC)
+   ========================================================================= */
+function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversations: Conversation[]; agents: Agent[]; onNew: () => void; onOpen: (id: string) => void }) {
+  const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
+  return (
+    <div className="page-content conversations-page">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">MEMÓRIA DE DIÁLOGOS</span>
+          <h1>Conversas Salvas</h1>
+          <p className="page-subtitle">Acesse e retome diálogos anteriores realizados neste dispositivo.</p>
+        </div>
+        <button className="btn-primary-gold" onClick={onNew}><Plus size={15} /> Nova conversa</button>
+      </div>
+      {conversations.length === 0 ? (
+        <EmptyState title="Sua primeira conversa começa agora" text="Inicie um chat para arquivar diálogos e instruções." action={<button className="btn-primary-gold" onClick={onNew}><MessageSquare size={14} /> Começar conversa</button>} />
+      ) : (
+        <div className="conversations-grid">
+          {conversations.map((conv) => (
+            <button className="conv-card-premium" key={conv.id} onClick={() => onOpen(conv.id)}>
+              <div className="conv-card-top">
+                <span className="conv-icon-circle"><MessageSquare size={16} /></span>
+                <span className="conv-date">{new Date(conv.updatedAt).toLocaleDateString()}</span>
+              </div>
+              <b>{conv.title || "Nova conversa"}</b>
+              <small>{conv.messages.length} mensagens • {agentNames.get(conv.agentId ?? "") ?? "Assistente Geral"}</small>
+            </button>
+          ))}
+        </div>
+      )}
     </div>
-    <section className="home-section agent-history"><div className="home-section-heading"><div><span className="section-label">HISTÓRICO DISPONÍVEL</span><h2>Conversas deste agente</h2></div><span className="history-count">{history.length}</span></div>{history.length === 0 ? <EmptyState title="Nenhuma conversa associada" text="As conversas iniciadas com este agente aparecerão aqui." action={<button className="secondary" disabled={!agent.enabled} onClick={onChat}><MessageSquare size={14} /> Iniciar conversa</button>} /> : history.slice(0, 8).map((conversation) => <button className="home-conversation" key={conversation.id} onClick={() => onOpenConversation(conversation.id)}><span className="conversation-card-icon"><MessageSquare size={15} /></span><span><b>{conversation.title || "Nova conversa"}</b><small>{conversation.messages.length} mensagens · {new Date(conversation.updatedAt).toLocaleDateString()}</small></span><ArrowUpRight size={14} /></button>)}</section>
-  </div>;
+  );
 }
 
 function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | null; onOpenChat: () => void }) {
-  return <div className="page-content"><div className="page-title-row"><div><span className="section-label">GATEWAY DE IA</span><h1>Modelos de IA</h1><p className="muted">Estado consultado ao backend; as credenciais não são expostas nesta tela.</p></div><button className="primary" onClick={onOpenChat}><MessageSquare size={15} /> Abrir chat</button></div>{providers === null ? <EmptyState title="Backend não consultado" text="Conecte o backend para verificar quais provedores estão configurados." /> : <div className="provider-grid">{providers.map((provider) => <article className="panel provider-card" key={provider.id}><div className="panel-icon"><BrainCircuit size={20} /></div><span className="section-label">PROVEDOR</span><h2>{provider.name}</h2><ProviderCredentialRow name="Credenciais" detail={provider.configured ? "Chave detectada pelo backend" : "Chave ausente no ambiente do backend"} configured={provider.configured} /><p>{provider.configured ? "O backend pode encaminhar chamadas a este provedor. O modelo pode ser informado no chat ou definido no ambiente." : "Configure a chave no arquivo .env do projeto e reinicie o backend. A chave não deve ser inserida no frontend."}</p></article>)}</div>}</div>;
+  return (
+    <div className="page-content">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">GATEWAY DE INTELIGÊNCIA</span>
+          <h1>Modelos & Provedores</h1>
+          <p className="page-subtitle">Modelos de linguagem suportados pelo controlador Grupo Jadson.</p>
+        </div>
+        <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
+      </div>
+      <div className="provider-grid">
+        {providers === null ? (
+          <EmptyState title="Modo Local Ativo" text="O aplicativo opera em modo local isolado enquanto o backend não está ativo." />
+        ) : (
+          providers.map((p) => (
+            <article className="provider-card-box" key={p.id}>
+              <div className="provider-card-top">
+                <BrainCircuit size={22} className="text-gold" />
+                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Pendente"}</span>
+              </div>
+              <h2>{p.name}</h2>
+              <p>{p.configured ? "Chave de acesso detectada no ambiente seguro." : "Configure sua chave no arquivo de ambiente do backend para habilitar este provedor."}</p>
+            </article>
+          ))
+        )}
+      </div>
+    </div>
+  );
 }
 
 function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
-  return <div className="page-content"><div className="page-title-row"><div><span className="section-label">PREFERÊNCIAS</span><h1>Configurações</h1><p className="muted">Configuração segura dos serviços locais.</p></div></div><article className="panel settings-card"><div className="panel-heading"><div><span className="section-label">CHAVES DE PROVEDORES</span><h2>Credenciais do backend</h2></div><ShieldCheck size={18} /></div><p>As chaves de API ficam no ambiente do backend e nunca são enviadas ao bundle do desktop. Copie .env.example para .env, configure OPENAI_API_KEY e reinicie a API.</p><div className="notice"><FileText size={16} /><span>Arquivo esperado: <code>.env</code> na raiz do projeto. Não compartilhe nem versione esse arquivo.</span></div><div className="provider-configuration">{providers === null ? <ServiceRow name="Estado do provedor" detail="Backend ainda não consultado" status="checking" /> : providers.map((provider) => <ProviderCredentialRow key={provider.id} name={provider.name} detail={provider.configured ? "Credencial presente no ambiente da API" : "Credencial ausente"} configured={provider.configured} />)}</div></article><article className="panel settings-card"><span className="section-label">ARMAZENAMENTO</span><h2>Conversas e agentes</h2><p>O desktop mantém uma cópia local de segurança. Conversas podem ser salvas no PostgreSQL; agentes são consultados e escritos pela API quando o banco e a rota respondem.</p></article></div>;
+  return (
+    <div className="page-content settings-page">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">PREFERÊNCIAS</span>
+          <h1>Configurações do Sistema</h1>
+          <p className="page-subtitle">Parâmetros operacionais e segurança de credenciais.</p>
+        </div>
+      </div>
+      <article className="settings-box">
+        <h3>Segurança de Chaves e Credenciais</h3>
+        <p>As chaves de provedores de IA são armazenadas estritamente no ambiente do servidor backend e nunca trafegam em código compilado no frontend.</p>
+        <div className="security-notice">
+          <ShieldCheck size={18} />
+          <span>Diretório de Dados: <code>.runtime/webview2-data</code> isolado localmente no drive T:</span>
+        </div>
+      </article>
+    </div>
+  );
 }
 
 function MonitoringPage({ health, postgres, vector, redis, providerCount }: { health: Health; postgres: Health; vector: Health; redis: Health; providerCount: number | null }) {
-  return <div className="page-content"><div className="page-title-row"><div><span className="section-label">OBSERVABILIDADE</span><h1>Monitoramento</h1><p className="muted">Estados verificados pelo backend ao abrir o aplicativo.</p></div></div><article className="panel service-panel"><ServiceRow name="API NestJS" detail="GET /health" status={health} /><ServiceRow name="PostgreSQL" detail="Conexão validada pelo backend" status={postgres} /><ServiceRow name="pgvector" detail="Extensão detectada no PostgreSQL" status={vector} /><ServiceRow name="Redis" detail="PING enviado pelo backend" status={redis} />{providerCount === null ? <ServiceRow name="Provedores configurados" detail="Não verificado" status="checking" /> : <ProviderCredentialRow name="Provedores de IA" detail={providerCount + " credencial(is) configurada(s) no backend"} configured={providerCount > 0} />}</article></div>;
+  return (
+    <div className="page-content">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">OBSERVABILIDADE</span>
+          <h1>Monitoramento de Infraestrutura</h1>
+          <p className="page-subtitle">Verificações de integridade em tempo real dos serviços locais.</p>
+        </div>
+      </div>
+      <div className="monitoring-cards-grid">
+        <MonitoringItem label="API NestJS" status={health} detail="Comunicação HTTP/SSE" />
+        <MonitoringItem label="PostgreSQL" status={postgres} detail="Persistência relacional" />
+        <MonitoringItem label="pgvector" status={vector} detail="Busca vetorial" />
+        <MonitoringItem label="Redis" status={redis} detail="Fila e cache" />
+      </div>
+    </div>
+  );
 }
 
+function MonitoringItem({ label, status, detail }: { label: string; status: Health; detail: string }) {
+  return (
+    <div className="monitoring-card">
+      <div className="monitoring-card-header">
+        <b>{label}</b>
+        <span className={`status-dot ${status}`} />
+      </div>
+      <small>{detail}</small>
+      <span className={"status-label " + status}>{status === "connected" ? "Ativo" : status === "checking" ? "Verificando" : "Modo Local"}</span>
+    </div>
+  );
+}
+
+/* =========================================================================
+   MODAIS & HELPERS
+   ========================================================================= */
 function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
-  return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}><form className="agent-modal" onSubmit={onSubmit}><div className="modal-heading"><div><span className="section-label">PERFIL DO AGENTE</span><h2>{agent.name ? "Editar agente" : "Novo agente"}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></div><label>Nome<input required autoFocus value={agent.name} onChange={(event) => onChange({ ...agent, name: event.target.value })} placeholder="Ex.: Analista de pesquisa" /></label><label>Descrição<input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Especialidade e objetivo" /></label><label>Instruções<textarea rows={5} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Defina como o agente deve trabalhar" /></label><label>Modelo preferido<input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Será validado ao configurar um provedor" /></label><div className="modal-note"><ShieldCheck size={15} /> Ferramentas e memória ainda não possuem execução nesta versão.</div><div className="modal-actions"><button type="button" className="secondary" onClick={onClose}>Cancelar</button><button type="submit" className="primary"><Check size={14} /> Salvar agente</button></div></form></div>;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
+      <form className="agent-modal-dialog" onSubmit={onSubmit}>
+        <div className="modal-header">
+          <div>
+            <span className="section-label">PERSONA DE IA</span>
+            <h2>{agent.name ? "Editar Agente" : "Novo Agente"}</h2>
+          </div>
+          <button type="button" className="icon-btn-close" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
+        </div>
+        <div className="modal-fields">
+          <label><span>Cargo / função</span><input value={agent.role ?? ""} onChange={(event) => onChange({ ...agent, role: event.target.value })} placeholder="Ex.: Coordenador de Projetos" /></label>
+          <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
+          <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
+          <label><span>Especialidades (separadas por vírgula)</span><input value={(agent.specialties ?? []).join(", ")} onChange={(event) => onChange({ ...agent, specialties: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="TypeScript, UX, pesquisa" /></label>
+          <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
+          <label>
+            <span>Nome do Agente</span>
+            <input required autoFocus value={agent.name} onChange={(event) => onChange({ ...agent, name: event.target.value })} placeholder="Ex.: Analista Financeiro, Especialista em Código" />
+          </label>
+          <label>
+            <span>Especialidade / Descrição Curta</span>
+            <input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Ex.: Especialista em refatoração e arquitetura" />
+          </label>
+          <label>
+            <span>Instruções de Sistema (Prompt Base)</span>
+            <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
+          </label>
+          <label>
+            <span>Modelo Específico (Opcional)</span>
+            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet, grok-beta" />
+          </label>
+          <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+          <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+        </div>
+        <div className="modal-footer">
+          <button type="button" className="btn-outline-sm" onClick={onClose}>Cancelar</button>
+          <button type="submit" className="btn-primary-gold"><Check size={15} /> Salvar Agente</button>
+        </div>
+      </form>
+    </div>
+  );
 }
 
-function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) { return <div className="empty-state"><div className="empty-icon"><MessageSquare size={19} /></div><h3>{title}</h3><p>{text}</p>{action}</div>; }
-function ComingSoonPage({ page, onNavigate }: { page: PageId; onNavigate: (page: PageId) => void }) { const item = [...NAV, ...SECONDARY_NAV].find((nav) => nav.id === page); const Icon = item?.icon ?? CircleHelp; return <div className="page-content placeholder-page"><div className="panel placeholder-card"><div className="panel-icon"><Icon size={22} /></div><span className="section-label">MÓDULO PLANEJADO</span><h1>{item?.label}</h1><p>Esta área ainda não possui operações implementadas. Nenhum serviço é apresentado como conectado sem verificação.</p><button className="secondary" onClick={() => onNavigate("dashboard")}><Gauge size={15} /> Voltar ao início</button></div></div>; }
+function EmptyState({ title, text, action }: { title: string; text: string; action?: ReactNode }) {
+  return (
+    <div className="empty-state-box">
+      <div className="empty-icon-circle"><Sparkles size={22} className="text-gold" /></div>
+      <h3>{title}</h3>
+      <p>{text}</p>
+      {action}
+    </div>
+  );
+}
+
+function FilePreview({ file }: { file: File }) {
+  const [url, setUrl] = useState("");
+  useEffect(() => { const value = URL.createObjectURL(file); setUrl(value); return () => URL.revokeObjectURL(value); }, [file]);
+  return url && file.type.startsWith("image/") ? <img className="attachment-thumb" src={url} alt="" /> : <Paperclip size={12} />;
+}
+
+function ComingSoonPage({ page, onNavigate }: { page: PageId; onNavigate: (page: PageId) => void }) {
+  const item = [...NAV, ...SECONDARY_NAV].find((nav) => nav.id === page);
+  const Icon = item?.icon ?? CircleHelp;
+  return (
+    <div className="page-content">
+      <div className="placeholder-box">
+        <Icon size={28} className="text-gold" />
+        <h2>{item?.label}</h2>
+        <p>Módulo de orquestração em fase de expansão. Funcionalidades integradas em tempo real conforme disponibilidade da API.</p>
+        <button className="btn-primary-gold" onClick={() => onNavigate("dashboard")}><Gauge size={15} /> Voltar ao Início</button>
+      </div>
+    </div>
+  );
+}
 
 function MarkdownContent({ content }: { content: string }) {
   const lines = content.split("\n");
@@ -421,8 +1530,10 @@ function MarkdownContent({ content }: { content: string }) {
   let inCode = false;
   lines.forEach((line, index) => {
     if (line.startsWith("```")) {
-      if (inCode) { blocks.push(<pre className="code-block" key={`code-${index}`}><code>{code.join("\n")}</code></pre>); code = []; inCode = false; }
-      else inCode = true;
+      if (inCode) {
+        blocks.push(<pre className="code-block" key={`code-${index}`}><code>{code.join("\n")}</code></pre>);
+        code = []; inCode = false;
+      } else inCode = true;
       return;
     }
     if (inCode) { code.push(line); return; }

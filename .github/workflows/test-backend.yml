@@ -1,8 +1,6 @@
 name: Backend tests and disposable integration
 on:
-  pull_request:
   workflow_dispatch:
-  workflow_call:
 permissions:
   contents: read
 concurrency:

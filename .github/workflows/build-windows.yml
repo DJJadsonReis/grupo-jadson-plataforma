@@ -1,9 +1,5 @@
 name: Windows Tauri build
 on:
-  push:
-    branches: [main, "release/**"]
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 permissions:
   contents: read
@@ -11,12 +7,9 @@ concurrency:
   group: windows-tauri-${{ github.ref }}
   cancel-in-progress: true
 jobs:
-  backend-integration:
-    uses: ./.github/workflows/test-backend.yml
-    permissions:
-      contents: read
   build:
-    needs: backend-integration
+    # Do not allocate a Windows runner until the owner confirms free quota.
+    if: vars.ACTIONS_WINDOWS_FREE_QUOTA_CONFIRMED == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4

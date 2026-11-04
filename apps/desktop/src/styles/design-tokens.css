@@ -1,0 +1,265 @@
+:root {
+  /* Grupo Jadson institutional palette, based on the official logo. */
+  --gj-canvas: #090908;
+  --gj-sidebar: #10100e;
+  --gj-surface: #151512;
+  --gj-surface-raised: #1b1a16;
+  --gj-surface-pressed: #211e16;
+  --gj-border: #302d24;
+  --gj-border-strong: #4a4027;
+  --gj-gold: #d4a017;
+  --gj-gold-bright: #f5ce55;
+  --gj-text: #f5f2ea;
+  --gj-text-secondary: #c2bfb5;
+  --gj-text-muted: #96938a;
+  --gj-success: #8eb18a;
+  --gj-danger: #d78272;
+
+  --gj-font-ui: "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --gj-font-display: "Segoe UI", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --gj-text-xs: 0.6875rem;
+  --gj-text-sm: 0.8125rem;
+  --gj-text-md: 0.9375rem;
+  --gj-text-lg: 1.125rem;
+  --gj-text-xl: clamp(1.75rem, 3vw, 2.625rem);
+  --gj-text-hero-mobile: 1.8rem;
+
+  --gj-space-1: 0.25rem;
+  --gj-space-2: 0.5rem;
+  --gj-space-3: 0.75rem;
+  --gj-space-4: 1rem;
+  --gj-space-5: 1.25rem;
+  --gj-space-6: 1.5rem;
+  --gj-space-8: 2rem;
+  --gj-space-10: 2.5rem;
+
+  --gj-radius-sm: 0.5rem;
+  --gj-radius-md: 0.75rem;
+  --gj-radius-lg: 1rem;
+  --gj-radius-pill: 999px;
+  --gj-shadow-panel: 0 10px 30px rgb(0 0 0 / 22%);
+  --gj-shadow-overlay: 0 20px 56px rgb(0 0 0 / 48%);
+  --gj-z-sidebar: 20;
+  --gj-z-popover: 30;
+  --gj-z-overlay: 40;
+  --gj-z-modal: 50;
+
+  --gold: var(--gj-gold);
+  --gold-light: var(--gj-gold-bright);
+  --panel: var(--gj-surface);
+  --muted: var(--gj-text-muted);
+  --line: var(--gj-border);
+  --green: var(--gj-success);
+  --red: var(--gj-danger);
+  --workspace-bg: var(--gj-canvas);
+  --workspace-sidebar: var(--gj-sidebar);
+  --workspace-surface: var(--gj-surface);
+  --workspace-border: var(--gj-border);
+  --workspace-gold: var(--gj-gold);
+  --workspace-gold-light: var(--gj-gold-bright);
+  --workspace-text: var(--gj-text);
+  --workspace-muted: var(--gj-text-muted);
+
+  font-family: var(--gj-font-ui);
+  color: var(--gj-text);
+  background: var(--gj-canvas);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+body,
+.app-shell {
+  background: var(--gj-canvas);
+}
+
+h1, h2, h3 {
+  font-family: var(--gj-font-display);
+  text-wrap: balance;
+}
+
+p {
+  text-wrap: pretty;
+}
+
+.sidebar {
+  z-index: var(--gj-z-sidebar);
+  background: var(--gj-sidebar);
+  border-color: var(--gj-border);
+}
+
+.brand img,
+.chat-empty > img,
+.message-avatar img {
+  object-fit: contain;
+}
+
+.brand span {
+  color: var(--gj-gold-bright);
+}
+
+.new-chat,
+.primary,
+.task-submit {
+  color: var(--gj-gold-bright);
+  background: var(--gj-surface-pressed);
+  border-color: var(--gj-border-strong);
+}
+
+.secondary {
+  color: var(--gj-text-secondary);
+  background: var(--gj-surface-raised);
+  border-color: var(--gj-border);
+}
+
+.nav-item.active {
+  color: var(--gj-gold-bright);
+  background: var(--gj-surface-pressed);
+}
+
+.panel,
+.stat-card,
+.home-section,
+.task-launcher,
+.conversation-card,
+.agent-detail-hero {
+  border-color: var(--gj-border);
+  background: var(--gj-surface);
+  box-shadow: var(--gj-shadow-panel);
+}
+
+.page-content {
+  width: min(78rem, 100%);
+  padding-inline: clamp(var(--gj-space-4), 3vw, var(--gj-space-10));
+}
+
+.page-title-row {
+  gap: var(--gj-space-5);
+  margin-bottom: var(--gj-space-6);
+}
+
+.panel,
+.home-section,
+.task-launcher,
+.conversation-card,
+.agent-detail-hero {
+  border-radius: var(--gj-radius-md);
+}
+
+.primary,
+.secondary,
+.new-chat,
+.task-submit,
+.workspace-toggle {
+  border-radius: var(--gj-radius-sm);
+}
+
+.empty-state {
+  border-color: var(--gj-border);
+  background: var(--gj-surface);
+}
+
+.empty-state h3,
+.placeholder-card h1 {
+  color: var(--gj-text);
+}
+
+.empty-state p,
+.placeholder-card p {
+  color: var(--gj-text-muted);
+}
+
+.chat-empty > img {
+  max-width: 82px;
+  max-height: 82px;
+}
+
+.message-avatar img {
+  width: 26px;
+  height: 26px;
+}
+
+.composer-note {
+  max-width: 760px;
+  line-height: 1.6;
+}
+
+.agent-card,
+.conversation-card,
+.task-launcher-form,
+.composer,
+.chat-workspace-panel {
+  border-color: var(--gj-border);
+}
+
+.agent-avatar,
+.conversation-card-icon,
+.task-launcher-mark,
+.execution-indicator {
+  border-color: var(--gj-border-strong);
+  color: var(--gj-gold-bright);
+  background: var(--gj-surface-pressed);
+}
+
+.home-section-heading h2,
+.agent-card h2,
+.agent-profile-link,
+.workspace-panel-heading h2 {
+  color: var(--gj-text);
+}
+
+.sidebar-agent-search,
+.task-launcher-form,
+.composer,
+.chat-workspace-panel,
+.agent-detail-hero {
+  background: var(--gj-surface);
+}
+
+.chat-workspace-panel,
+.modal-backdrop {
+  z-index: var(--gj-z-overlay);
+}
+
+.agent-modal {
+  box-shadow: var(--gj-shadow-overlay);
+}
+
+.service-state.connected,
+.status-tag.available {
+  color: var(--gj-success);
+}
+
+.service-state.unavailable,
+.inline-error {
+  color: var(--gj-danger);
+}
+
+.connection-dot.connected,
+.status-tag.available i {
+  background: var(--gj-success);
+}
+
+.connection-dot.unavailable {
+  background: var(--gj-danger);
+}
+
+.stats,
+.history-count,
+.conversation-date {
+  font-variant-numeric: tabular-nums;
+}
+
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--gj-gold-bright);
+  outline-offset: 2px;
+}
+
+@media (max-width: 760px) {
+  .sidebar,
+  .app-shell-collapsed .sidebar {
+    z-index: var(--gj-z-overlay);
+  }
+}

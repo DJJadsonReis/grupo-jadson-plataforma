@@ -1,6 +1,5 @@
 name: Frontend tests and build
 on:
-  pull_request:
   workflow_dispatch:
 permissions:
   contents: read
@@ -9,7 +8,7 @@ concurrency:
   cancel-in-progress: true
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
@@ -20,27 +19,24 @@ jobs:
         with:
           node-version: 22
       - name: Verify pinned tools
-        shell: pwsh
+        shell: bash
         run: |
           node --version
-          if ((pnpm --version) -ne '9.15.0') { throw 'Expected pnpm 9.15.0.' }
+          test "$(pnpm --version)" = "9.15.0"
       - name: Install frozen dependencies
-        shell: pwsh
+        shell: bash
         run: |
-          if (-not (Test-Path pnpm-lock.yaml)) { throw 'Approved pnpm-lock.yaml is required.' }
+          test -f pnpm-lock.yaml
           pnpm install --frozen-lockfile
       - name: Run desktop tests
-        shell: pwsh
+        shell: bash
         run: |
-          pnpm --filter @grupo-jadson/desktop exec vitest run --reporter=json --outputFile="$env:GITHUB_WORKSPACE/desktop-test-results.json"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          pnpm --filter @grupo-jadson/desktop exec vitest run --reporter=json --outputFile="$GITHUB_WORKSPACE/desktop-test-results.json"
       - name: Build frontend
-        shell: pwsh
+        shell: bash
         run: |
-          pnpm --filter @grupo-jadson/desktop build *> frontend-build.log
-          $result = $LASTEXITCODE
-          Get-Content frontend-build.log
-          if ($result -ne 0) { exit $result }
+          set -o pipefail
+          pnpm --filter @grupo-jadson/desktop build 2>&1 | tee frontend-build.log
       - name: Upload logs
         if: always()
         uses: actions/upload-artifact@v4

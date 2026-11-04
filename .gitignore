@@ -7,6 +7,8 @@ target/
 .env.*
 !.env.example
 coverage/
+.pnpm-store/
+*.tsbuildinfo
 .DS_Store
 *.log
 *.tmp
