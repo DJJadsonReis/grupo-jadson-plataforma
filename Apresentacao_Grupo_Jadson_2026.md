@@ -7,7 +7,7 @@
 
 ## 1. Visão do produto
 
-**Grupo Jadson** será uma plataforma independente de agentes de inteligência artificial. A experiência será inspirada nas capacidades de produtos como o Grok Bot, mas com marca, código, arquitetura e infraestrutura próprios.
+**Grupo Jadson** será uma plataforma independente de agentes de inteligência artificial. A experiência será inspirada nas capacidades de produtos como o produtos de referência do mercado, mas com marca, código, arquitetura e infraestrutura próprios.
 
 A proposta vai além de um chatbot: o usuário poderá criar agentes especialistas, atribuir ferramentas, delegar tarefas, automatizar rotinas e acompanhar execuções em tempo real.
 

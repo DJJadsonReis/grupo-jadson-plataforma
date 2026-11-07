@@ -2,11 +2,13 @@ import { Controller, Get } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { RedisService } from "../redis/redis.service";
 import { QueueService } from "../queue/queue.service";
+import { Public } from "../auth/public.decorator";
 
 @Controller("health")
 export class HealthController {
   constructor(private readonly database: DatabaseService, private readonly redis: RedisService, private readonly queue: QueueService) {}
 
+  @Public()
   @Get()
   async check() {
     const [postgresConnected, redisConnected] = await Promise.all([this.database.checkConnection(), this.redis.checkConnection()]);

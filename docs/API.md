@@ -31,4 +31,4 @@ Os endpoints acima são um contrato planejado, não uma declaração de que já 
 
 ## Compatibilidade futura com AG-UI
 
-O endpoint `POST /chat/completions` atual encaminha SSE compatível com o formato OpenAI; ele não implementa os eventos nem o ciclo de execução AG-UI. A integração está planejada como contrato de execução atrás do NestJS, com persistência e autorização mantidas no backend. Não há endpoint AG-UI operacional ainda. O inventário de diferenças e os critérios de evolução estão em [AUDITORIA_OPENBOT_INTEGRACAO.md](AUDITORIA_OPENBOT_INTEGRACAO.md).
+O endpoint `POST /chat/completions` atual encaminha SSE compatível com o formato OpenAI; ele não implementa os eventos nem o ciclo de execução AG-UI. A integração está planejada como contrato de execução atrás do NestJS, com persistência e autorização mantidas no backend. Não há endpoint AG-UI operacional ainda. O inventário de diferenças e os critérios de evolução estão em [AUDITORIA_REFERENCIAS_INTEGRACAO.md](AUDITORIA_REFERENCIAS_INTEGRACAO.md).

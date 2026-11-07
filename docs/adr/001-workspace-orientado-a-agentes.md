@@ -15,7 +15,7 @@ O redesign organiza a experiência em torno de agentes persistentes, mantendo co
 4. Conversas podem ter `agentId`; a migração aditiva `002-conversation-agent-link` cria a referência opcional à tabela de agentes. O frontend mantém cópia local como fallback.
 5. Exibir “Pensando” somente durante uma chamada de chat real vinculada a um agente. “Habilitado” descreve a configuração do perfil; não equivale a “Ocioso” ou a uma conexão de runtime.
 6. Reservar a execução de ferramentas a um gateway de permissões e auditoria no backend. A interface não simula ferramentas, aprovações, rotinas ou memória funcional.
-7. Manter compatibilidade futura com AG-UI atrás da API NestJS. Não adicionar OpenBot como dependência: ele é uma referência de arquitetura/template que implica componentes adicionais e não um pacote plugável para o runtime atual.
+7. Manter compatibilidade futura com AG-UI atrás da API NestJS. Não adicionar referência externa como dependência: ele é uma referência de arquitetura/template que implica componentes adicionais e não um pacote plugável para o runtime atual.
 
 ## Consequências
 
@@ -26,7 +26,7 @@ O redesign organiza a experiência em torno de agentes persistentes, mantendo co
 
 ## Referências consultadas
 
-- [xAI — Designing Grok Bot for a world of persistent agents](https://x.ai/news/designing-grok-bot)
-- [CopilotKit OpenBot](https://github.com/CopilotKit/openbot)
+- [Artigo de design de agentes persistentes](https://example.invalid/referencia)
+- [referência externa referência externa](https://github.com/referência externa/referencia-externa)
 - [AG-UI — Overview](https://docs.ag-ui.com/introduction)
 - [AG-UI — Architecture](https://docs.ag-ui.com/concepts/architecture)

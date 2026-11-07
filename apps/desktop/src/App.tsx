@@ -3,7 +3,7 @@ import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type 
 import {
   Activity, ArrowUp, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
-  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X
+  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
 
@@ -12,6 +12,14 @@ type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
+const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
+
+/** Envia o token da API em todas as chamadas ao backend (fetch com Authorization). */
+function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (API_TOKEN) headers.set("Authorization", `Bearer ${API_TOKEN}`);
+  return fetch(input, { ...init, headers });
+}
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "dashboard", label: "Início", icon: Gauge },
@@ -68,6 +76,7 @@ export default function App() {
   const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("grupo-jadson.sidebar-collapsed") === "true");
+  const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
   const abortRef = useRef<AbortController | null>(null);
@@ -76,7 +85,7 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_URL}/health`, { signal: controller.signal })
+    apiFetch(`${API_URL}/health`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
@@ -85,7 +94,7 @@ export default function App() {
         setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
         setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
       })
-      .then(() => fetch(`${API_URL}/providers`, { signal: controller.signal }))
+      .then(() => apiFetch(`${API_URL}/providers`, { signal: controller.signal }))
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const status = await response.json() as ProviderStatus[];
@@ -106,7 +115,7 @@ export default function App() {
   useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
-    fetch(`${API_URL}/conversations`, { signal: controller.signal })
+    apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
         const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
@@ -143,7 +152,7 @@ export default function App() {
     if (postgresHealth === "checking") return;
     if (postgresHealth !== "connected") { setAgentPersistence("local"); return; }
     const controller = new AbortController();
-    fetch(`${API_URL}/agents`, { signal: controller.signal })
+    apiFetch(`${API_URL}/agents`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("A API de agentes não respondeu.");
         let remote = await response.json() as Agent[];
@@ -152,7 +161,7 @@ export default function App() {
         for (const localAgent of readWorkspace().agents) {
           if (knownIds.has(localAgent.id)) continue;
           try {
-            const created = await fetch(`${API_URL}/agents`, {
+            const created = await apiFetch(`${API_URL}/agents`, {
               method: "POST",
               signal: controller.signal,
               headers: { "Content-Type": "application/json" },
@@ -182,7 +191,7 @@ export default function App() {
   useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
-    fetch(`${API_URL}/groups`, { signal: controller.signal }).then(async (response) => {
+    apiFetch(`${API_URL}/groups`, { signal: controller.signal }).then(async (response) => {
       if (!response.ok) return;
       const remote = await response.json() as (Omit<Group, "createdAt"> & { createdAt: string })[];
       setGroups(remote.map((item) => ({ ...item, createdAt: Date.parse(item.createdAt) || Date.now() })));
@@ -194,6 +203,13 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents, groups }));
   }, [conversations, agents, groups]);
   useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { localStorage.setItem("grupo-jadson.focus-mode", String(focusMode)); }, [focusMode]);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setFocusMode(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusMode]);
   useEffect(() => { localStorage.setItem("grupo-jadson.favorite-agents", JSON.stringify(favoriteAgentIds)); }, [favoriteAgentIds]);
 
   function newConversation(agentId?: string, groupId?: string) {
@@ -255,7 +271,7 @@ export default function App() {
         throw new Error("Anexe até 5 MB de imagens PNG, JPEG ou WebP por mensagem.");
       }
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
-      const response = await fetch(`${API_URL}/chat/completions`, {
+      const response = await apiFetch(`${API_URL}/chat/completions`, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -306,7 +322,7 @@ export default function App() {
     if (postgresHealth !== "connected" || agentPersistence === "checking") return;
     const exists = remoteAgentIds.includes(agent.id);
     try {
-      const response = await fetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
+      const response = await apiFetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
         method: exists ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agent),
@@ -322,7 +338,7 @@ export default function App() {
   async function persistGroup(group: Group) {
     if (postgresHealth === "connected") {
       try {
-        const response = await fetch(`${API_URL}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
+        const response = await apiFetch(`${API_URL}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
         if (!response.ok) throw new Error("Não foi possível salvar o grupo no PostgreSQL.");
         const saved = await response.json() as Omit<Group, "createdAt"> & { createdAt: string };
         setGroups((items) => [{ ...saved, createdAt: Date.parse(saved.createdAt) || Date.now() }, ...items.filter((item) => item.id !== saved.id)]);
@@ -334,7 +350,7 @@ export default function App() {
 
   async function archiveGroup(id: string) {
     if (postgresHealth === "connected") {
-      try { const response = await fetch(`${API_URL}/groups/${id}`, { method: "DELETE" }); if (!response.ok) throw new Error("Não foi possível arquivar o grupo."); }
+      try { const response = await apiFetch(`${API_URL}/groups/${id}`, { method: "DELETE" }); if (!response.ok) throw new Error("Não foi possível arquivar o grupo."); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao arquivar grupo."); return; }
     }
     setGroups((items) => items.filter((item) => item.id !== id));
@@ -364,7 +380,7 @@ export default function App() {
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   return (
-    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""}`}>
+    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""} ${focusMode ? "app-shell-focus" : ""}`}>
       <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"><Boxes size={19} /></button>
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
 
@@ -534,6 +550,8 @@ export default function App() {
             onDismissError={() => setError(null)}
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
+            focusMode={focusMode}
+            setFocusMode={setFocusMode}
           />
         )}
         {page === "agents" && (
@@ -819,7 +837,7 @@ function Dashboard({
    ========================================================================= */
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode
 }: {
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
@@ -827,6 +845,7 @@ function ChatPage({
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[]) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
+  focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [model, setModel] = useState("");
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
@@ -859,6 +878,15 @@ function ChatPage({
           )}
         </div>
         <div className="chat-heading-actions">
+          <button
+            className="focus-mode-btn"
+            onClick={() => setFocusMode((value) => !value)}
+            aria-pressed={focusMode}
+            aria-label={focusMode ? "Sair do modo foco" : "Ativar modo foco"}
+            title={focusMode ? "Sair do modo foco (Esc)" : "Modo foco: oculta menus laterais"}
+          >
+            {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
           <div className="chat-model-indicator">
             <Sparkles size={13} />
             <span>{model.trim() || "Modelo Padrão"}</span>
@@ -878,7 +906,7 @@ function ChatPage({
       {/* ÁREA DE MENSAGENS */}
       <div className="messages-area" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
         {!conversation?.messages.length ? (
-          /* ESTADO INICIAL VAZIO: INSPIRADO EM CLAUDE / CHATGPT / GROK */
+          /* ESTADO INICIAL VAZIO */
           <div className="chat-empty-hero">
             <div className="chat-hero-glow">
               <img src={logo} alt="Grupo Jadson" className="chat-hero-logo" />
@@ -1477,7 +1505,7 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
           </label>
           <label>
             <span>Modelo Específico (Opcional)</span>
-            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet, grok-beta" />
+            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
           </label>
           <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
           <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
