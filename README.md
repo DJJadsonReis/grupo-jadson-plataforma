@@ -33,7 +33,7 @@ Os diretórios em `packages/` separam UI, tipos compartilhados, runtime de agent
 
 ## Documentação
 Consulte `docs/ARCHITECTURE.md`, `docs/ROADMAP.md`, `docs/SECURITY.md`, `docs/API.md` e `docs/INSTALLATION.md`.
-Créditos e atribuições: `CREDITS.md`. A comparação técnica com OpenBot e AG-UI está em `docs/AUDITORIA_OPENBOT_INTEGRACAO.md`.
+Créditos e atribuições: `CREDITS.md`. A comparação técnica com referências externas e AG-UI está em `docs/AUDITORIA_REFERENCIAS_INTEGRACAO.md`.
 
 ## Princípios
 - Não simular integrações como se fossem reais.

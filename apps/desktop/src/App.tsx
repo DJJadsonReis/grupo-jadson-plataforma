@@ -3,7 +3,7 @@ import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type 
 import {
   Activity, ArrowUp, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
-  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X
+  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
 
@@ -68,6 +68,7 @@ export default function App() {
   const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("grupo-jadson.sidebar-collapsed") === "true");
+  const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
   const abortRef = useRef<AbortController | null>(null);
@@ -194,6 +195,13 @@ export default function App() {
     localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents, groups }));
   }, [conversations, agents, groups]);
   useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { localStorage.setItem("grupo-jadson.focus-mode", String(focusMode)); }, [focusMode]);
+  useEffect(() => {
+    if (!focusMode) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setFocusMode(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [focusMode]);
   useEffect(() => { localStorage.setItem("grupo-jadson.favorite-agents", JSON.stringify(favoriteAgentIds)); }, [favoriteAgentIds]);
 
   function newConversation(agentId?: string, groupId?: string) {
@@ -364,7 +372,7 @@ export default function App() {
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   return (
-    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""}`}>
+    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""} ${focusMode ? "app-shell-focus" : ""}`}>
       <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"><Boxes size={19} /></button>
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
 
@@ -859,6 +867,15 @@ function ChatPage({
           )}
         </div>
         <div className="chat-heading-actions">
+          <button
+            className="focus-mode-btn"
+            onClick={() => setFocusMode((value) => !value)}
+            aria-pressed={focusMode}
+            aria-label={focusMode ? "Sair do modo foco" : "Ativar modo foco"}
+            title={focusMode ? "Sair do modo foco (Esc)" : "Modo foco: oculta menus laterais"}
+          >
+            {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+          </button>
           <div className="chat-model-indicator">
             <Sparkles size={13} />
             <span>{model.trim() || "Modelo Padrão"}</span>
@@ -878,7 +895,7 @@ function ChatPage({
       {/* ÁREA DE MENSAGENS */}
       <div className="messages-area" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
         {!conversation?.messages.length ? (
-          /* ESTADO INICIAL VAZIO: INSPIRADO EM CLAUDE / CHATGPT / GROK */
+          /* ESTADO INICIAL VAZIO */
           <div className="chat-empty-hero">
             <div className="chat-hero-glow">
               <img src={logo} alt="Grupo Jadson" className="chat-hero-logo" />
@@ -1477,7 +1494,7 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
           </label>
           <label>
             <span>Modelo Específico (Opcional)</span>
-            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet, grok-beta" />
+            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
           </label>
           <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
           <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
