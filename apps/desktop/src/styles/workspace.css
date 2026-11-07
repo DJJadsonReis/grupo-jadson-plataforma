@@ -1,6 +1,6 @@
 /* =========================================================================
    GRUPO JADSON — REDESIGN PREMIUM DO CONTROLADOR DE IA
-   Inspirado nas melhores práticas de usabilidade de Grok, ChatGPT e Claude
+   Inspirado nas melhores práticas de usabilidade de chats de IA modernos
    ========================================================================= */
 
 /* --- APP SHELL & BASE LAYOUT --- */
@@ -1022,7 +1022,7 @@
 }
 
 /* =========================================================================
-   CHAT PAGE — FLUIDEZ E EXPERIÊNCIA DE IA (GROK / CLAUDE / CHATGPT)
+   CHAT PAGE — FLUIDEZ E EXPERIÊNCIA DE IA
    ========================================================================= */
 .chat-page {
   position: relative;
@@ -1359,7 +1359,7 @@
   color: var(--gj-gold, #d4a017);
 }
 
-/* COMPOSER FLUTUANTE MODERNO (ESTILO GROK / CLAUDE / CHATGPT) */
+/* COMPOSER FLUTUANTE MODERNO */
 .composer-wrapper {
   position: absolute;
   bottom: 0;
@@ -2362,3 +2362,17 @@
   .group-create-form { padding: 16px; }
   .mention-suggestions { left: 8px; right: 8px; min-width: 0; }
 }
+
+/* =========================================================================
+   MODO FOCO — oculta menu lateral e painel de contexto; Esc sai do modo
+   ========================================================================= */
+.focus-mode-btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 34px; height: 34px; border-radius: 10px;
+  border: 1px solid rgba(212, 160, 23, 0.35); background: transparent; color: #F5CE55; cursor: pointer;
+}
+.focus-mode-btn:hover, .focus-mode-btn[aria-pressed="true"] { background: rgba(212, 160, 23, 0.14); }
+.focus-mode-btn:focus-visible { outline: 2px solid #F5CE55; outline-offset: 2px; }
+.app-shell-focus .sidebar,
+.app-shell-focus .chat-workspace-panel { display: none !important; }
+.app-shell-focus .main { margin-left: 0 !important; }
