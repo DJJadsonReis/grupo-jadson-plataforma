@@ -542,6 +542,8 @@ export default function App() {
             onDismissError={() => setError(null)}
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
+            focusMode={focusMode}
+            setFocusMode={setFocusMode}
           />
         )}
         {page === "agents" && (
@@ -827,7 +829,7 @@ function Dashboard({
    ========================================================================= */
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode
 }: {
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
@@ -835,6 +837,7 @@ function ChatPage({
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[]) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
+  focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [model, setModel] = useState("");
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");

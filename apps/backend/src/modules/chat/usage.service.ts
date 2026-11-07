@@ -3,8 +3,8 @@ import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
 export interface UsageRecord {
-  conversationId?: string | null;
-  agentId?: string | null;
+  conversationId?: string | null | undefined;
+  agentId?: string | null | undefined;
   provider: string;
   model: string;
   promptTokens: number;
