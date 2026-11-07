@@ -5,12 +5,18 @@ import { CompletionInput, LanguageModelProvider } from "./provider.types";
 export class OpenAiProvider implements LanguageModelProvider {
   readonly id = "openai";
 
+  /** Endpoint local compatível com a API OpenAI (Ollama, LM Studio, llama.cpp, vLLM) não exige chave. */
+  private isLocalEndpoint(): boolean {
+    const baseUrl = process.env.OPENAI_BASE_URL?.trim() ?? "";
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(baseUrl);
+  }
+
   isConfigured(): boolean {
-    return Boolean(process.env.OPENAI_API_KEY?.trim());
+    return Boolean(process.env.OPENAI_API_KEY?.trim()) || this.isLocalEndpoint();
   }
 
   async stream(input: CompletionInput, signal?: AbortSignal): Promise<Response> {
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const apiKey = process.env.OPENAI_API_KEY?.trim() || (this.isLocalEndpoint() ? "local-no-key" : "");
     if (!apiKey) {
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_NOT_CONFIGURED",
@@ -24,6 +30,7 @@ export class OpenAiProvider implements LanguageModelProvider {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: input.model || process.env.OPENAI_MODEL || "gpt-4o-mini", messages: input.messages, stream: true,
+        stream_options: { include_usage: true },
         ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
         ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
       }),

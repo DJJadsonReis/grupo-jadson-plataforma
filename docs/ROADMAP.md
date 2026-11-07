@@ -76,17 +76,17 @@
 
 O desktop React/Tauri segue como produto principal. A demonstração WinForms em `dist/windows` não é build nem evidência visual das alterações React.
 
-## Atualização — auditoria OpenBot e integração AG-UI (2026-11-03)
+## Atualização — auditoria referência externa e integração AG-UI (2026-11-03)
 
-- [x] Inspecionar a cópia local `Exemplo OpenBot`, seus manifests, README e licença MIT.
-- [x] Comparar capacidades OpenBot com os módulos, migrations, pacotes e workflows Grupo Jadson.
-- [x] Registrar compatibilidade/licenciamento em `docs/AUDITORIA_OPENBOT_INTEGRACAO.md` e `CREDITS.md`.
+- [x] Inspecionar a cópia local `Exemplo referência externa`, seus manifests, README e licença MIT.
+- [x] Comparar capacidades referência externa com os módulos, migrations, pacotes e workflows Grupo Jadson.
+- [x] Registrar compatibilidade/licenciamento em `docs/AUDITORIA_REFERENCIAS_INTEGRACAO.md` e `CREDITS.md`.
 - [x] Documentar que o stream SSE existente não é AG-UI e que a integração ainda não está operacional.
 - [ ] Definir e implementar contrato/run AG-UI no NestJS, com testes de eventos e cancelamento.
 - [ ] Validar CRUD e migration 002 em PostgreSQL e executar typecheck/testes/build.
 - [ ] Implementar memória individual, gateway auditável de ferramentas, execução isolada e rotinas somente após contratos e testes.
 
-**Validação desta atualização:** inspeção estática de arquivos/manifests e documentação. `pnpm`, `node_modules` e Git não estão disponíveis neste ambiente; nenhuma suite, build ou execução remota de workflow foi realizada. Nenhum código do OpenBot foi copiado e nenhuma dependência foi adicionada.
+**Validação desta atualização:** inspeção estática de arquivos/manifests e documentação. `pnpm`, `node_modules` e Git não estão disponíveis neste ambiente; nenhuma suite, build ou execução remota de workflow foi realizada. Nenhum código do referência externa foi copiado e nenhuma dependência foi adicionada.
 
 ## Atualização — retomada da validação e ambiente portátil (2026-11-03)
 

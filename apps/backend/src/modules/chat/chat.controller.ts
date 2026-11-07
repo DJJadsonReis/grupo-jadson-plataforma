@@ -7,6 +7,7 @@ import { MAX_IMAGE_BYTES, validateImageAttachment } from "./image-attachments";
 import { ProvidersService } from "../providers/providers.service";
 import { ProviderMessage, ProviderMessageRole } from "../providers/provider.types";
 import { ConversationsService, StoredAttachment } from "./conversations.service";
+import { UsageService } from "./usage.service";
 
 const ALLOWED_ROLES = new Set<ProviderMessageRole>(["system", "user", "assistant"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -14,7 +15,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -74,6 +75,7 @@ export class ChatController {
     res.setHeader("Connection", "keep-alive");
     const reader = upstream.body!.getReader();
     const decoder = new TextDecoder(); let pending = "", answer = "";
+    let reportedModel = effectiveModel ?? "", usageReport = null as { promptTokens: number; completionTokens: number; totalTokens: number } | null;
     try {
       while (!abort.signal.aborted) {
         const { value, done } = await reader.read(); if (done) break;
@@ -82,13 +84,23 @@ export class ChatController {
         for (const line of lines) {
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim(); if (payload === "[DONE]") continue;
-          try { const event = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }; answer += event.choices?.[0]?.delta?.content ?? ""; }
+          try {
+            const event = JSON.parse(payload) as { model?: string; choices?: { delta?: { content?: string } }[]; usage?: { prompt_tokens?: number; completion_tokens?: number; total_tokens?: number } | null };
+            answer += event.choices?.[0]?.delta?.content ?? "";
+            if (event.model) reportedModel = event.model;
+            if (event.usage) usageReport = { promptTokens: event.usage.prompt_tokens ?? 0, completionTokens: event.usage.completion_tokens ?? 0, totalTokens: event.usage.total_tokens ?? 0 };
+          }
           catch { /* ignore partial/non-JSON SSE data */ }
         }
         if (!res.write(value)) await new Promise<void>((resolve) => {
           const resume = () => { res.off("drain", resume); res.off("close", resume); resolve(); };
           res.once("drain", resume); res.once("close", resume);
         });
+      }
+      if (usageReport) {
+        try {
+          await this.usage.record({ conversationId, agentId, provider: "openai", model: reportedModel, ...usageReport });
+        } catch (error) { this.logger.warn(`Consumo não registrado: ${error instanceof Error ? error.message : "falha no banco"}`); }
       }
       if (conversationId && answer) {
         try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}); }

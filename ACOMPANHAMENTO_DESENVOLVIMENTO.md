@@ -750,7 +750,7 @@ Nenhum commit ou push foi feito.
 - A sidebar anterior não recolhia, misturava recursos previstos e existentes, e não oferecia página de histórico de conversas dedicada.
 - Nenhuma dependência JS está instalada; `pnpm`, `tsc`, Rust/Cargo e ferramentas MSVC/SDK não foram encontrados nesta sessão. `tools/node/node.exe` também não existe. O Node/npm em `T:\VSCode\nodejs` não satisfaz a política de instalação local portátil e não foi usado para declarar builds.
 
-**Referências e decisões:** consultei o artigo da xAI sobre bots persistentes, o template OpenBot e a documentação AG-UI. O ADR [`docs/adr/001-workspace-orientado-a-agentes.md`](docs/adr/001-workspace-orientado-a-agentes.md) registra o desenho: agentes como ponto de entrada; conversas como histórico associado; NestJS/PostgreSQL como destino persistente; AG-UI como protocolo futuro atrás da API; gateway com permissões/auditoria antes de executar ferramentas. OpenBot não foi adicionado como dependência e nenhuma tecnologia do projeto foi substituída.
+**Referências e decisões:** consultei o artigo da referência externa sobre bots persistentes, o template referência externa e a documentação AG-UI. O ADR [`docs/adr/001-workspace-orientado-a-agentes.md`](docs/adr/001-workspace-orientado-a-agentes.md) registra o desenho: agentes como ponto de entrada; conversas como histórico associado; NestJS/PostgreSQL como destino persistente; AG-UI como protocolo futuro atrás da API; gateway com permissões/auditoria antes de executar ferramentas. referência externa não foi adicionado como dependência e nenhuma tecnologia do projeto foi substituída.
 
 **Mudanças incrementais desta etapa:**
 
@@ -772,32 +772,32 @@ Nenhum commit ou push foi feito.
 
 **Pendências desta fase:** executar testes de CRUD/serialização, aplicar a migração 002 em PostgreSQL descartável ou backup validado e testar sincronização de agente/conversa ponta a ponta; executar typecheck/build e captura visual. Grupos de agentes, AG-UI em execução, estados restantes, auditoria/aprovação de ferramentas, memória e rotinas ainda não foram implementados. Nenhum build ou teste foi declarado bem-sucedido e não houve commit/push.
 
-### 2026-11-03 — auditoria OpenBot + AG-UI e créditos
+### 2026-11-03 — auditoria referência externa + AG-UI e créditos
 
-Li a especificação colada como instrução de produto, mantendo seus pedidos separados do conteúdo das referências externas. Consultei o artigo de design da xAI, o repositório OpenBot e sua licença MIT, Rakazo e a documentação AG-UI. A inspeção foi estática; não instalei ferramentas, não conectei serviços e não alterei nem publiquei o repositório.
+Li a especificação colada como instrução de produto, mantendo seus pedidos separados do conteúdo das referências externas. Consultei o artigo de design da referência externa, o repositório referência externa e sua licença MIT, referência externa e a documentação AG-UI. A inspeção foi estática; não instalei ferramentas, não conectei serviços e não alterei nem publiquei o repositório.
 
 **Auditoria e documentação criadas/atualizadas:**
 
-- `docs/AUDITORIA_OPENBOT_INTEGRACAO.md`: comparação do monorepo e do diretório `Exemplo OpenBot`, mapa de componentes reutilizáveis do próprio Grupo Jadson, incompatibilidades, lacunas e etapas seguintes.
-- `CREDITS.md`: autoria e perfis do Grupo Jadson informados pelo usuário, referências e política de atribuição. Registra que não houve cópia de código OpenBot/Rakazo nesta etapa e que o inventário de licenças transitivas depende do lockfile.
+- `docs/AUDITORIA_REFERENCIAS_INTEGRACAO.md`: comparação do monorepo e do diretório `Exemplo referência externa`, mapa de componentes reutilizáveis do próprio Grupo Jadson, incompatibilidades, lacunas e etapas seguintes.
+- `CREDITS.md`: autoria e perfis do Grupo Jadson informados pelo usuário, referências e política de atribuição. Registra que não houve cópia de código referência externa/referência externa nesta etapa e que o inventário de licenças transitivas depende do lockfile.
 - `docs/API.md`: esclarece que o SSE atual é OpenAI compatível e não AG-UI.
 - `docs/ROADMAP.md` e `README.md`: registram o resultado e apontam para os documentos de auditoria/créditos.
 
-**Achados comprovados por leitura dos arquivos:** a cópia OpenBot contém 2.668 caminhos listados e declara Bun 1.4.3, React 19, Hono, CopilotKit, Docker e outros serviços próprios; o Grupo Jadson mantém pnpm 9.15.0 fixado, React 18, Vite 6, Tauri 2, NestJS 10, PostgreSQL e Redis. Por isso, OpenBot foi tratado como referência arquitetural e não como dependência. Rakazo foi usado somente como referência complementar. A migration 002 e o vínculo `agentId` existem no código, mas não foram executados em PostgreSQL. O stream atual passa eventos SSE OpenAI; AG-UI ainda não existe no runtime. Os diretórios `memory-engine` e `tool-registry` são scaffolds, sem implementação funcional verificada.
+**Achados comprovados por leitura dos arquivos:** a cópia referência externa contém 2.668 caminhos listados e declara Bun 1.4.3, React 19, Hono, referência externa, Docker e outros serviços próprios; o Grupo Jadson mantém pnpm 9.15.0 fixado, React 18, Vite 6, Tauri 2, NestJS 10, PostgreSQL e Redis. Por isso, referência externa foi tratado como referência arquitetural e não como dependência. referência externa foi usado somente como referência complementar. A migration 002 e o vínculo `agentId` existem no código, mas não foram executados em PostgreSQL. O stream atual passa eventos SSE OpenAI; AG-UI ainda não existe no runtime. Os diretórios `memory-engine` e `tool-registry` são scaffolds, sem implementação funcional verificada.
 
 **Ambiente/publicação:** o comando Git e pnpm não estão disponíveis nesta sessão, `node_modules` não existe e não encontrei configuração `.git` legível. Não foi possível confirmar remoto/branch GitHub ou validar os workflows em Actions. Nenhum commit/push foi feito.
 
-**Testes e evidências:** apenas leitura de manifests, README/licença OpenBot, módulos, migrations, workflows, docs e listagem do exemplo. Não executei testes, typecheck, build, migration, conexão PostgreSQL/Redis ou captura React. Portanto, nenhum resultado de execução foi declarado.
+**Testes e evidências:** apenas leitura de manifests, README/licença referência externa, módulos, migrations, workflows, docs e listagem do exemplo. Não executei testes, typecheck, build, migration, conexão PostgreSQL/Redis ou captura React. Portanto, nenhum resultado de execução foi declarado.
 
-**Próxima sequência:** definir contrato/run e mapeamento de eventos AG-UI no backend com testes; validar migration e sincronização com PostgreSQL de desenvolvimento; em seguida implementar estados reais e trilha auditável de execução. Memória individual, grupo/delegação, ferramentas isoladas e rotinas permanecem pendentes até haver contrato, persistência e testes. A documentação integral está em `docs/AUDITORIA_OPENBOT_INTEGRACAO.md`.
+**Próxima sequência:** definir contrato/run e mapeamento de eventos AG-UI no backend com testes; validar migration e sincronização com PostgreSQL de desenvolvimento; em seguida implementar estados reais e trilha auditável de execução. Memória individual, grupo/delegação, ferramentas isoladas e rotinas permanecem pendentes até haver contrato, persistência e testes. A documentação integral está em `docs/AUDITORIA_REFERENCIAS_INTEGRACAO.md`.
 
 ### 2026-11-03 — preparação do primeiro commit e publicação privada
 
 - O GitHub Connector confirmou que `DJJadsonReis/grupo-jadson-plataforma` existe, está privado, está vazio (`size: 0`) e declara `main` como branch padrão. O repositório antigo `DJJadsonReis/grupo-jadson` é separado e não foi usado.
 - Não havia `.git` nem Git no PATH. Encontrei Git for Windows 2.53.0 distribuído com VS Code em `T:\VSCode`; a assinatura Authenticode do `cmd/git.exe` foi validada como válida. Copiei `cmd`, `mingw64`, `usr` e `etc` para `tools/git`; teste `--version` confirmou a execução portátil. Os binários continuam excluídos do Git.
-- Acrescentei regra para manter o checkout local `Exemplo OpenBot` fora do primeiro commit. O PDF da apresentação e os diretórios `.runtime`, `.cache`, `tools`, `dist`, bancos e `.env` também têm regras de exclusão. `.env.example` deve continuar incluído.
+- Acrescentei regra para manter o checkout local `Exemplo referência externa` fora do primeiro commit. O PDF da apresentação e os diretórios `.runtime`, `.cache`, `tools`, `dist`, bancos e `.env` também têm regras de exclusão. `.env.example` deve continuar incluído.
 - A tentativa autorizada de inicializar `main` criou `.git`, mas Git recusou prosseguir porque o dono Windows da pasta difere da conta sandbox atual. O script não chegou a configurar `origin`, criar commit ou enviar dados. Uma tentativa de aplicar `safe.directory` só no processo foi bloqueada quando a sessão de execução parou de iniciar; nenhuma configuração global do Windows foi alterada.
-- A varredura inicial encontrou possíveis padrões de credencial somente dentro do checkout local OpenBot; esse checkout agora está intencionalmente excluído. Não houve confirmação final por `git check-ignore`, revisão de `git status` ou diff staged. Logo, nenhum arquivo foi staged, commitado ou publicado.
+- A varredura inicial encontrou possíveis padrões de credencial somente dentro do checkout local referência externa; esse checkout agora está intencionalmente excluído. Não houve confirmação final por `git check-ignore`, revisão de `git status` ou diff staged. Logo, nenhum arquivo foi staged, commitado ou publicado.
 - Pendência: concluir validação do conjunto a publicar e reexecutar o preparo com um contexto Git autorizado para este diretório. Não declarar publicação até confirmar o commit na branch `main` do repositório privado correto.
 
 ### Confirmação — commit inicial publicado
@@ -806,7 +806,7 @@ Li a especificação colada como instrução de produto, mantendo seus pedidos s
 - `main` foi inicializada, `origin` foi configurado para `https://github.com/DJJadsonReis/grupo-jadson-plataforma.git` e a identidade do commit foi definida apenas na configuração local do repositório.
 - Commit raiz publicado: [`faec347e30780165d6792d6ad5af82b8e0a6b83b`](https://github.com/DJJadsonReis/grupo-jadson-plataforma/commit/faec347e30780165d6792d6ad5af82b8e0a6b83b), mensagem `chore: initial Grupo Jadson platform`, 124 arquivos, 5.011 inserções. O GitHub API confirmou o SHA em `main`; `git ls-remote` confirmou que a referência remota aponta ao mesmo SHA.
 - Visibilidade confirmada pelo GitHub Connector: repositório privado. O repositório antigo não recebeu alterações.
-- Antes do commit, `git status`, `git check-ignore` e `git diff --cached --check` foram conferidos. A varredura staged não encontrou padrões de API keys/tokens, chaves privadas, caminhos de usuário ou caminho absoluto do projeto. `.env`, dados de `.runtime`, caches, PDF, checkout `Exemplo OpenBot`, builds e binários do Git ficaram fora; `.env.example` foi mantido.
+- Antes do commit, `git status`, `git check-ignore` e `git diff --cached --check` foram conferidos. A varredura staged não encontrou padrões de API keys/tokens, chaves privadas, caminhos de usuário ou caminho absoluto do projeto. `.env`, dados de `.runtime`, caches, PDF, checkout `Exemplo referência externa`, builds e binários do Git ficaram fora; `.env.example` foi mantido.
 - O relatório foi sanitizado para retirar o caminho absoluto `T:\Grupo Jadson` antes do commit.
 - O push foi concluído sem prompt de credenciais. A árvore local ficou limpa e acompanhando `origin/main`.
 - Não rodei testes, typecheck, migrations, builds nem workflows Actions como parte da publicação; o commit não representa validação de execução do produto.
