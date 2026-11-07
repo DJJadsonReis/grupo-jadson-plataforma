@@ -12,6 +12,14 @@ type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
+const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
+
+/** Envia o token da API em todas as chamadas ao backend (fetch com Authorization). */
+function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+  const headers = new Headers(init.headers);
+  if (API_TOKEN) headers.set("Authorization", `Bearer ${API_TOKEN}`);
+  return fetch(input, { ...init, headers });
+}
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "dashboard", label: "Início", icon: Gauge },
@@ -77,7 +85,7 @@ export default function App() {
 
   useEffect(() => {
     const controller = new AbortController();
-    fetch(`${API_URL}/health`, { signal: controller.signal })
+    apiFetch(`${API_URL}/health`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
@@ -86,7 +94,7 @@ export default function App() {
         setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
         setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
       })
-      .then(() => fetch(`${API_URL}/providers`, { signal: controller.signal }))
+      .then(() => apiFetch(`${API_URL}/providers`, { signal: controller.signal }))
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const status = await response.json() as ProviderStatus[];
@@ -107,7 +115,7 @@ export default function App() {
   useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
-    fetch(`${API_URL}/conversations`, { signal: controller.signal })
+    apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
         const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
@@ -144,7 +152,7 @@ export default function App() {
     if (postgresHealth === "checking") return;
     if (postgresHealth !== "connected") { setAgentPersistence("local"); return; }
     const controller = new AbortController();
-    fetch(`${API_URL}/agents`, { signal: controller.signal })
+    apiFetch(`${API_URL}/agents`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("A API de agentes não respondeu.");
         let remote = await response.json() as Agent[];
@@ -153,7 +161,7 @@ export default function App() {
         for (const localAgent of readWorkspace().agents) {
           if (knownIds.has(localAgent.id)) continue;
           try {
-            const created = await fetch(`${API_URL}/agents`, {
+            const created = await apiFetch(`${API_URL}/agents`, {
               method: "POST",
               signal: controller.signal,
               headers: { "Content-Type": "application/json" },
@@ -183,7 +191,7 @@ export default function App() {
   useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
-    fetch(`${API_URL}/groups`, { signal: controller.signal }).then(async (response) => {
+    apiFetch(`${API_URL}/groups`, { signal: controller.signal }).then(async (response) => {
       if (!response.ok) return;
       const remote = await response.json() as (Omit<Group, "createdAt"> & { createdAt: string })[];
       setGroups(remote.map((item) => ({ ...item, createdAt: Date.parse(item.createdAt) || Date.now() })));
@@ -263,7 +271,7 @@ export default function App() {
         throw new Error("Anexe até 5 MB de imagens PNG, JPEG ou WebP por mensagem.");
       }
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
-      const response = await fetch(`${API_URL}/chat/completions`, {
+      const response = await apiFetch(`${API_URL}/chat/completions`, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -314,7 +322,7 @@ export default function App() {
     if (postgresHealth !== "connected" || agentPersistence === "checking") return;
     const exists = remoteAgentIds.includes(agent.id);
     try {
-      const response = await fetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
+      const response = await apiFetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
         method: exists ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(agent),
@@ -330,7 +338,7 @@ export default function App() {
   async function persistGroup(group: Group) {
     if (postgresHealth === "connected") {
       try {
-        const response = await fetch(`${API_URL}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
+        const response = await apiFetch(`${API_URL}/groups`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(group) });
         if (!response.ok) throw new Error("Não foi possível salvar o grupo no PostgreSQL.");
         const saved = await response.json() as Omit<Group, "createdAt"> & { createdAt: string };
         setGroups((items) => [{ ...saved, createdAt: Date.parse(saved.createdAt) || Date.now() }, ...items.filter((item) => item.id !== saved.id)]);
@@ -342,7 +350,7 @@ export default function App() {
 
   async function archiveGroup(id: string) {
     if (postgresHealth === "connected") {
-      try { const response = await fetch(`${API_URL}/groups/${id}`, { method: "DELETE" }); if (!response.ok) throw new Error("Não foi possível arquivar o grupo."); }
+      try { const response = await apiFetch(`${API_URL}/groups/${id}`, { method: "DELETE" }); if (!response.ok) throw new Error("Não foi possível arquivar o grupo."); }
       catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao arquivar grupo."); return; }
     }
     setGroups((items) => items.filter((item) => item.id !== id));
