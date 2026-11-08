@@ -1511,6 +1511,7 @@ const AUDIT_LABELS: Record<string, string> = {
 function ActivityPage() {
   const [pending, setPending] = useState<ApprovalItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
+  const [usage, setUsage] = useState<{ agentId: string | null; totalTokens: number; calls: number }[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -1519,8 +1520,14 @@ function ActivityPage() {
     Promise.all([
       apiFetch(`${API_URL}/approvals?status=pending`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("approvals")))),
       apiFetch(`${API_URL}/audit?limit=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("audit")))),
+      apiFetch(`${API_URL}/usage/summary?days=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("usage")))),
     ])
-      .then(([approvals, events]) => { setPending(approvals as ApprovalItem[]); setAudit(events as AuditItem[]); setLoadError(null); })
+      .then(([approvals, events, summary]) => {
+        setPending(approvals as ApprovalItem[]);
+        setAudit(events as AuditItem[]);
+        setUsage((summary as { agents: typeof usage }).agents);
+        setLoadError(null);
+      })
       .catch(() => { if (!controller.signal.aborted) setLoadError("Não foi possível carregar as atividades. Esta tela precisa do PostgreSQL ligado (DATABASE_URL)."); });
     return () => controller.abort();
   }, [version]);
@@ -1565,6 +1572,20 @@ function ActivityPage() {
               </div>
               <button className="btn-primary-gold" onClick={() => decide(item.id, "approved")}>Aprovar</button>
               <button className="icon-btn-close" onClick={() => decide(item.id, "rejected")}>Recusar</button>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="settings-box">
+        <h3>Consumo de tokens (últimos 30 dias)</h3>
+        {usage.length === 0 ? (
+          <p>Nenhum consumo registrado no período.</p>
+        ) : (
+          usage.map((row) => (
+            <div className="workspace-fact" key={row.agentId ?? "sem-agente"}>
+              <span>{row.calls} chamada{row.calls === 1 ? "" : "s"}</span>
+              <b>{row.agentId ? `Agente ${row.agentId.slice(0, 8)}` : "Sem agente"} · {row.totalTokens.toLocaleString("pt-BR")} tokens</b>
             </div>
           ))
         )}
