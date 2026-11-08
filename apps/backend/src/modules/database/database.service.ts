@@ -4,6 +4,7 @@ import { migrationId, up } from "./migrations/001-initial-schema";
 import { migrationId as agentLinkMigrationId, up as addConversationAgentLink } from "./migrations/002-conversation-agent-link";
 import { migrationId as multiAgentMigrationId, up as addMultiAgentSchema } from "./migrations/003-multiagent-controller";
 import { migrationId as usageMigrationId, up as addUsageMetering } from "./migrations/004-usage-metering";
+import { migrationId as auditMigrationId, up as addAuditAndApprovals } from "./migrations/005-audit-and-approvals";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -30,6 +31,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: agentLinkMigrationId, apply: async () => addConversationAgentLink(this.pool!) },
         { id: multiAgentMigrationId, apply: async () => addMultiAgentSchema(this.pool!) },
         { id: usageMigrationId, apply: async () => addUsageMetering(this.pool!) },
+        { id: auditMigrationId, apply: async () => addAuditAndApprovals(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

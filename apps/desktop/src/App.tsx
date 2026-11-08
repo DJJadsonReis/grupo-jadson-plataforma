@@ -35,6 +35,7 @@ const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
 
 const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "models", label: "Modelos e provedores", icon: BrainCircuit },
+  { id: "activity", label: "Atividades", icon: ShieldCheck },
   { id: "monitoring", label: "Monitoramento", icon: Activity },
   { id: "settings", label: "Configurações", icon: Settings },
 ];
@@ -654,7 +655,8 @@ export default function App() {
             providerCount={configuredProviders}
           />
         )}
-        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring"] as PageId[]).includes(page) && (
+        {page === "activity" && <ActivityPage />}
+        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
       </main>
@@ -1491,6 +1493,96 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
           <span>Diretório de Dados: <code>.runtime/webview2-data</code> isolado localmente no drive T:</span>
         </div>
       </article>
+    </div>
+  );
+}
+
+type ApprovalItem = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; requestedBy: string; decidedBy: string | null; createdAt: string };
+type AuditItem = { id: string; actor: string; action: string; subject: string | null; createdAt: string };
+
+const AUDIT_LABELS: Record<string, string> = {
+  "chat.completion": "Resposta gerada",
+  "approval.requested": "Aprovação solicitada",
+  "approval.approved": "Aprovação concedida",
+  "approval.rejected": "Aprovação recusada",
+};
+
+/** Atividades: solicitações de aprovação pendentes e a trilha de auditoria recente. */
+function ActivityPage() {
+  const [pending, setPending] = useState<ApprovalItem[]>([]);
+  const [audit, setAudit] = useState<AuditItem[]>([]);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/approvals?status=pending`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("approvals")))),
+      apiFetch(`${API_URL}/audit?limit=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("audit")))),
+    ])
+      .then(([approvals, events]) => { setPending(approvals as ApprovalItem[]); setAudit(events as AuditItem[]); setLoadError(null); })
+      .catch(() => { if (!controller.signal.aborted) setLoadError("Não foi possível carregar as atividades. Esta tela precisa do PostgreSQL ligado (DATABASE_URL)."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function decide(id: string, decision: "approved" | "rejected") {
+    try {
+      const response = await apiFetch(`${API_URL}/approvals/${id}/decision`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ decision, decidedBy: "Jadson" }),
+      });
+      if (!response.ok) throw new Error("decision");
+      setVersion((value) => value + 1);
+    } catch {
+      setLoadError("Não foi possível registrar a decisão. Tente de novo.");
+    }
+  }
+
+  return (
+    <div className="page-content monitoring-page">
+      <div className="page-header-row">
+        <div>
+          <span className="section-label">ATIVIDADES</span>
+          <h1>Aprovações e auditoria</h1>
+          <p className="page-subtitle">Ações sensíveis esperam sua decisão. Todo evento fica registrado.</p>
+        </div>
+      </div>
+
+      {loadError && <div className="gallery-notice-pill" role="alert">{loadError}</div>}
+
+      <section className="settings-box">
+        <h3>Aguardando aprovação</h3>
+        {pending.length === 0 ? (
+          <p>Nada pendente.</p>
+        ) : (
+          pending.map((item) => (
+            <div className="security-notice" key={item.id}>
+              <div style={{ flex: 1 }}>
+                <b>{item.action}</b>
+                <div>{item.summary}</div>
+                <small>Solicitado por {item.requestedBy}</small>
+              </div>
+              <button className="btn-primary-gold" onClick={() => decide(item.id, "approved")}>Aprovar</button>
+              <button className="icon-btn-close" onClick={() => decide(item.id, "rejected")}>Recusar</button>
+            </div>
+          ))
+        )}
+      </section>
+
+      <section className="settings-box">
+        <h3>Trilha de auditoria</h3>
+        {audit.length === 0 ? (
+          <p>Nenhum evento registrado ainda.</p>
+        ) : (
+          audit.map((event) => (
+            <div className="workspace-fact" key={event.id}>
+              <span>{new Date(event.createdAt).toLocaleString("pt-BR")} · {event.actor}</span>
+              <b>{AUDIT_LABELS[event.action] ?? event.action}</b>
+            </div>
+          ))
+        )}
+      </section>
     </div>
   );
 }
