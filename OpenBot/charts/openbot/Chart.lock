@@ -1,0 +1,9 @@
+dependencies:
+- name: postgresql
+  repository: oci://registry-1.docker.io/bitnamicharts
+  version: 16.7.27
+- name: intelligence
+  repository: oci://ghcr.io/copilotkit/charts
+  version: 0.16.0-rc.9
+digest: sha256:a52bacdf806b99c38cef7cf4ef5ae1cf4abce66975e2ba5103a4171b53e3aa37
+generated: "2026-11-06T16:27:32.094053-08:00"

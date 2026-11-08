@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "backend",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["T:/grupo-jadson/tools/pnpm/node_modules/pnpm/bin/pnpm.cjs", "--filter", "@grupo-jadson/backend", "dev"],
+      "port": 3333
+    },
+    {
+      "name": "desktop-ui",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["T:/grupo-jadson/tools/pnpm/node_modules/pnpm/bin/pnpm.cjs", "--filter", "@grupo-jadson/desktop", "exec", "vite"],
+      "port": 1420
+    }
+  ]
+}
