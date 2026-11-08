@@ -449,7 +449,9 @@
 
 .history-list {
   overflow-y: auto;
+  overflow-x: hidden;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding-right: 2px;
 }
@@ -457,6 +459,9 @@
 .history-item {
   display: flex;
   align-items: center;
+  min-width: 0;
+  width: 100%;
+  box-sizing: border-box;
   gap: 10px;
   padding: 8px 10px;
   border-radius: 8px;
