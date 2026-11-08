@@ -10,6 +10,7 @@ import { HandoffsModule } from "./modules/handoffs/handoffs.module";
 import { DocumentsModule } from "./modules/documents/documents.module";
 import { ToolsModule } from "./modules/tools/tools.module";
 import { RoutinesModule } from "./modules/routines/routines.module";
+import { IntegrationsModule } from "./modules/integrations/integrations.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule] })
 export class AppModule {}

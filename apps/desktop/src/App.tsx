@@ -1582,8 +1582,65 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
         </div>
       </article>
       <MemorySettings />
+      <IntegrationSettings />
       <AccessSettings />
     </div>
+  );
+}
+
+/** Chave do Tavily para busca na web. Depois de salva, a tela só mostra se está configurada. */
+function IntegrationSettings() {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [key, setKey] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/integrations`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("integrations"))))
+      .then((state: { tavily: { configured: boolean } }) => setConfigured(state.tavily.configured))
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível verificar a busca na web."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function save() {
+    const value = key.trim();
+    if (!value) return;
+    const response = await apiFetch(`${API_URL}/integrations/tavily`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: value }),
+    });
+    if (response.ok) { setKey(""); setError(null); setVersion((v) => v + 1); }
+    else { const data = (await response.json().catch(() => ({}))) as { message?: string }; setError(data.message ?? "Não foi possível salvar a chave."); }
+  }
+
+  async function remove() {
+    const response = await apiFetch(`${API_URL}/integrations/tavily`, { method: "DELETE" });
+    if (response.ok) { setError(null); setVersion((v) => v + 1); } else setError("Não foi possível remover a chave.");
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Busca na web (Tavily)</h3>
+      <p>Usada pelos agentes para pesquisar na internet. A chave fica salva neste computador e não aparece de novo depois de salva.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <div className="workspace-fact">
+        <span>Status</span>
+        <b>{configured === null ? "Verificando..." : configured ? "Configurada" : "Não configurada"}</b>
+      </div>
+      <div className="security-notice" style={{ alignItems: "center" }}>
+        <input
+          type="password"
+          value={key}
+          onChange={(event) => setKey(event.target.value)}
+          placeholder={configured ? "Trocar a chave" : "Cole a chave do Tavily"}
+          autoComplete="off"
+          style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+        />
+        <button className="btn-primary-gold" onClick={save} disabled={!key.trim()}>Salvar</button>
+        {configured && <button className="icon-btn-close" onClick={remove}>Remover</button>}
+      </div>
+    </article>
   );
 }
 

@@ -7,6 +7,7 @@ import { MemoryService } from "../memory/memory.service";
 import { findTool, TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
 import { McpService } from "../mcp/mcp.service";
 import { searchTavily, searchWikipedia } from "./web-search";
+import { IntegrationsService } from "../integrations/integrations.service";
 
 export interface ToolRun {
   id: string;
@@ -36,6 +37,7 @@ export class ToolsService {
     private readonly audit: AuditService,
     private readonly memory: MemoryService,
     private readonly mcp: McpService,
+    private readonly integrations: IntegrationsService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -110,7 +112,7 @@ export class ToolsService {
     if (this.mcp.find(name)) return this.mcp.call(name, input);
     if (name === "tempo.agora") return { agora: new Date().toISOString() };
     if (name === "busca.wikipedia") return { resultados: await searchWikipedia(String(input.consulta ?? input.query ?? "")) };
-    if (name === "busca.web") return { resultados: await searchTavily(String(input.consulta ?? input.query ?? ""), process.env.TAVILY_API_KEY) };
+    if (name === "busca.web") return { resultados: await searchTavily(String(input.consulta ?? input.query ?? ""), await this.integrations.secret("tavily")) };
     if (name === "memoria.listar") return { itens: await this.memory.list() };
     if (name === "memoria.apagar_tudo") {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
