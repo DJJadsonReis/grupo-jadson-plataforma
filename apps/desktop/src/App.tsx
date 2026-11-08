@@ -1582,7 +1582,115 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
         </div>
       </article>
       <MemorySettings />
+      <AccessSettings />
     </div>
+  );
+}
+
+type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean };
+const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
+
+/** Pessoas e papéis. O token de cada pessoa aparece uma única vez, ao criar ou trocar. */
+function AccessSettings() {
+  const [people, setPeople] = useState<PersonEntry[]>([]);
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<PersonEntry["role"]>("operator");
+  const [newToken, setNewToken] = useState<{ name: string; token: string } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/users`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("users"))))
+      .then((list: PersonEntry[]) => { setPeople(list); setError(null); })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar as pessoas. Só administradores veem esta lista."); });
+    return () => controller.abort();
+  }, [version]);
+
+  /** Envia uma alteração e atualiza a lista; mostra a mensagem do backend quando recusar. */
+  async function send(path: string, method: string, body?: unknown): Promise<{ ok: boolean; data?: unknown }> {
+    const init: RequestInit = { method };
+    if (body !== undefined) {
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    const response = await apiFetch(`${API_URL}${path}`, init);
+    const data = (await response.json().catch(() => ({}))) as { message?: string };
+    if (!response.ok) { setError(data.message ?? "Não foi possível concluir a ação."); return { ok: false }; }
+    setError(null);
+    setVersion((value) => value + 1);
+    return { ok: true, data };
+  }
+
+  async function create() {
+    const cleanName = name.trim();
+    if (!cleanName) return;
+    const result = await send("/users", "POST", { name: cleanName, role });
+    if (result.ok) {
+      const data = result.data as { user: PersonEntry; token: string };
+      setNewToken({ name: data.user.name, token: data.token });
+      setName("");
+    }
+  }
+
+  async function rotate(person: PersonEntry) {
+    const result = await send(`/users/${person.id}/token`, "POST");
+    if (result.ok) {
+      const data = result.data as { token: string };
+      setNewToken({ name: person.name, token: data.token });
+    }
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Pessoas e acessos</h3>
+      <p>Cada pessoa tem um token próprio. Leitor só consulta; operador usa o sistema; administrador também gerencia pessoas.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      {newToken && (
+        <div className="security-notice" role="status">
+          <span>
+            Token de <b>{newToken.name}</b>, mostrado só agora: <code style={{ wordBreak: "break-all" }}>{newToken.token}</code>
+          </span>
+          <button className="icon-btn-close" onClick={() => setNewToken(null)}>Fechar</button>
+        </div>
+      )}
+      <div className="security-notice" style={{ alignItems: "center" }}>
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Nome da pessoa"
+          maxLength={80}
+          style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+        />
+        <select value={role} onChange={(event) => setRole(event.target.value as PersonEntry["role"])} aria-label="Papel">
+          <option value="operator">Operador</option>
+          <option value="viewer">Leitor</option>
+          <option value="admin">Administrador</option>
+        </select>
+        <button className="btn-primary-gold" onClick={create} disabled={!name.trim()}>Adicionar</button>
+      </div>
+      {people.map((person) => (
+        <div className="workspace-fact" key={person.id}>
+          <b>{person.name} · {ROLE_LABELS[person.role]}{person.active ? "" : " (inativo)"}</b>
+          <span style={{ display: "flex", gap: 6 }}>
+            <select
+              value={person.role}
+              onChange={(event) => void send(`/users/${person.id}/role`, "PUT", { role: event.target.value })}
+              aria-label={`Papel de ${person.name}`}
+            >
+              <option value="operator">Operador</option>
+              <option value="viewer">Leitor</option>
+              <option value="admin">Administrador</option>
+            </select>
+            <button className="icon-btn-close" onClick={() => void rotate(person)}>Novo token</button>
+            <button className="icon-btn-close" onClick={() => void send(`/users/${person.id}/active`, "PUT", { active: !person.active })}>
+              {person.active ? "Desativar" : "Ativar"}
+            </button>
+          </span>
+        </div>
+      ))}
+    </article>
   );
 }
 
