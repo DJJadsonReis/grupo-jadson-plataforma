@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
 import { ApprovalStatus, ApprovalsService } from "./approvals.service";
 import { AuditService } from "./audit.service";
 
@@ -26,11 +26,12 @@ export class ApprovalsController {
     return this.approvals.list(status as ApprovalStatus | undefined);
   }
 
+  /** Quem decide é quem se autenticou; o nome enviado no corpo não é confiável. */
   @Post(":id/decision")
-  decide(@Param("id") id: string, @Body() body: { decision?: string; decidedBy?: string }) {
+  decide(@Param("id") id: string, @Body() body: { decision?: string }, @Req() request: { principal?: { name: string } }) {
     if (body.decision !== "approved" && body.decision !== "rejected") {
       throw new BadRequestException({ code: "INVALID_DECISION", message: "Decisão deve ser 'approved' ou 'rejected'." });
     }
-    return this.approvals.decide(id, body.decision, (body.decidedBy ?? "usuario").slice(0, 80));
+    return this.approvals.decide(id, body.decision, (request.principal?.name ?? "usuario").slice(0, 80));
   }
 }

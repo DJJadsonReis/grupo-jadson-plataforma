@@ -1,49 +1,86 @@
-import { ExecutionContext, UnauthorizedException } from "@nestjs/common";
+import { ExecutionContext, ForbiddenException, UnauthorizedException } from "@nestjs/common";
 import { Reflector } from "@nestjs/core";
+import { ADMIN_ONLY_ROUTE } from "./roles";
 import { ApiTokenGuard } from "./api-token.guard";
+import { IS_PUBLIC_ROUTE } from "./public.decorator";
+import { Principal, UsersService } from "./users.service";
 
-function contextWith(authorization: string | undefined, isPublic = false): { ctx: ExecutionContext; reflector: Reflector } {
-  const reflector = { getAllAndOverride: () => isPublic } as unknown as Reflector;
+type Flags = { isPublic?: boolean; adminOnly?: boolean };
+
+function contextWith(authorization: string | undefined, flags: Flags = {}, method = "GET") {
+  const reflector = {
+    getAllAndOverride: (key: string) => (key === IS_PUBLIC_ROUTE ? Boolean(flags.isPublic) : key === ADMIN_ONLY_ROUTE ? Boolean(flags.adminOnly) : false),
+  } as unknown as Reflector;
+  const request: { method: string; headers: Record<string, string | undefined>; principal?: Principal } = {
+    method,
+    headers: authorization === undefined ? {} : { authorization },
+  };
   const ctx = {
     getHandler: () => undefined,
     getClass: () => undefined,
-    switchToHttp: () => ({ getRequest: () => ({ headers: authorization === undefined ? {} : { authorization } }) }),
+    switchToHttp: () => ({ getRequest: () => request }),
   } as unknown as ExecutionContext;
-  return { ctx, reflector };
+  return { ctx, reflector, request };
 }
+
+function usersReturning(principal: Principal | null): UsersService {
+  return { findByToken: async () => principal } as unknown as UsersService;
+}
+
+const SYSTEM_TOKEN = "test-token-with-enough-length-123456";
 
 describe("ApiTokenGuard", () => {
   const original = process.env.API_TOKEN;
-  beforeEach(() => { process.env.API_TOKEN = "test-token-with-enough-length-123456"; });
+  beforeEach(() => { process.env.API_TOKEN = SYSTEM_TOKEN; });
   afterEach(() => {
     if (original === undefined) delete process.env.API_TOKEN;
     else process.env.API_TOKEN = original;
-    jest.restoreAllMocks();
   });
 
-  it("allows the request when the bearer token matches", () => {
-    const { ctx, reflector } = contextWith("Bearer test-token-with-enough-length-123456");
-    expect(new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
+  it("aceita o token do sistema como administrador", async () => {
+    const { ctx, reflector, request } = contextWith(`Bearer ${SYSTEM_TOKEN}`);
+    expect(await new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
+    expect(request.principal?.role).toBe("admin");
   });
 
-  it("rejects a missing header", () => {
+  it("recusa requisição sem cabeçalho", async () => {
     const { ctx, reflector } = contextWith(undefined);
-    expect(() => new ApiTokenGuard(reflector).canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(new ApiTokenGuard(reflector).canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("rejects a wrong token", () => {
+  it("recusa token errado quando não há usuário com ele", async () => {
     const { ctx, reflector } = contextWith("Bearer outro-token");
-    expect(() => new ApiTokenGuard(reflector).canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(new ApiTokenGuard(reflector, usersReturning(null)).canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("fails closed when API_TOKEN is not configured", () => {
+  it("falha fechada quando API_TOKEN não está configurado", async () => {
     delete process.env.API_TOKEN;
     const { ctx, reflector } = contextWith("Bearer qualquer");
-    expect(() => new ApiTokenGuard(reflector).canActivate(ctx)).toThrow(UnauthorizedException);
+    await expect(new ApiTokenGuard(reflector).canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
   });
 
-  it("lets public routes through without a token", () => {
-    const { ctx, reflector } = contextWith(undefined, true);
-    expect(new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
+  it("deixa passar rotas públicas sem token", async () => {
+    const { ctx, reflector } = contextWith(undefined, { isPublic: true });
+    expect(await new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
+  });
+
+  it("leitor consulta, mas não altera", async () => {
+    const viewer: Principal = { id: "1", name: "Leitora", role: "viewer" };
+    const read = contextWith("Bearer pessoal", {}, "GET");
+    expect(await new ApiTokenGuard(read.reflector, usersReturning(viewer)).canActivate(read.ctx)).toBe(true);
+    const write = contextWith("Bearer pessoal", {}, "POST");
+    await expect(new ApiTokenGuard(write.reflector, usersReturning(viewer)).canActivate(write.ctx)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("rota só de administrador recusa operador", async () => {
+    const operator: Principal = { id: "2", name: "Operador", role: "operator" };
+    const { ctx, reflector } = contextWith("Bearer pessoal", { adminOnly: true }, "GET");
+    await expect(new ApiTokenGuard(reflector, usersReturning(operator)).canActivate(ctx)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("operador faz requisições de escrita normais", async () => {
+    const operator: Principal = { id: "2", name: "Operador", role: "operator" };
+    const { ctx, reflector } = contextWith("Bearer pessoal", {}, "POST");
+    expect(await new ApiTokenGuard(reflector, usersReturning(operator)).canActivate(ctx)).toBe(true);
   });
 });
