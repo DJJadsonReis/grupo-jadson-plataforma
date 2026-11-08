@@ -9,5 +9,6 @@ import { ToolsService } from "./tools.service";
   imports: [DatabaseModule, AuditModule, MemoryModule],
   controllers: [ToolsController],
   providers: [ToolsService],
+  exports: [ToolsService],
 })
 export class ToolsModule {}
