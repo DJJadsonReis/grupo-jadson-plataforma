@@ -8,6 +8,7 @@ import { migrationId as auditMigrationId, up as addAuditAndApprovals } from "./m
 import { migrationId as memoryMigrationId, up as addMemory } from "./migrations/006-memory";
 import { migrationId as handoffsMigrationId, up as addHandoffs } from "./migrations/007-handoffs";
 import { migrationId as usersMigrationId, up as addUsers } from "./migrations/008-users";
+import { migrationId as toolRunsMigrationId, up as addToolRuns } from "./migrations/009-tool-runs";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -38,6 +39,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: memoryMigrationId, apply: async () => addMemory(this.pool!) },
         { id: handoffsMigrationId, apply: async () => addHandoffs(this.pool!) },
         { id: usersMigrationId, apply: async () => addUsers(this.pool!) },
+        { id: toolRunsMigrationId, apply: async () => addToolRuns(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

@@ -52,6 +52,11 @@ export class ApprovalsService {
     return result.rows as Approval[];
   }
 
+  async get(id: string): Promise<Approval | null> {
+    const result = await this.database.getPool().query(`SELECT ${COLUMNS} FROM approvals WHERE id = $1`, [id]);
+    return result.rowCount === 0 ? null : (result.rows[0] as Approval);
+  }
+
   async decide(id: string, decision: "approved" | "rejected", decidedBy: string): Promise<Approval> {
     const updated = await this.database.getPool().query(
       `UPDATE approvals SET status = $2, decided_by = $3, decided_at = now()
