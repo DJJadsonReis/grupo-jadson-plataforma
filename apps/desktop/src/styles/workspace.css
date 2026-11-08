@@ -109,6 +109,9 @@
   display: flex;
   flex-direction: column;
   padding: 16px 12px 14px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   z-index: 20;
   transition: width 0.2s cubic-bezier(0.16, 1, 0.3, 1);
   overflow: hidden;
@@ -437,8 +440,7 @@
 /* HISTÓRICO DE CONVERSAS */
 .history {
   margin-top: 20px;
-  flex: 1;
-  min-height: 0;
+  flex: none;
   display: flex;
   flex-direction: column;
 }
@@ -448,20 +450,12 @@
 }
 
 .history-list {
-  overflow-y: auto;
   overflow-x: hidden;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding-right: 2px;
 }
-
-.history-list::-webkit-scrollbar { width: 6px; }
-.history-list::-webkit-scrollbar-track { background: transparent; }
-.history-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
-.history-list::-webkit-scrollbar-button { display: none; }
 
 .history-item {
   display: flex;
@@ -2432,6 +2426,19 @@
 .focus-mode-btn:focus-visible { outline: 2px solid #F5CE55; outline-offset: 2px; }
 .app-shell-focus .sidebar,
 .app-shell-focus .chat-workspace-panel { display: none !important; }
+
+/* Delegação entre agentes no cabeçalho do chat */
+.chat-delegate { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.chat-delegate-select {
+  background: #121210;
+  color: inherit;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 12px;
+}
+.chat-delegate-error { color: #e07a5f; font-size: 12px; width: 100%; }
 
 /* Painel de contexto ao lado da conversa: a coluna do chat abre espaço para ele em vez de ficar por baixo. */
 .chat-page.chat-workspace-open { padding-right: 320px; }

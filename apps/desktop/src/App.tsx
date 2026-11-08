@@ -909,7 +909,34 @@ function ChatPage({
   const [model, setModel] = useState("");
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [delegateOpen, setDelegateOpen] = useState(false);
+  const [delegateTo, setDelegateTo] = useState("");
+  const [delegating, setDelegating] = useState(false);
+  const [delegateError, setDelegateError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  /** Registra a delegação e passa a conversa para o agente escolhido nas próximas mensagens. */
+  async function delegate() {
+    if (!conversation || !delegateTo) return;
+    setDelegating(true);
+    setDelegateError(null);
+    try {
+      const response = await apiFetch(`${API_URL}/handoffs`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: conversation.id, fromAgentId: agentId || null, toAgentId: delegateTo }),
+      });
+      const body = (await response.json().catch(() => ({}))) as { message?: string };
+      if (!response.ok) throw new Error(body.message ?? "Não foi possível delegar.");
+      setAgentId(delegateTo);
+      setDelegateOpen(false);
+      setDelegateTo("");
+    } catch (error) {
+      setDelegateError(error instanceof Error ? error.message : "Não foi possível delegar.");
+    } finally {
+      setDelegating(false);
+    }
+  }
 
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
 
@@ -946,6 +973,37 @@ function ChatPage({
           >
             {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
           </button>
+          {conversation && conversation.messages.length > 0 && (
+            <div className="chat-delegate">
+              {!delegateOpen ? (
+                <button className="workspace-toggle-btn" onClick={() => setDelegateOpen(true)} title="Passar a conversa para outro agente">
+                  <Bot size={14} />
+                  <span>Delegar</span>
+                </button>
+              ) : (
+                <>
+                  <select
+                    className="chat-delegate-select"
+                    value={delegateTo}
+                    onChange={(event) => setDelegateTo(event.target.value)}
+                    aria-label="Agente de destino"
+                  >
+                    <option value="">Escolha um agente</option>
+                    {agents.filter((agent) => agent.enabled && agent.id !== agentId).map((agent) => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
+                  <button className="workspace-toggle-btn" disabled={!delegateTo || delegating} onClick={delegate}>
+                    <span>{delegating ? "Delegando..." : "Confirmar"}</span>
+                  </button>
+                  <button className="workspace-toggle-btn" onClick={() => { setDelegateOpen(false); setDelegateError(null); }}>
+                    <span>Cancelar</span>
+                  </button>
+                </>
+              )}
+              {delegateError && <small className="chat-delegate-error" role="alert">{delegateError}</small>}
+            </div>
+          )}
           <div className="chat-model-indicator">
             <Sparkles size={13} />
             <span>{model.trim() || "Modelo Padrão"}</span>
