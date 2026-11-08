@@ -9,6 +9,7 @@ import { ProviderMessage, ProviderMessageRole } from "../providers/provider.type
 import { ConversationsService, StoredAttachment } from "./conversations.service";
 import { UsageService } from "./usage.service";
 import { AuditService } from "../audit/audit.service";
+import { MemoryService } from "../memory/memory.service";
 
 const ALLOWED_ROLES = new Set<ProviderMessageRole>(["system", "user", "assistant"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -16,7 +17,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -46,6 +47,9 @@ export class ChatController {
     // System policy comes from the persisted profile, never from a desktop-provided prompt.
     const messages: ProviderMessage[] = clientMessages.filter((message) => message.role !== "system");
     if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
+    // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
+    const memoryLines = await this.memory.contextLines().catch(() => []);
+    if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
     const effectiveModel = model ?? (agent?.model || undefined);
     if (attachments.length) {
       const text = typeof latestUser.content === "string" ? latestUser.content : "";

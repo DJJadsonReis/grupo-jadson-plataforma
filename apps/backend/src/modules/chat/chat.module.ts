@@ -8,6 +8,7 @@ import { AgentsModule } from "../agents/agents.module";
 import { UsageService } from "./usage.service";
 import { UsageController } from "./usage.controller";
 import { AuditModule } from "../audit/audit.module";
+import { MemoryModule } from "../memory/memory.module";
 
-@Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule, AuditModule],controllers: [ChatController, ConversationsController, UsageController],providers: [ConversationsService, UsageService] })
+@Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule, AuditModule, MemoryModule],controllers: [ChatController, ConversationsController, UsageController],providers: [ConversationsService, UsageService] })
 export class ChatModule {}
