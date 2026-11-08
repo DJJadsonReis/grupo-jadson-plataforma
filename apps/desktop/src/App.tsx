@@ -1852,6 +1852,8 @@ function ActivityPage() {
         )}
       </section>
 
+      <RoutinesSection />
+
       <section className="settings-box">
         <h3>Consumo de tokens (últimos 30 dias)</h3>
         {usage.length === 0 ? (
@@ -1880,6 +1882,97 @@ function ActivityPage() {
         )}
       </section>
     </div>
+  );
+}
+
+type RoutineEntry = { id: string; name: string; tool: string; intervalMinutes: number; enabled: boolean; nextRunAt: string; lastStatus: string | null };
+
+/** Rotinas: uma ferramenta de leitura roda sozinha a cada N minutos. Sensíveis não entram aqui. */
+function RoutinesSection() {
+  const [routines, setRoutines] = useState<RoutineEntry[]>([]);
+  const [tools, setTools] = useState<{ name: string; description: string; risk: string }[]>([]);
+  const [name, setName] = useState("");
+  const [tool, setTool] = useState("");
+  const [minutes, setMinutes] = useState(60);
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/routines`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("routines")))),
+      apiFetch(`${API_URL}/tools`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("tools")))),
+    ])
+      .then(([list, catalog]) => {
+        setRoutines(list as RoutineEntry[]);
+        const readOnly = (catalog as { name: string; description: string; risk: string }[]).filter((item) => item.risk === "read");
+        setTools(readOnly);
+        setTool((current) => current || readOnly[0]?.name || "");
+        setError(null);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar as rotinas."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function send(path: string, method: string, body?: unknown): Promise<boolean> {
+    const init: RequestInit = { method };
+    if (body !== undefined) {
+      init.headers = { "Content-Type": "application/json" };
+      init.body = JSON.stringify(body);
+    }
+    const response = await apiFetch(`${API_URL}${path}`, init);
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      setError(data.message ?? "Não foi possível concluir a ação.");
+      return false;
+    }
+    setError(null);
+    setVersion((value) => value + 1);
+    return true;
+  }
+
+  async function create() {
+    if (!name.trim() || !tool) return;
+    const ok = await send("/routines", "POST", { name: name.trim(), tool, intervalMinutes: minutes });
+    if (ok) setName("");
+  }
+
+  return (
+    <section className="settings-box">
+      <h3>Rotinas</h3>
+      <p>Uma ferramenta de leitura roda sozinha no intervalo escolhido. Ferramentas que alteram dados precisam de aprovação e não entram aqui.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <div className="security-notice" style={{ alignItems: "center" }}>
+        <input
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+          placeholder="Nome da rotina"
+          maxLength={80}
+          style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+        />
+        <select value={tool} onChange={(event) => setTool(event.target.value)} aria-label="Ferramenta">
+          {tools.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+        </select>
+        <input type="number" min={1} max={1440} value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} aria-label="Intervalo em minutos" style={{ width: 70, background: "transparent", color: "inherit" }} />
+        <span>min</span>
+        <button className="btn-primary-gold" onClick={create} disabled={!name.trim() || !tool}>Agendar</button>
+      </div>
+      {routines.length === 0 ? (
+        <p>Nenhuma rotina agendada.</p>
+      ) : (
+        routines.map((routine) => (
+          <div className="workspace-fact" key={routine.id}>
+            <b>{routine.name} · {routine.tool} a cada {routine.intervalMinutes} min{routine.enabled ? "" : " (pausada)"}</b>
+            <span style={{ display: "flex", gap: 6 }}>
+              <button className="icon-btn-close" onClick={() => void send(`/routines/${routine.id}/enabled`, "PUT", { enabled: !routine.enabled })}>
+                {routine.enabled ? "Pausar" : "Retomar"}
+              </button>
+              <button className="icon-btn-close" onClick={() => void send(`/routines/${routine.id}`, "DELETE")}>Apagar</button>
+            </span>
+          </div>
+        ))
+      )}
+    </section>
   );
 }
 
