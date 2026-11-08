@@ -8,6 +8,7 @@ import { ProvidersService } from "../providers/providers.service";
 import { ProviderMessage, ProviderMessageRole } from "../providers/provider.types";
 import { ConversationsService, StoredAttachment } from "./conversations.service";
 import { UsageService } from "./usage.service";
+import { AuditService } from "../audit/audit.service";
 
 const ALLOWED_ROLES = new Set<ProviderMessageRole>(["system", "user", "assistant"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -15,7 +16,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -102,6 +103,10 @@ export class ChatController {
           await this.usage.record({ conversationId, agentId, provider: "openai", model: reportedModel, ...usageReport });
         } catch (error) { this.logger.warn(`Consumo não registrado: ${error instanceof Error ? error.message : "falha no banco"}`); }
       }
+      // Trilha de auditoria: só metadados da chamada, nunca o texto das mensagens.
+      try {
+        await this.audit.record({ action: "chat.completion", subject: conversationId ?? null, details: { agentId: agentId ?? null, model: reportedModel, completed: !abort.signal.aborted } });
+      } catch (error) { this.logger.warn(`Auditoria não gravada: ${error instanceof Error ? error.message : "falha no banco"}`); }
       if (conversationId && answer) {
         try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}); }
         catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${error instanceof Error ? error.message : "falha no banco"}`); }
