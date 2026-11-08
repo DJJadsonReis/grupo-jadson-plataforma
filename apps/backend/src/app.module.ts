@@ -6,6 +6,7 @@ import { QueueModule } from "./modules/queue/queue.module";
 import { AuthModule } from "./modules/auth/auth.module";
 import { AuditModule } from "./modules/audit/audit.module";
 import { MemoryModule } from "./modules/memory/memory.module";
+import { HandoffsModule } from "./modules/handoffs/handoffs.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule] })
 export class AppModule {}
