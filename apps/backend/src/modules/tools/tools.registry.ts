@@ -16,6 +16,8 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "tempo.agora", description: "Data e hora atuais do servidor.", risk: "read" },
   { name: "memoria.listar", description: "Lista as memórias salvas pela pessoa.", risk: "read" },
   { name: "memoria.apagar_tudo", description: "Apaga todas as memórias salvas. Exige aprovação.", risk: "sensitive" },
+  { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read" },
+  { name: "busca.web", description: "Pesquisa na web com o Tavily. Precisa da chave TAVILY_API_KEY no .env.", risk: "read" },
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

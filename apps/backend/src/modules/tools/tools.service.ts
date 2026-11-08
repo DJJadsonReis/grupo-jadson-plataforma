@@ -6,6 +6,7 @@ import { DatabaseService } from "../database/database.service";
 import { MemoryService } from "../memory/memory.service";
 import { findTool, TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
 import { McpService } from "../mcp/mcp.service";
+import { searchTavily, searchWikipedia } from "./web-search";
 
 export interface ToolRun {
   id: string;
@@ -59,7 +60,7 @@ export class ToolsService {
       return this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
     }
 
-    const output = await this.runTool(tool.name, input);
+    const output = await this.safeRun(tool.name, input);
     await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk } });
     return this.insert(id, tool.name, requestedBy, statusOf(output), input, output, null);
   }
@@ -75,7 +76,7 @@ export class ToolsService {
     if (!approval || approval.status !== "approved") {
       throw new BadRequestException({ code: "NOT_APPROVED", message: "A aprovação ainda não foi concedida." });
     }
-    const output = await this.runTool(run.tool, run.input);
+    const output = await this.safeRun(run.tool, run.input);
     await this.audit.record({ actor, action: "tool.run", subject: run.tool, details: { approvalId: run.approvalId } });
     await this.database.getPool().query(
       `UPDATE tool_runs SET status = $3, output = $2, finished_at = now() WHERE id = $1`,
@@ -95,10 +96,21 @@ export class ToolsService {
     return result.rowCount === 0 ? null : (result.rows[0] as ToolRun);
   }
 
+  /** Roda a ferramenta; uma falha vira resultado com erro, gravado no histórico, em vez de derrubar a requisição. */
+  private async safeRun(name: string, input: Record<string, unknown>): Promise<unknown> {
+    try {
+      return await this.runTool(name, input);
+    } catch (error) {
+      return { erro: true, mensagem: error instanceof Error ? error.message : "Falha ao executar a ferramenta." };
+    }
+  }
+
   /** As únicas ações que existem hoje. Nenhuma toca o sistema operacional. */
   private async runTool(name: string, input: Record<string, unknown>): Promise<unknown> {
     if (this.mcp.find(name)) return this.mcp.call(name, input);
     if (name === "tempo.agora") return { agora: new Date().toISOString() };
+    if (name === "busca.wikipedia") return { resultados: await searchWikipedia(String(input.consulta ?? input.query ?? "")) };
+    if (name === "busca.web") return { resultados: await searchTavily(String(input.consulta ?? input.query ?? ""), process.env.TAVILY_API_KEY) };
     if (name === "memoria.listar") return { itens: await this.memory.list() };
     if (name === "memoria.apagar_tudo") {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
