@@ -2500,3 +2500,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Barras de rolagem do app inteiro: finas e escuras, no tom do tema (sem barra branca do sistema). */
+html, body { background-color: #090908; color-scheme: dark; }
+* { scrollbar-width: thin; scrollbar-color: rgba(255, 255, 255, 0.14) transparent; }
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.14); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(212, 175, 55, 0.35); }
+::-webkit-scrollbar-button { display: none; }
+::-webkit-scrollbar-corner { background: transparent; }
