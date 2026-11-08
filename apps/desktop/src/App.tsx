@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
   Activity, ArrowUp, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -41,6 +41,24 @@ const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
 
 const STORAGE_KEY = "grupo-jadson.workspace.v1";
 
+const SIDEBAR_DEFAULT_WIDTH = 260;
+const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_MAX_WIDTH = 420;
+
+function clampSidebarWidth(value: number): number {
+  return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));
+}
+
+/** Prévia de uma linha: o último texto da conversa, sem quebras de linha. */
+function lastMessagePreview(conversation: Conversation): string {
+  const last = [...conversation.messages].reverse().find((message) => message.content.trim().length > 0);
+  return last ? last.content.replace(/\s+/g, " ").trim().slice(0, 80) : "Sem mensagens";
+}
+
+function readStoredValue(key: string): string | null {
+  try { return localStorage.getItem(key); } catch { return null; }
+}
+
 function readWorkspace() {
   try { return parseWorkspace(localStorage.getItem(STORAGE_KEY)); }
   catch { return parseWorkspace(null); }
@@ -54,7 +72,7 @@ function readFavoriteAgents(): string[] {
 }
 
 export default function App() {
-  const [page, setPage] = useState<PageId>("dashboard");
+  const [page, setPage] = useState<PageId>("chat");
   const [health, setHealth] = useState<Health>("checking");
   const [postgresHealth, setPostgresHealth] = useState<Health>("checking");
   const [vectorHealth, setVectorHealth] = useState<Health>("checking");
@@ -67,6 +85,24 @@ export default function App() {
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
   const [agentPersistence, setAgentPersistence] = useState<"checking" | "connected" | "local" | "error">("checking");
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const [historyQuery, setHistoryQuery] = useState("");
+  const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(readStoredValue("grupo-jadson.sidebar-width")) || SIDEBAR_DEFAULT_WIDTH));
+
+  useEffect(() => {
+    try { localStorage.setItem("grupo-jadson.sidebar-width", String(sidebarWidth)); } catch { /* armazenamento indisponível: a largura vale só nesta sessão */ }
+  }, [sidebarWidth]);
+
+  /** Arrasta a borda do menu lateral; a largura acompanha o ponteiro dentro dos limites. */
+  const startSidebarResize = (event: ReactPointerEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const move = (moveEvent: PointerEvent) => setSidebarWidth(clampSidebarWidth(moveEvent.clientX));
+    const stop = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", stop);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", stop);
+  };
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
@@ -380,12 +416,21 @@ export default function App() {
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   return (
-    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""} ${focusMode ? "app-shell-focus" : ""}`}>
+    <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""} ${focusMode ? "app-shell-focus" : ""}`} style={{ "--sidebar-width": `${sidebarCollapsed ? 72 : sidebarWidth}px` } as CSSProperties}>
       <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"><Boxes size={19} /></button>
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
 
       {/* SIDEBAR PREMIUM */}
       <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+        {!sidebarCollapsed && (
+          <div
+            className="sidebar-resize-handle"
+            role="separator"
+            aria-orientation="vertical"
+            aria-label="Redimensionar menu lateral"
+            onPointerDown={startSidebarResize}
+          />
+        )}
         <div className="brand">
           <div className="brand-logo-wrap">
             <img src={logo} alt="Logo Grupo Jadson" />
@@ -420,6 +465,38 @@ export default function App() {
             </button>
           ))}
         </nav>
+
+        {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
+        {conversations.length > 0 && !sidebarCollapsed && (
+          <div className="history">
+            <div className="sidebar-section-header">
+              <span className="section-label">CONVERSAS</span>
+            </div>
+            <label className="history-search">
+              <Search size={13} />
+              <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
+            </label>
+            <div className="history-list">
+              {conversations
+                .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
+                .slice(0, 30)
+                .map((item) => (
+                  <button
+                    key={item.id}
+                    className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
+                    onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
+                    title={item.title}
+                  >
+                    <MessageSquare size={14} />
+                    <span className="history-copy">
+                      <strong>{item.title || "Nova conversa"}</strong>
+                      <small>{lastMessagePreview(item)}</small>
+                    </span>
+                  </button>
+                ))}
+            </div>
+          </div>
+        )}
 
         {/* SEUS AGENTES (ACESSO RÁPIDO) */}
         <div className="sidebar-agents">
@@ -465,26 +542,6 @@ export default function App() {
             {agents.length === 0 && !sidebarCollapsed && <small className="sidebar-empty">Nenhum agente configurado.</small>}
           </div>
         </div>
-
-        {/* CONVERSAS RECENTES */}
-        {conversations.length > 0 && (
-          <div className="history">
-            <span className="section-label">HISTÓRICO RECENTE</span>
-            <div className="history-list">
-              {conversations.slice(0, 5).map((item) => (
-                <button
-                  key={item.id}
-                  className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
-                  onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
-                  title={item.title}
-                >
-                  <MessageSquare size={14} />
-                  <span>{item.title || "Nova conversa"}</span>
-                </button>
-              ))}
-            </div>
-          </div>
-        )}
 
         {/* NAVEGAÇÃO SECUNDÁRIA INFERIOR */}
         <div className="sidebar-secondary">
@@ -1440,7 +1497,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
 
 function MonitoringPage({ health, postgres, vector, redis, providerCount }: { health: Health; postgres: Health; vector: Health; redis: Health; providerCount: number | null }) {
   return (
-    <div className="page-content">
+    <div className="page-content monitoring-page">
       <div className="page-header-row">
         <div>
           <span className="section-label">OBSERVABILIDADE</span>
