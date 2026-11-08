@@ -450,11 +450,18 @@
 .history-list {
   overflow-y: auto;
   overflow-x: hidden;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.12) transparent;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
   gap: 2px;
   padding-right: 2px;
 }
+
+.history-list::-webkit-scrollbar { width: 6px; }
+.history-list::-webkit-scrollbar-track { background: transparent; }
+.history-list::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.12); border-radius: 3px; }
+.history-list::-webkit-scrollbar-button { display: none; }
 
 .history-item {
   display: flex;
