@@ -10,6 +10,8 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "@modelcontextprotocol/server-filesystem": "2.2.0",
     "@nestjs/common": "^10.4.15",
     "@nestjs/core": "^10.4.15",
     "@nestjs/platform-express": "^10.4.15",

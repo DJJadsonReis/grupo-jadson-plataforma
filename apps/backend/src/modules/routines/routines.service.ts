@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
-import { findTool } from "../tools/tools.registry";
 import { ToolsService } from "../tools/tools.service";
 
 export const TICK_MS = 60_000;
@@ -52,7 +51,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   async create(input: { name: string; tool: string; intervalMinutes: number }): Promise<Routine> {
     const name = input.name.trim();
     if (!name || name.length > 80) throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Dê um nome de até 80 caracteres." });
-    const tool = findTool(input.tool);
+    const tool = this.tools.catalog().find((item) => item.name === input.tool);
     if (!tool) throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Ferramenta não encontrada." });
     if (tool.risk !== "read") {
       throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Só ferramentas de leitura podem ser agendadas." });

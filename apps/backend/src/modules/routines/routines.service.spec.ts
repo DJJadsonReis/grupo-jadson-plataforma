@@ -18,7 +18,14 @@ describe("nextRunFrom", () => {
 });
 
 describe("RoutinesService.create", () => {
-  const service = new RoutinesService({ getPool: () => ({ query: async () => ({ rows: [], rowCount: 0 }) }) } as unknown as DatabaseService, {} as ToolsService);
+  const catalog = [
+    { name: "tempo.agora", description: "", risk: "read" },
+    { name: "memoria.apagar_tudo", description: "", risk: "sensitive" },
+  ];
+  const service = new RoutinesService(
+    { getPool: () => ({ query: async () => ({ rows: [], rowCount: 0 }) }) } as unknown as DatabaseService,
+    { catalog: () => catalog } as unknown as ToolsService,
+  );
 
   it("não agenda ferramenta sensível", async () => {
     await expect(service.create({ name: "x", tool: "memoria.apagar_tudo", intervalMinutes: 60 })).rejects.toBeInstanceOf(BadRequestException);

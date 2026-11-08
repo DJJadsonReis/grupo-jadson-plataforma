@@ -4,11 +4,12 @@ import { DatabaseModule } from "../database/database.module";
 import { MemoryModule } from "../memory/memory.module";
 import { ToolsController } from "./tools.controller";
 import { ToolsService } from "./tools.service";
+import { McpService } from "../mcp/mcp.service";
 
 @Module({
   imports: [DatabaseModule, AuditModule, MemoryModule],
   controllers: [ToolsController],
-  providers: [ToolsService],
+  providers: [ToolsService, McpService],
   exports: [ToolsService],
 })
 export class ToolsModule {}

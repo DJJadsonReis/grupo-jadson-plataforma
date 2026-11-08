@@ -5,6 +5,7 @@ import { AuditService } from "../audit/audit.service";
 import { DatabaseService } from "../database/database.service";
 import { MemoryService } from "../memory/memory.service";
 import { findTool, TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
+import { McpService } from "../mcp/mcp.service";
 
 export interface ToolRun {
   id: string;
@@ -21,6 +22,11 @@ export interface ToolRun {
 const COLUMNS = `id, tool, requested_by AS "requestedBy", status, input, output, approval_id AS "approvalId",
   created_at AS "createdAt", finished_at AS "finishedAt"`;
 
+/** Ferramenta que devolve erro (ex.: caminho recusado pelo servidor) não conta como concluída. */
+function statusOf(output: unknown): "done" | "failed" {
+  return (output as { erro?: unknown } | null)?.erro === true ? "failed" : "done";
+}
+
 @Injectable()
 export class ToolsService {
   constructor(
@@ -28,15 +34,17 @@ export class ToolsService {
     private readonly approvals: ApprovalsService,
     private readonly audit: AuditService,
     private readonly memory: MemoryService,
+    private readonly mcp: McpService,
   ) {}
 
   catalog(): ToolDefinition[] {
-    return TOOL_DEFINITIONS;
+    const fromMcp = this.mcp.catalog().map((tool) => ({ name: tool.name, description: tool.description, risk: tool.risk }));
+    return [...TOOL_DEFINITIONS, ...fromMcp];
   }
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
   async invoke(name: string, input: Record<string, unknown>, requestedBy: string): Promise<ToolRun> {
-    const tool = findTool(name);
+    const tool = this.catalog().find((item) => item.name === name) ?? findTool(name);
     if (!tool) throw new NotFoundException({ code: "NOT_FOUND", message: "Ferramenta não encontrada." });
     const id = randomUUID();
 
@@ -53,7 +61,7 @@ export class ToolsService {
 
     const output = await this.runTool(tool.name, input);
     await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk } });
-    return this.insert(id, tool.name, requestedBy, "done", input, output, null);
+    return this.insert(id, tool.name, requestedBy, statusOf(output), input, output, null);
   }
 
   /** Executa uma ação sensível já aprovada. Recusa se a aprovação não existir ou não foi concedida. */
@@ -70,8 +78,8 @@ export class ToolsService {
     const output = await this.runTool(run.tool, run.input);
     await this.audit.record({ actor, action: "tool.run", subject: run.tool, details: { approvalId: run.approvalId } });
     await this.database.getPool().query(
-      `UPDATE tool_runs SET status = 'done', output = $2, finished_at = now() WHERE id = $1`,
-      [runId, JSON.stringify(output)],
+      `UPDATE tool_runs SET status = $3, output = $2, finished_at = now() WHERE id = $1`,
+      [runId, JSON.stringify(output), statusOf(output)],
     );
     return (await this.get(runId)) as ToolRun;
   }
@@ -88,7 +96,8 @@ export class ToolsService {
   }
 
   /** As únicas ações que existem hoje. Nenhuma toca o sistema operacional. */
-  private async runTool(name: string, _input: Record<string, unknown>): Promise<unknown> {
+  private async runTool(name: string, input: Record<string, unknown>): Promise<unknown> {
+    if (this.mcp.find(name)) return this.mcp.call(name, input);
     if (name === "tempo.agora") return { agora: new Date().toISOString() };
     if (name === "memoria.listar") return { itens: await this.memory.list() };
     if (name === "memoria.apagar_tudo") {
