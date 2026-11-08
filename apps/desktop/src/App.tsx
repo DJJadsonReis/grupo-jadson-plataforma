@@ -1779,6 +1779,7 @@ const AUDIT_LABELS: Record<string, string> = {
   "approval.approved": "Aprovação concedida",
   "approval.rejected": "Aprovação recusada",
   "handoff.created": "Delegação entre agentes",
+  "tool.run": "Ferramenta executada",
 };
 
 /** Atividades: solicitações de aprovação pendentes e a trilha de auditoria recente. */
