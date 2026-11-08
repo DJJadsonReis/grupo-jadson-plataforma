@@ -1493,7 +1493,84 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
           <span>Diretório de Dados: <code>.runtime/webview2-data</code> isolado localmente no drive T:</span>
         </div>
       </article>
+      <MemorySettings />
     </div>
+  );
+}
+
+type MemoryEntry = { id: string; content: string; createdAt: string };
+
+/** Memória: o que a pessoa pediu para lembrar. Desligada, nada disso vai para o modelo. */
+function MemorySettings() {
+  const [enabled, setEnabled] = useState(true);
+  const [items, setItems] = useState<MemoryEntry[]>([]);
+  const [draft, setDraft] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/memory`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("memory"))))
+      .then((state: { enabled: boolean; items: MemoryEntry[] }) => { setEnabled(state.enabled); setItems(state.items); setError(null); })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar a memória."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function toggle() {
+    const next = !enabled;
+    const response = await apiFetch(`${API_URL}/memory/enabled`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: next }),
+    });
+    if (response.ok) setEnabled(next); else setError("Não foi possível alterar a memória.");
+  }
+
+  async function add() {
+    const content = draft.trim();
+    if (!content) return;
+    const response = await apiFetch(`${API_URL}/memory`, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ content }),
+    });
+    if (response.ok) { setDraft(""); setVersion((value) => value + 1); } else setError("Não foi possível salvar essa memória.");
+  }
+
+  async function forget(id: string) {
+    const response = await apiFetch(`${API_URL}/memory/${id}`, { method: "DELETE" });
+    if (response.ok) setVersion((value) => value + 1); else setError("Não foi possível esquecer essa memória.");
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Memória</h3>
+      <p>O que você pedir para lembrar entra como contexto nas conversas. Você pode desligar a memória ou apagar cada item.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <div className="workspace-fact">
+        <span>Memória {enabled ? "ligada" : "desligada"}</span>
+        <button className={"switch-toggle " + (enabled ? "switch-on" : "")} aria-pressed={enabled} aria-label={enabled ? "Desligar memória" : "Ligar memória"} onClick={toggle}>
+          <span className="switch-thumb" />
+        </button>
+      </div>
+      <div className="security-notice" style={{ alignItems: "center" }}>
+        <input
+          value={draft}
+          onChange={(event) => setDraft(event.target.value)}
+          placeholder="Ex.: prefiro respostas curtas"
+          maxLength={500}
+          style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+        />
+        <button className="btn-primary-gold" onClick={add} disabled={!draft.trim()}>Lembrar</button>
+      </div>
+      {items.length === 0 ? (
+        <p>Nada salvo ainda.</p>
+      ) : (
+        items.map((item) => (
+          <div className="workspace-fact" key={item.id}>
+            <b>{item.content}</b>
+            <button className="icon-btn-close" onClick={() => forget(item.id)}>Esquecer</button>
+          </div>
+        ))
+      )}
+    </article>
   );
 }
 
