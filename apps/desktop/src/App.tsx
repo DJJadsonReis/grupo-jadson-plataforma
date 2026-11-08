@@ -913,7 +913,31 @@ function ChatPage({
   const [delegateTo, setDelegateTo] = useState("");
   const [delegating, setDelegating] = useState(false);
   const [delegateError, setDelegateError] = useState<string | null>(null);
+  const [pdfError, setPdfError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  /** Lê o texto de cada PDF pelo backend e coloca no rascunho, com nome e páginas. */
+  async function attachPdfs(pdfs: File[]) {
+    for (const pdf of pdfs) {
+      try {
+        const bytes = new Uint8Array(await pdf.arrayBuffer());
+        let binary = "";
+        for (let i = 0; i < bytes.length; i += 0x8000) binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+        const response = await apiFetch(`${API_URL}/documents/pdf`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ filename: pdf.name, contentBase64: btoa(binary) }),
+        });
+        const body = (await response.json().catch(() => ({}))) as { message?: string; text?: string; pages?: number; truncated?: boolean; filename?: string };
+        if (!response.ok) throw new Error(body.message ?? "Não foi possível ler o PDF.");
+        const block = `[Documento: ${body.filename} (${body.pages} página${body.pages === 1 ? "" : "s"})]\n${body.text}${body.truncated ? "\n[texto cortado]" : ""}`;
+        setDraft(draft ? `${draft}\n\n${block}` : block);
+        setPdfError(null);
+      } catch (error) {
+        setPdfError(error instanceof Error ? error.message : "Não foi possível ler o PDF.");
+      }
+    }
+  }
 
   /** Registra a delegação e passa a conversa para o agente escolhido nas próximas mensagens. */
   async function delegate() {
@@ -1115,6 +1139,7 @@ function ChatPage({
           </div>
         )}
 
+        {pdfError && <div className="composer-error" role="alert" onClick={() => setPdfError(null)}>{pdfError}</div>}
         <form
           className="composer-capsule"
             onSubmit={(event) => { event.preventDefault(); onSend(draft, model, selectedAgent, files); }}
@@ -1142,8 +1167,13 @@ function ChatPage({
                 hidden
                 type="file"
                 multiple
-                accept="image/png,image/jpeg,image/webp"
-                onChange={(event) => setFiles([...files, ...Array.from(event.target.files ?? []).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))])}
+                accept="image/png,image/jpeg,image/webp,application/pdf"
+                onChange={(event) => {
+                  const chosen = Array.from(event.target.files ?? []);
+                  setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))]);
+                  void attachPdfs(chosen.filter((file) => file.type === "application/pdf"));
+                  event.target.value = "";
+                }}
               />
               <button
                 type="button"
