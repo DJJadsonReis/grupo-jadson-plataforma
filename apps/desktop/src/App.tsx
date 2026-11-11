@@ -834,7 +834,7 @@ function Workspace() {
           <ConversationsPage
             conversations={conversations}
             agents={agents}
-            onNew={newConversation}
+            onNew={() => newConversation()}
             onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
           />
         )}
