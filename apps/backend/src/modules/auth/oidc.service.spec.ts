@@ -1,7 +1,7 @@
 import { UnauthorizedException } from "@nestjs/common";
 import { createLocalJWKSet, exportJWK, generateKeyPair, SignJWT } from "jose";
 import { createHash } from "node:crypto";
-import { OidcService, pkcePair, providersFromEnv } from "./oidc.service";
+import { loopbackReturn, OidcService, pkcePair, providersFromEnv } from "./oidc.service";
 
 const ISSUER = "https://accounts.google.com";
 const JWKS_URL = "https://www.googleapis.com/oauth2/v3/certs";
@@ -111,5 +111,22 @@ describe("OidcService.finishLogin", () => {
   it("recusa provedor não configurado", async () => {
     const { service } = await setup({});
     await expect(service.finishLogin("okta", "codigo", "estado")).rejects.toBeInstanceOf(Error);
+  });
+});
+
+describe("retorno loopback", () => {
+  it("aceita só 127.0.0.1 ou localhost, porta alta e caminho /cb", () => {
+    expect(loopbackReturn("http://127.0.0.1:53000/cb")).toBe("http://127.0.0.1:53000/cb");
+    expect(loopbackReturn("http://localhost:61234/cb")).toBe("http://localhost:61234/cb");
+    expect(loopbackReturn("http://evil.com/cb")).toBeNull();
+    expect(loopbackReturn("http://127.0.0.1:80/cb")).toBeNull();
+    expect(loopbackReturn("http://127.0.0.1:3000/outro")).toBeNull();
+    expect(loopbackReturn("https://127.0.0.1:53000/cb")).toBeNull();
+  });
+
+  it("leva a sessão na query quando o retorno é local", () => {
+    const { service } = { service: new OidcService({} as never) };
+    expect(service.desktopReturn({ session: "abc" }, "http://127.0.0.1:53000/cb")).toBe("http://127.0.0.1:53000/cb?session=abc");
+    expect(service.desktopReturn({ error: "sem_acesso" }, null)).toContain("#error=sem_acesso");
   });
 });

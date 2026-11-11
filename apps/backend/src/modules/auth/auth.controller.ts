@@ -18,13 +18,14 @@ export class AuthController {
     return this.oidc.providers();
   }
 
+  /** `return` é o endereço loopback do desktop (http://127.0.0.1:<porta>/cb). Outro endereço é recusado. */
   @Public()
   @Get("login/:provider")
-  async login(@Param("provider") provider: string, @Res() res: Response) {
+  async login(@Param("provider") provider: string, @Query("return") returnUri: string | undefined, @Res() res: Response) {
     try {
-      res.redirect(await this.oidc.startLogin(provider));
+      res.redirect(await this.oidc.startLogin(provider, returnUri ?? null));
     } catch {
-      res.redirect(this.oidc.desktopReturn({ error: "provedor_indisponivel" }));
+      res.redirect(this.oidc.desktopReturn({ error: "provedor_indisponivel" }, returnUri ? null : undefined));
     }
   }
 
@@ -45,11 +46,11 @@ export class AuthController {
       const identity = await this.oidc.finishLogin(provider, code, state);
       const person = await this.users.findActiveByEmail(identity.email);
       if (!person) {
-        res.redirect(this.oidc.desktopReturn({ error: "sem_acesso" }));
+        res.redirect(this.oidc.desktopReturn({ error: "sem_acesso" }, identity.returnUri));
         return;
       }
       const session = await this.users.createSession(person.id, provider);
-      res.redirect(this.oidc.desktopReturn({ session }));
+      res.redirect(this.oidc.desktopReturn({ session }, identity.returnUri));
     } catch {
       res.redirect(this.oidc.desktopReturn({ error: "falhou" }));
     }

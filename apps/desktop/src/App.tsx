@@ -5,6 +5,7 @@ import {
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
+import { invoke } from "@tauri-apps/api/core";
 import logo from "./assets/grupo-jadson-logo.png";
 
 type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings";
@@ -14,11 +15,114 @@ type ProviderStatus = { id: string; name: string; configured: boolean };
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
 const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
 
-/** Envia o token da API em todas as chamadas ao backend (fetch com Authorization). */
+const SESSION_KEY = "grupo-jadson.session.v1";
+
+/** Sessão da pessoa que entrou com a conta. Fica só neste computador. */
+function readSession(): string | null {
+  try {
+    return window.localStorage.getItem(SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function saveSession(token: string): void {
+  try {
+    window.localStorage.setItem(SESSION_KEY, token);
+  } catch {
+    /* sem armazenamento: a sessão vale só nesta janela */
+  }
+}
+
+/** Envia a sessão (se houver) ou o token do sistema em todas as chamadas ao backend. */
 function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  if (API_TOKEN) headers.set("Authorization", `Bearer ${API_TOKEN}`);
+  const token = readSession() ?? API_TOKEN;
+  if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
+}
+
+const SIGN_IN_MESSAGES: Record<string, string> = {
+  sem_acesso: "Seu e-mail ainda não está cadastrado. Peça ao administrador para liberar seu acesso.",
+  cancelado: "A entrada foi cancelada.",
+  falhou: "Não foi possível concluir a entrada. Tente de novo.",
+  provedor_indisponivel: "Este provedor não está disponível agora.",
+  "tempo esgotado": "A entrada demorou demais. Tente de novo.",
+};
+
+/** Tela de entrada: aparece só quando há provedores configurados e nenhuma sessão salva. */
+function LoginScreen({ onSignedIn }: { onSignedIn: (token: string) => void }) {
+  const [providers, setProviders] = useState<{ id: string; label: string }[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetch(`${API_URL}/auth/providers`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("providers"))))
+      .then((list: { id: string; label: string }[]) => setProviders(list))
+      .catch(() => setError("Não foi possível falar com o servidor."));
+  }, []);
+
+  async function signIn(id: string) {
+    setBusy(id);
+    setError(null);
+    try {
+      // O retorno vai para um endereço local do próprio computador, aberto só durante a entrada.
+      const port = await invoke<number>("begin_sign_in");
+      const returnUri = encodeURIComponent(`http://127.0.0.1:${port}/cb`);
+      await invoke("open_external", { url: `${API_URL}/auth/login/${id}?return=${returnUri}` });
+      const token = await invoke<string>("await_sign_in");
+      onSignedIn(token);
+    } catch (reason) {
+      const code = typeof reason === "string" ? reason : "";
+      setError(SIGN_IN_MESSAGES[code] ?? "Não foi possível concluir a entrada. Tente de novo.");
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <main className="login-screen">
+      <div className="login-card">
+        <img src={logo} alt="" className="login-logo" />
+        <h1>Entrar no Grupo Jadson</h1>
+        <p>Use a mesma conta cadastrada para você no sistema.</p>
+        {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+        {providers.map((provider) => (
+          <button key={provider.id} className="btn-primary-gold login-button" onClick={() => void signIn(provider.id)} disabled={busy !== null}>
+            {busy === provider.id ? "Aguardando o navegador..." : `Entrar com ${provider.label}`}
+          </button>
+        ))}
+      </div>
+    </main>
+  );
+}
+
+/** Decide se mostra a entrada. Sem provedores configurados, o app segue como antes. */
+export default function App() {
+  const [session, setSession] = useState<string | null>(() => readSession());
+  const [gate, setGate] = useState<"checking" | "login" | "open">("checking");
+
+  useEffect(() => {
+    fetch(`${API_URL}/auth/providers`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((list: unknown[]) => setGate(list.length > 0 && !readSession() ? "login" : "open"))
+      .catch(() => setGate("open"));
+  }, [session]);
+
+  if (gate === "checking") return null;
+  if (gate === "login") {
+    return (
+      <LoginScreen
+        onSignedIn={(token) => {
+          saveSession(token);
+          setSession(token);
+          setGate("open");
+        }}
+      />
+    );
+  }
+  return <Workspace />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -72,7 +176,7 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-export default function App() {
+function Workspace() {
   const [page, setPage] = useState<PageId>("chat");
   const [health, setHealth] = useState<Health>("checking");
   const [postgresHealth, setPostgresHealth] = useState<Health>("checking");

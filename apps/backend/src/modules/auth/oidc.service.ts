@@ -18,6 +18,16 @@ interface ProviderConfig {
 export interface VerifiedIdentity {
   email: string;
   name: string | null;
+  /** Endereço loopback do desktop, se o login começou por lá. */
+  returnUri: string | null;
+}
+
+/** Só aceita retorno para o próprio computador (127.0.0.1 ou localhost, com porta), caminho /cb. */
+export function loopbackReturn(value: string): string | null {
+  const match = /^http:\/\/(127\.0\.0\.1|localhost):(\d{1,5})\/cb$/.exec(value.trim());
+  if (!match) return null;
+  const port = Number(match[2]);
+  return port >= 1024 && port <= 65535 ? value.trim() : null;
 }
 
 const FLOW_TTL_MS = 10 * 60_000;
@@ -88,16 +98,18 @@ export class OidcService {
   }
 
   /** Monta o endereço do provedor e guarda o estado do fluxo (uso único, vale 10 minutos). */
-  async startLogin(id: string): Promise<string> {
+  async startLogin(id: string, returnUri?: string | null): Promise<string> {
     const provider = this.provider(id);
+    const loopback = returnUri ? loopbackReturn(returnUri) : null;
+    if (returnUri && !loopback) throw new BadRequestException({ code: "INVALID_RETURN", message: "Endereço de retorno não permitido." });
     const config = await this.discovery(provider.issuer);
     const state = base64url(randomBytes(24));
     const nonce = base64url(randomBytes(24));
     const { verifier, challenge } = pkcePair();
     await this.database.getPool().query(`DELETE FROM auth_flows WHERE expires_at < now()`);
     await this.database.getPool().query(
-      `INSERT INTO auth_flows(state, provider, code_verifier, nonce, expires_at) VALUES ($1,$2,$3,$4,$5)`,
-      [state, provider.id, verifier, nonce, new Date(Date.now() + FLOW_TTL_MS)],
+      `INSERT INTO auth_flows(state, provider, code_verifier, nonce, expires_at, return_uri) VALUES ($1,$2,$3,$4,$5,$6)`,
+      [state, provider.id, verifier, nonce, new Date(Date.now() + FLOW_TTL_MS), loopback],
     );
     const url = new URL(config.authorization_endpoint ?? "");
     url.search = new URLSearchParams({
@@ -118,11 +130,11 @@ export class OidcService {
     const provider = this.provider(id);
     const flow = await this.database.getPool().query(
       `DELETE FROM auth_flows WHERE state = $1 AND provider = $2 AND expires_at > now()
-       RETURNING code_verifier AS "codeVerifier", nonce`,
+       RETURNING code_verifier AS "codeVerifier", nonce, return_uri AS "returnUri"`,
       [state, provider.id],
     );
     if (flow.rowCount === 0) throw new UnauthorizedException({ code: "INVALID_STATE", message: "Pedido de entrada expirado. Tente de novo." });
-    const { codeVerifier, nonce } = flow.rows[0] as { codeVerifier: string; nonce: string };
+    const { codeVerifier, nonce, returnUri } = flow.rows[0] as { codeVerifier: string; nonce: string; returnUri: string | null };
 
     const config = await this.discovery(provider.issuer);
     const response = await fetch(config.token_endpoint ?? "", {
@@ -150,7 +162,7 @@ export class OidcService {
     const email = String(payload.email ?? payload.preferred_username ?? payload.upn ?? "").trim().toLowerCase();
     if (!email || !email.includes("@")) throw new UnauthorizedException({ code: "NO_EMAIL", message: "O provedor não informou um e-mail." });
     if (payload.email_verified === false) throw new UnauthorizedException({ code: "EMAIL_NOT_VERIFIED", message: "O e-mail da conta não está verificado." });
-    return { email, name: typeof payload.name === "string" ? payload.name : null };
+    return { email, name: typeof payload.name === "string" ? payload.name : null, returnUri };
   }
 
   private async verifyIdToken(provider: ProviderConfig, config: Record<string, string>, idToken: string): Promise<JWTPayload> {
@@ -175,8 +187,10 @@ export class OidcService {
   }
 
   /** Para onde o desktop volta depois do login. A sessão vai no fragmento (não chega ao servidor). */
-  desktopReturn(params: { session?: string; error?: string }): string {
-    const fragment = new URLSearchParams(params.session ? { session: params.session } : { error: params.error ?? "erro" });
-    return `${DESKTOP_RETURN}#${fragment.toString()}`;
+  desktopReturn(params: { session?: string; error?: string }, returnUri?: string | null): string {
+    const payload = new URLSearchParams(params.session ? { session: params.session } : { error: params.error ?? "erro" });
+    // Retorno local: a sessão vai na query, pois quem recebe é o próprio app. Padrão: fragmento.
+    if (returnUri) return `${returnUri}?${payload.toString()}`;
+    return `${DESKTOP_RETURN}#${payload.toString()}`;
   }
 }

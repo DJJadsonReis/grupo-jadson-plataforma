@@ -2510,3 +2510,44 @@ html, body { background-color: #090908; color-scheme: dark; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(212, 175, 55, 0.35); }
 ::-webkit-scrollbar-button { display: none; }
 ::-webkit-scrollbar-corner { background: transparent; }
+
+/* Tela de entrada com conta */
+.login-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 16px;
+  background: var(--bg, #0f0f10);
+}
+
+.login-card {
+  width: min(420px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 28px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  text-align: center;
+}
+
+.login-logo {
+  width: 64px;
+  height: 64px;
+  margin: 0 auto;
+  object-fit: contain;
+}
+
+.login-card h1 {
+  font-size: 1.25rem;
+  margin: 0;
+}
+
+.login-card p {
+  margin: 0;
+  opacity: 0.7;
+}
+
+.login-button {
+  width: 100%;
+}
