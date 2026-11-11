@@ -220,6 +220,7 @@ function Workspace() {
   const [historyMenu, setHistoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
+  const [historyNotice, setHistoryNotice] = useState<string | null>(null);
 
   useEffect(() => {
     if (!historyMenu) return;
@@ -237,10 +238,11 @@ function Workspace() {
 
   function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    const shortTitle = ((item?.title || "Nova conversa").split("\n")[0] ?? "").slice(0, 40);
-    if (!window.confirm(`Excluir a conversa "${shortTitle}"? Isso não pode ser desfeito.`)) return;
+    if (!item) return;
     setConversations((items) => items.filter((c) => c.id !== id));
     if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
+    setHistoryNotice("Conversa excluída.");
+    window.setTimeout(() => setHistoryNotice(null), 2500);
   }
   const [historyQuery, setHistoryQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(readStoredValue("grupo-jadson.sidebar-width")) || SIDEBAR_DEFAULT_WIDTH));
@@ -670,6 +672,9 @@ function Workspace() {
                     </span>
                   </button>
                 ))}
+              {historyNotice && (
+                <div role="status" className="gallery-notice-pill" style={{ margin: "8px 0" }}>{historyNotice}</div>
+              )}
               {historyMenu && (
                 <div
                   role="menu"
