@@ -2617,3 +2617,19 @@ html, body { background-color: #090908; color-scheme: dark; }
 .composer-capsule select.agent-inline-select {
   color-scheme: dark;
 }
+
+/* Campos de texto sem caixa dourada no foco (vale para o projeto todo) */
+textarea:focus,
+textarea:focus-visible,
+input:focus,
+input:focus-visible,
+select:focus,
+select:focus-visible {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.composer-capsule textarea:focus,
+.composer-capsule textarea:focus-visible {
+  border: 0 !important;
+}
