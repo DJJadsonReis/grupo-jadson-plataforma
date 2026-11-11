@@ -1784,6 +1784,7 @@ function ModelSettings() {
   const [values, setValues] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
+  const [savedField, setSavedField] = useState<string | null>(null);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -1805,6 +1806,8 @@ function ModelSettings() {
     if (response.ok) {
       setValues((current) => ({ ...current, [name]: "" }));
       setError(null);
+      setSavedField(name);
+      window.setTimeout(() => setSavedField((current) => (current === name ? null : current)), 3000);
       setVersion((v) => v + 1);
     } else {
       const data = (await response.json().catch(() => ({}))) as { message?: string };
@@ -1836,10 +1839,11 @@ function ModelSettings() {
                 type={field.secret ? "password" : "text"}
                 value={values[field.name] ?? ""}
                 onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
-                placeholder={configured ? "Trocar" : field.placeholder}
+                placeholder={configured ? (field.secret ? "•••••••• salva (digite para trocar)" : "Trocar") : field.placeholder}
                 autoComplete="off"
                 style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
               />
+              {savedField === field.name && <span role="status" style={{ color: "#d4af37", whiteSpace: "nowrap" }}>Salvo ✓</span>}
               <button className="btn-primary-gold" onClick={() => void save(field.name)} disabled={!(values[field.name] ?? "").trim()}>Salvar</button>
               {configured && <button className="icon-btn-close" onClick={() => void remove(field.name)}>Remover</button>}
             </div>
