@@ -2556,3 +2556,48 @@ html, body { background-color: #090908; color-scheme: dark; }
 .login-button {
   width: 100%;
 }
+
+/* Anexos acima da caixa de mensagem (PDF e imagens) */
+.composer-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+  margin: 0 0 10px;
+}
+
+.attachment-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  max-width: 100%;
+  padding: 5px 8px 5px 12px;
+  border-radius: 999px;
+  border: 1px solid rgba(212, 175, 55, 0.45);
+  background: rgba(212, 175, 55, 0.08);
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.attachment-pill button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex: none;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.7;
+}
+
+.attachment-pill button:hover {
+  opacity: 1;
+  background: rgba(255, 255, 255, 0.08);
+}
