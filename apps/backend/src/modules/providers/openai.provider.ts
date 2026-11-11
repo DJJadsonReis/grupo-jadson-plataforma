@@ -4,6 +4,8 @@ import { CompletionInput, LanguageModelProvider } from "./provider.types";
 
 const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-4o-mini";
+const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
+const GEMINI_MODEL = "gemini-2.0-flash";
 
 /**
  * Provedor de modelo compatível com a API da OpenAI. Chave, endereço e nome do modelo vêm das
@@ -19,10 +21,20 @@ export class OpenAiProvider implements LanguageModelProvider {
     return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(endpoint);
   }
 
+  /** Identifica o provedor pelo formato da chave, para o usuário só precisar colar a chave. */
+  private static guessFromKey(key: string): { endpoint: string; model: string } | null {
+    if (key.startsWith("AIza")) return { endpoint: GEMINI_ENDPOINT, model: GEMINI_MODEL };
+    if (key.startsWith("sk-")) return { endpoint: DEFAULT_ENDPOINT, model: DEFAULT_MODEL };
+    return null;
+  }
+
   private async settings(): Promise<{ key: string; endpoint: string; model: string }> {
     const key = (await this.integrations.secret("modelo_chave"))?.trim() ?? "";
-    const endpoint = (await this.integrations.secret("modelo_endereco"))?.trim() || DEFAULT_ENDPOINT;
-    const model = (await this.integrations.secret("modelo_padrao"))?.trim() || DEFAULT_MODEL;
+    const savedEndpoint = (await this.integrations.secret("modelo_endereco"))?.trim() ?? "";
+    const savedModel = (await this.integrations.secret("modelo_padrao"))?.trim() ?? "";
+    const guess = OpenAiProvider.guessFromKey(key);
+    const endpoint = savedEndpoint || guess?.endpoint || DEFAULT_ENDPOINT;
+    const model = savedModel || guess?.model || DEFAULT_MODEL;
     return { key, endpoint, model };
   }
 
