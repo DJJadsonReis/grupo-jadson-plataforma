@@ -20,7 +20,7 @@ export class OpenAiProvider implements LanguageModelProvider {
     if (!apiKey) {
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_NOT_CONFIGURED",
-        message: "Nenhum provedor de IA está configurado. Configure OPENAI_API_KEY no ambiente do backend.",
+        message: "Nenhum modelo de IA está configurado. Sem custo: instale um modelo local (por exemplo, o Ollama) e defina OPENAI_BASE_URL=http://127.0.0.1:11434/v1 no apps/backend/.env. Com uma chave da OpenAI, defina OPENAI_API_KEY.",
       });
     }
 
