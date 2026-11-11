@@ -2601,3 +2601,19 @@ html, body { background-color: #090908; color-scheme: dark; }
   opacity: 1;
   background: rgba(255, 255, 255, 0.08);
 }
+
+/* Barra do compositor: sem contornos de foco e lista do perfil no tema escuro */
+.composer-capsule input,
+.composer-capsule select,
+.composer-capsule label {
+  outline: none !important;
+  box-shadow: none !important;
+}
+
+.composer-capsule .toolbar-pill-label:focus-within {
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.composer-capsule select.agent-inline-select {
+  color-scheme: dark;
+}
