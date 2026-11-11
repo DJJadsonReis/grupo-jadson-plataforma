@@ -31,7 +31,7 @@ export class ApiTokenGuard implements CanActivate {
     if (expected && safeEqual(provided, expected)) {
       principal = { id: "sistema", name: "Administrador", role: "admin" };
     } else if (provided && this.users) {
-      principal = await this.users.findByToken(provided);
+      principal = (await this.users.findByToken(provided)) ?? (await this.users.findBySession(provided));
     }
     if (!principal) {
       throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Token de API ausente ou inválido." });

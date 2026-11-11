@@ -15,11 +15,12 @@ export class UsersController {
 
   /** Cria uma pessoa. O token aparece só nesta resposta; guarde-o com cuidado. */
   @Post()
-  create(@Body() body: { name?: unknown; role?: unknown }) {
+  create(@Body() body: { name?: unknown; role?: unknown; email?: unknown }) {
     if (typeof body?.name !== "string" || typeof body?.role !== "string") {
       throw new BadRequestException({ code: "INVALID_USER", message: "Informe nome e papel." });
     }
-    return this.users.create({ name: body.name, role: body.role as Role });
+    const email = typeof body.email === "string" && body.email.trim() ? body.email : null;
+    return this.users.create({ name: body.name, role: body.role as Role, email });
   }
 
   @Put(":id/role")

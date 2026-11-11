@@ -12,6 +12,7 @@ import { migrationId as toolRunsMigrationId, up as addToolRuns } from "./migrati
 import { migrationId as routinesMigrationId, up as addRoutines } from "./migrations/010-routines";
 import { migrationId as routineLimitsMigrationId, up as addRoutineLimits } from "./migrations/012-routine-limits";
 import { migrationId as agentPoliciesMigrationId, up as addAgentPolicies } from "./migrations/013-agent-policies";
+import { migrationId as signInMigrationId, up as addSignIn } from "./migrations/014-sign-in";
 import { migrationId as integrationsMigrationId, up as addIntegrations } from "./migrations/011-integrations";
 
 @Injectable()
@@ -47,6 +48,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: routinesMigrationId, apply: async () => addRoutines(this.pool!) },
         { id: routineLimitsMigrationId, apply: async () => addRoutineLimits(this.pool!) },
         { id: agentPoliciesMigrationId, apply: async () => addAgentPolicies(this.pool!) },
+        { id: signInMigrationId, apply: async () => addSignIn(this.pool!) },
         { id: integrationsMigrationId, apply: async () => addIntegrations(this.pool!) },
       ];
       for (const migration of migrations) {

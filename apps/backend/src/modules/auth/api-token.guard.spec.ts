@@ -24,7 +24,7 @@ function contextWith(authorization: string | undefined, flags: Flags = {}, metho
 }
 
 function usersReturning(principal: Principal | null): UsersService {
-  return { findByToken: async () => principal } as unknown as UsersService;
+  return { findByToken: async () => principal, findBySession: async () => null } as unknown as UsersService;
 }
 
 const SYSTEM_TOKEN = "test-token-with-enough-length-123456";
