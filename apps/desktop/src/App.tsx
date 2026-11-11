@@ -99,25 +99,52 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (token: string) => void }) {
 }
 
 /** Decide se mostra a entrada. Sem provedores configurados, o app segue como antes. */
+const SIGN_IN_REQUIRED_KEY = "grupo-jadson.signin-required.v1";
+
+/** Lembra, neste computador, se a entrada com conta já foi exigida. Permite decidir na abertura, sem esperar a rede. */
+function readSignInRequired(): boolean {
+  try {
+    return window.localStorage.getItem(SIGN_IN_REQUIRED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeSignInRequired(required: boolean): void {
+  try {
+    window.localStorage.setItem(SIGN_IN_REQUIRED_KEY, required ? "1" : "0");
+  } catch {
+    /* sem armazenamento: a verificação acontece de novo na próxima abertura */
+  }
+}
+
+/**
+ * A janela abre na hora. Se a entrada com conta for exigida e não houver sessão, mostra a tela de entrada.
+ * Sem provedores configurados, ou com o backend fora do ar, o app segue como antes.
+ */
 export default function App() {
   const [session, setSession] = useState<string | null>(() => readSession());
-  const [gate, setGate] = useState<"checking" | "login" | "open">("checking");
+  const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
 
   useEffect(() => {
     fetch(`${API_URL}/auth/providers`)
-      .then((r) => (r.ok ? r.json() : []))
-      .then((list: unknown[]) => setGate(list.length > 0 && !readSession() ? "login" : "open"))
-      .catch(() => setGate("open"));
+      .then((r) => (r.ok ? r.json() : null))
+      .then((list: unknown[] | null) => {
+        if (!list) return;
+        const required = list.length > 0;
+        writeSignInRequired(required);
+        setNeedsLogin(required && !readSession());
+      })
+      .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
   }, [session]);
 
-  if (gate === "checking") return null;
-  if (gate === "login") {
+  if (needsLogin) {
     return (
       <LoginScreen
         onSignedIn={(token) => {
           saveSession(token);
           setSession(token);
-          setGate("open");
+          setNeedsLogin(false);
         }}
       />
     );
@@ -1018,6 +1045,7 @@ function ChatPage({
   const [delegating, setDelegating] = useState(false);
   const [delegateError, setDelegateError] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
+  const [pdfDocs, setPdfDocs] = useState<{ id: string; name: string; pages: number; text: string; truncated: boolean }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   /** Lê o texto de cada PDF pelo backend e coloca no rascunho, com nome e páginas. */
@@ -1034,8 +1062,14 @@ function ChatPage({
         });
         const body = (await response.json().catch(() => ({}))) as { message?: string; text?: string; pages?: number; truncated?: boolean; filename?: string };
         if (!response.ok) throw new Error(body.message ?? "Não foi possível ler o PDF.");
-        const block = `[Documento: ${body.filename} (${body.pages} página${body.pages === 1 ? "" : "s"})]\n${body.text}${body.truncated ? "\n[texto cortado]" : ""}`;
-        setDraft(draft ? `${draft}\n\n${block}` : block);
+        // O PDF fica como anexo (chip) e o texto só vai junto na mensagem enviada.
+        setPdfDocs((items) => [...items, {
+          id: crypto.randomUUID(),
+          name: body.filename ?? pdf.name,
+          pages: body.pages ?? 0,
+          text: body.text ?? "",
+          truncated: Boolean(body.truncated),
+        }]);
         setPdfError(null);
       } catch (error) {
         setPdfError(error instanceof Error ? error.message : "Não foi possível ler o PDF.");
@@ -1243,10 +1277,31 @@ function ChatPage({
           </div>
         )}
 
+        {pdfDocs.length > 0 && (
+          <div className="composer-attachments">
+            {pdfDocs.map((doc) => (
+              <span key={doc.id} className="attachment-pill">
+                {doc.name} · {doc.pages} página{doc.pages === 1 ? "" : "s"}
+                <button type="button" onClick={() => setPdfDocs((items) => items.filter((item) => item.id !== doc.id))} aria-label="Remover PDF">
+                  <X size={12} />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         {pdfError && <div className="composer-error" role="alert" onClick={() => setPdfError(null)}>{pdfError}</div>}
         <form
           className="composer-capsule"
-            onSubmit={(event) => { event.preventDefault(); onSend(draft, model, selectedAgent, files); }}
+            onSubmit={(event) => {
+              event.preventDefault();
+              // Cada PDF vai como bloco de documento antes do texto digitado.
+              const blocks = pdfDocs.map((doc) => `[Documento: ${doc.name} (${doc.pages} página${doc.pages === 1 ? "" : "s"})]\n${doc.text}${doc.truncated ? "\n[texto cortado]" : ""}`);
+              const message = [...blocks, draft].filter((part) => part.trim()).join("\n\n");
+              if (!message && files.length === 0) return;
+              onSend(message, model, selectedAgent, files);
+              setPdfDocs([]);
+            }}
         >
           <textarea
             value={draft}
@@ -1686,9 +1741,108 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
         </div>
       </article>
       <MemorySettings />
+      <ModelSettings />
       <IntegrationSettings />
       <AccessSettings />
     </div>
+  );
+}
+
+type ModelField = { name: "modelo_chave" | "modelo_endereco" | "modelo_padrao"; label: string; hint: string; secret: boolean; placeholder: string };
+
+const MODEL_FIELDS: ModelField[] = [
+  {
+    name: "modelo_chave",
+    label: "Chave do modelo",
+    hint: "Chave da API do provedor. Fica cifrada neste computador e não aparece de novo depois de salva.",
+    secret: true,
+    placeholder: "Cole a chave aqui",
+  },
+  {
+    name: "modelo_endereco",
+    label: "Endereço do modelo",
+    hint: "Deixe vazio para usar a OpenAI. Para outro provedor compatível, informe o endereço completo.",
+    secret: false,
+    placeholder: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+  },
+  {
+    name: "modelo_padrao",
+    label: "Nome do modelo",
+    hint: "Modelo usado nas conversas quando nenhum for escolhido. Ex.: gemini-2.0-flash",
+    secret: false,
+    placeholder: "gpt-4o-mini",
+  },
+];
+
+/** Configurações do modelo de IA que responde no chat. Cada campo é salvo e pode ser removido. */
+function ModelSettings() {
+  const [status, setStatus] = useState<Record<string, boolean> | null>(null);
+  const [values, setValues] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/integrations`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("integrations"))))
+      .then((state: Record<string, { configured: boolean }>) => {
+        setStatus(Object.fromEntries(Object.entries(state).map(([name, item]) => [name, item.configured])));
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível verificar o modelo de IA."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function save(name: string) {
+    const value = (values[name] ?? "").trim();
+    if (!value) return;
+    const response = await apiFetch(`${API_URL}/integrations/${name}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: value }),
+    });
+    if (response.ok) {
+      setValues((current) => ({ ...current, [name]: "" }));
+      setError(null);
+      setVersion((v) => v + 1);
+    } else {
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      setError(data.message ?? "Não foi possível salvar.");
+    }
+  }
+
+  async function remove(name: string) {
+    const response = await apiFetch(`${API_URL}/integrations/${name}`, { method: "DELETE" });
+    if (response.ok) { setError(null); setVersion((v) => v + 1); } else setError("Não foi possível remover.");
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Modelo de IA</h3>
+      <p>É o modelo que responde no chat. Sem ele, o chat não gera respostas. Você pode usar a OpenAI ou outro provedor compatível.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      {MODEL_FIELDS.map((field) => {
+        const configured = status?.[field.name];
+        return (
+          <div key={field.name} style={{ display: "grid", gap: 6, marginBottom: 14 }}>
+            <div className="workspace-fact">
+              <span>{field.label}</span>
+              <b>{status === null ? "Verificando..." : configured ? "Configurado" : "Não configurado"}</b>
+            </div>
+            <small style={{ opacity: 0.7 }}>{field.hint}</small>
+            <div className="security-notice" style={{ alignItems: "center" }}>
+              <input
+                type={field.secret ? "password" : "text"}
+                value={values[field.name] ?? ""}
+                onChange={(event) => setValues((current) => ({ ...current, [field.name]: event.target.value }))}
+                placeholder={configured ? "Trocar" : field.placeholder}
+                autoComplete="off"
+                style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+              />
+              <button className="btn-primary-gold" onClick={() => void save(field.name)} disabled={!(values[field.name] ?? "").trim()}>Salvar</button>
+              {configured && <button className="icon-btn-close" onClick={() => void remove(field.name)}>Remover</button>}
+            </div>
+          </div>
+        );
+      })}
+    </article>
   );
 }
 

@@ -13,6 +13,6 @@ export interface CompletionInput {
 
 export interface LanguageModelProvider {
   readonly id: string;
-  isConfigured(): boolean;
+  isConfigured(): boolean | Promise<boolean>;
   stream(input: CompletionInput, signal?: AbortSignal): Promise<Response>;
 }

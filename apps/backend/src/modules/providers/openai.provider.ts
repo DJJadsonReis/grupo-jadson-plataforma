@@ -1,35 +1,52 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { IntegrationsService } from "../integrations/integrations.service";
 import { CompletionInput, LanguageModelProvider } from "./provider.types";
 
+const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
+const DEFAULT_MODEL = "gpt-4o-mini";
+
+/**
+ * Provedor de modelo compatível com a API da OpenAI. Chave, endereço e nome do modelo vêm das
+ * Configurações do app; se faltarem, usa o .env. Endereço local (Ollama, LM Studio) não exige chave.
+ */
 @Injectable()
 export class OpenAiProvider implements LanguageModelProvider {
   readonly id = "openai";
 
-  /** Endpoint local compatível com a API OpenAI (Ollama, LM Studio, llama.cpp, vLLM) não exige chave. */
-  private isLocalEndpoint(): boolean {
-    const baseUrl = process.env.OPENAI_BASE_URL?.trim() ?? "";
-    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(baseUrl);
+  constructor(private readonly integrations: IntegrationsService) {}
+
+  private static isLocal(endpoint: string): boolean {
+    return /^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])([:/]|$)/i.test(endpoint);
   }
 
-  isConfigured(): boolean {
-    return Boolean(process.env.OPENAI_API_KEY?.trim()) || this.isLocalEndpoint();
+  private async settings(): Promise<{ key: string; endpoint: string; model: string }> {
+    const key = (await this.integrations.secret("modelo_chave"))?.trim() ?? "";
+    const endpoint = (await this.integrations.secret("modelo_endereco"))?.trim() || DEFAULT_ENDPOINT;
+    const model = (await this.integrations.secret("modelo_padrao"))?.trim() || DEFAULT_MODEL;
+    return { key, endpoint, model };
+  }
+
+  async isConfigured(): Promise<boolean> {
+    const { key, endpoint } = await this.settings();
+    return Boolean(key) || OpenAiProvider.isLocal(endpoint);
   }
 
   async stream(input: CompletionInput, signal?: AbortSignal): Promise<Response> {
-    const apiKey = process.env.OPENAI_API_KEY?.trim() || (this.isLocalEndpoint() ? "local-no-key" : "");
+    const { key, endpoint, model } = await this.settings();
+    const apiKey = key || (OpenAiProvider.isLocal(endpoint) ? "local-no-key" : "");
     if (!apiKey) {
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_NOT_CONFIGURED",
-        message: "Nenhum modelo de IA está configurado. Sem custo: instale um modelo local (por exemplo, o Ollama) e defina OPENAI_BASE_URL=http://127.0.0.1:11434/v1 no apps/backend/.env. Com uma chave da OpenAI, defina OPENAI_API_KEY.",
+        message: "Nenhum modelo de IA está configurado. Cole a chave do modelo em Configurações, na seção Modelo de IA.",
       });
     }
 
-    const response = await fetch(process.env.OPENAI_BASE_URL?.trim() || "https://api.openai.com/v1/chat/completions", {
+    const response = await fetch(endpoint, {
       method: "POST",
       signal: signal ?? null,
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: input.model || process.env.OPENAI_MODEL || "gpt-4o-mini", messages: input.messages, stream: true,
+        model: input.model || model, messages: input.messages, stream: true,
         stream_options: { include_usage: true },
         ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
         ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
@@ -41,11 +58,11 @@ export class OpenAiProvider implements LanguageModelProvider {
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_REQUEST_FAILED",
         message: hasImage
-          ? `O provedor OpenAI respondeu com HTTP ${response.status}; confirme se o modelo selecionado aceita imagens.`
-          : `O provedor OpenAI respondeu com HTTP ${response.status}.`,
+          ? `O modelo respondeu com HTTP ${response.status}; confirme se o modelo selecionado aceita imagens.`
+          : `O modelo respondeu com HTTP ${response.status}. Confira a chave, o endereço e o nome do modelo em Configurações.`,
       });
     }
-    if (!response.body) throw new ServiceUnavailableException("O provedor não retornou um fluxo de dados.");
+    if (!response.body) throw new ServiceUnavailableException("O modelo não retornou um fluxo de dados.");
     return response;
   }
 }

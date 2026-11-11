@@ -6,8 +6,8 @@ import { CompletionInput } from "./provider.types";
 export class ProvidersService {
   constructor(private readonly openAi: OpenAiProvider) {}
 
-  list() {
-    return [{ id: "openai", name: "OpenAI", configured: this.openAi.isConfigured() }];
+  async list() {
+    return [{ id: "openai", name: "Modelo de IA", configured: await this.openAi.isConfigured() }];
   }
 
   stream(input: CompletionInput, signal?: AbortSignal) {
