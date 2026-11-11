@@ -237,7 +237,7 @@ function Workspace() {
 
   function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    const shortTitle = (item?.title || "Nova conversa").split("\n")[0].slice(0, 40);
+    const shortTitle = ((item?.title || "Nova conversa").split("\n")[0] ?? "").slice(0, 40);
     if (!window.confirm(`Excluir a conversa "${shortTitle}"? Isso não pode ser desfeito.`)) return;
     setConversations((items) => items.filter((c) => c.id !== id));
     if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
