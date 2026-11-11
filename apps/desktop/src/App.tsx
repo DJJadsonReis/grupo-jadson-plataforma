@@ -1292,7 +1292,7 @@ function ChatPage({
                     <b>{message.role === "user" ? "Você" : agents.find((item) => item.id === message.agentId)?.name ?? "Grupo Jadson"}</b>
                   </div>
                   <div className="message-content">
-                    {message.attachments?.map((attachment) => attachment.dataUrl && <img key={attachment.id} className="message-image-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
+                    {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="message-image-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
                     {message.content ? (
                       <MarkdownContent content={message.content} />
                     ) : busy ? (
