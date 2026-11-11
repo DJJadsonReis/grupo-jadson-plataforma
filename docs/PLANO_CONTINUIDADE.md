@@ -43,7 +43,7 @@ Verificações: `pnpm --filter @grupo-jadson/backend test` (58 testes) e `run ty
   - Busca na web: `busca.wikipedia` (sem chave) e `busca.web` (Tavily, precisa da chave).
   - Rotinas agendadas com ferramentas de leitura (rodam a cada N minutos).
 - **F9 — PDF:** anexar PDF no chat; o texto é extraído pelo backend.
-- **Chave do Tavily:** pode ser colada em Configurações → Busca na web. Fica no banco local.
+- **Chave do Tavily:** pode ser colada em Configurações → Busca na web. Fica no banco local, cifrada (AES-256-GCM); a chave de cifragem é `CREDENTIAL_KEY` no `apps/backend/.env`, criada na primeira vez.
 
 ## 3. O que falta
 
