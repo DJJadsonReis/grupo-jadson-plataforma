@@ -2410,6 +2410,8 @@
 .agent-role-tag { color: var(--gold, #c7a453); font-size: 11px; }
 .composer-capsule { position: relative; }
 @media (max-width: 720px) {
+  .topbar { padding-left: 60px; padding-right: 12px; gap: 8px; }
+  .breadcrumb-root, .breadcrumb-separator { display: none; }
   .group-create-form { padding: 16px; }
   .mention-suggestions { left: 8px; right: 8px; min-width: 0; }
 }
