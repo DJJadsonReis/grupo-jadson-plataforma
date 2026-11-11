@@ -428,7 +428,6 @@ function Workspace() {
   function changePage(next: PageId) {
     setPage(next);
     setMobileOpen(false);
-    if (next === "chat" && !activeConversation) newConversation();
   }
 
   async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string) {
@@ -638,6 +637,7 @@ function Workspace() {
             </label>
             <div className="history-list">
               {conversations
+                .filter((item) => item.messages.length > 0 || item.id === activeConversation)
                 .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
                 .slice(0, 30)
                 .map((item) => renamingId === item.id ? (
