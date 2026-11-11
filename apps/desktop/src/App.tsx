@@ -1910,6 +1910,7 @@ function ActivityPage() {
       </section>
 
       <RoutinesSection />
+      <AgentPoliciesSection />
 
       <section className="settings-box">
         <h3>Consumo de tokens (últimos 30 dias)</h3>
@@ -2028,6 +2029,89 @@ function RoutinesSection() {
             </span>
           </div>
         ))
+      )}
+    </section>
+  );
+}
+
+function AgentPoliciesSection() {
+  const [agentList, setAgentList] = useState<{ id: string; name: string }[]>([]);
+  const [tools, setTools] = useState<{ name: string; description: string; risk: string }[]>([]);
+  const [agentId, setAgentId] = useState("");
+  const [rules, setRules] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/agents`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("agents")))),
+      apiFetch(`${API_URL}/tools`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("tools")))),
+    ])
+      .then(([agents, catalog]) => {
+        const list = (agents as { id: string; name: string }[]).map((agent) => ({ id: agent.id, name: agent.name }));
+        setAgentList(list);
+        setTools(catalog as { name: string; description: string; risk: string }[]);
+        setAgentId((current) => current || list[0]?.id || "");
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar os agentes."); });
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!agentId) return;
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/agents/${agentId}/policies`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("policies"))))
+      .then((list: { tool: string; decision: string }[]) => {
+        setRules(Object.fromEntries(list.map((item) => [item.tool, item.decision])));
+        setError(null);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar as regras."); });
+    return () => controller.abort();
+  }, [agentId]);
+
+  async function change(tool: string, value: string) {
+    const url = `${API_URL}/agents/${agentId}/policies/${encodeURIComponent(tool)}`;
+    const response = value === "ask"
+      ? await apiFetch(url, { method: "DELETE" })
+      : await apiFetch(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ decision: value }) });
+    if (!response.ok) {
+      const data = (await response.json().catch(() => ({}))) as { message?: string };
+      setError(data.message ?? "Não foi possível salvar a regra.");
+      return;
+    }
+    setError(null);
+    setRules((current) => {
+      const next = { ...current };
+      if (value === "ask") delete next[tool];
+      else next[tool] = value;
+      return next;
+    });
+  }
+
+  return (
+    <section className="settings-box">
+      <h3>Permissões dos agentes</h3>
+      <p>Escolha o que cada agente pode fazer sem perguntar. Sem regra, ferramentas de leitura rodam e as que alteram dados pedem aprovação.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      {agentList.length === 0 ? (
+        <p>Nenhum agente cadastrado.</p>
+      ) : (
+        <>
+          <select value={agentId} onChange={(event) => setAgentId(event.target.value)} aria-label="Agente">
+            {agentList.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+          </select>
+          {tools.map((tool) => (
+            <div className="workspace-fact" key={tool.name}>
+              <b>{tool.name} <span>{tool.risk === "sensitive" ? "(altera dados)" : "(leitura)"}</span></b>
+              <select value={rules[tool.name] ?? "ask"} onChange={(event) => void change(tool.name, event.target.value)} aria-label={`Regra para ${tool.name}`}>
+                <option value="ask">Perguntar (padrão)</option>
+                <option value="allow">Permitir sem perguntar</option>
+                <option value="deny">Recusar</option>
+              </select>
+            </div>
+          ))}
+        </>
       )}
     </section>
   );
