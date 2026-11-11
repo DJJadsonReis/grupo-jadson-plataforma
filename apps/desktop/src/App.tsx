@@ -404,12 +404,13 @@ function Workspace() {
     if (next === "chat" && !activeConversation) newConversation();
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = []) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string) {
     const content = contentInput.trim();
+    const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
     let conversationId = activeConversation;
     if (!conversationId) {
-      const conversation: Conversation = { id: crypto.randomUUID(), title: content.slice(0, 48), messages: [], updatedAt: Date.now() };
+      const conversation: Conversation = { id: crypto.randomUUID(), title: title.slice(0, 48), messages: [], updatedAt: Date.now() };
       conversationId = conversation.id;
       setActiveConversation(conversationId);
       setConversations((items) => [conversation, ...items]);
@@ -421,7 +422,7 @@ function Workspace() {
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
       ...(agent ? { agentId: agent.id } : {}),
-      title: item.messages.length ? item.title : (content || "Imagem enviada").slice(0, 48),
+      title: item.messages.length ? item.title : (title || "Imagem enviada").slice(0, 48),
       messages: [...item.messages, userMessage],
       updatedAt: Date.now()
     } : item));
@@ -1032,7 +1033,7 @@ function ChatPage({
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: (value: string) => void; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[]) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
@@ -1299,7 +1300,10 @@ function ChatPage({
               const blocks = pdfDocs.map((doc) => `[Documento: ${doc.name} (${doc.pages} página${doc.pages === 1 ? "" : "s"})]\n${doc.text}${doc.truncated ? "\n[texto cortado]" : ""}`);
               const message = [...blocks, draft].filter((part) => part.trim()).join("\n\n");
               if (!message && files.length === 0) return;
-              onSend(message, model, selectedAgent, files);
+              // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
+              const typed = draft.trim();
+              const docNames = pdfDocs.map((doc) => doc.name).join(", ");
+              onSend(message, model, selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
               setPdfDocs([]);
             }}
         >
