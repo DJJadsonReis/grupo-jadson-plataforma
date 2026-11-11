@@ -217,6 +217,30 @@ function Workspace() {
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
   const [agentPersistence, setAgentPersistence] = useState<"checking" | "connected" | "local" | "error">("checking");
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const [historyMenu, setHistoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+
+  useEffect(() => {
+    if (!historyMenu) return;
+    const close = () => setHistoryMenu(null);
+    window.addEventListener("click", close);
+    window.addEventListener("keydown", close);
+    return () => { window.removeEventListener("click", close); window.removeEventListener("keydown", close); };
+  }, [historyMenu]);
+
+  function renameConversation(id: string, title: string) {
+    const clean = title.trim();
+    if (clean) setConversations((items) => items.map((item) => (item.id === id ? { ...item, title: clean.slice(0, 80) } : item)));
+    setRenamingId(null);
+  }
+
+  function deleteConversation(id: string) {
+    const item = conversations.find((c) => c.id === id);
+    if (!window.confirm(`Excluir a conversa "${item?.title || "Nova conversa"}"? Isso não pode ser desfeito.`)) return;
+    setConversations((items) => items.filter((c) => c.id !== id));
+    if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
+  }
   const [historyQuery, setHistoryQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(readStoredValue("grupo-jadson.sidebar-width")) || SIDEBAR_DEFAULT_WIDTH));
 
@@ -613,11 +637,29 @@ function Workspace() {
               {conversations
                 .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
                 .slice(0, 30)
-                .map((item) => (
+                .map((item) => renamingId === item.id ? (
+                  <div key={item.id} className="history-item">
+                    <MessageSquare size={14} />
+                    <input
+                      autoFocus
+                      aria-label="Novo nome da conversa"
+                      value={renameDraft}
+                      maxLength={80}
+                      onChange={(event) => setRenameDraft(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") renameConversation(item.id, renameDraft);
+                        if (event.key === "Escape") setRenamingId(null);
+                      }}
+                      onBlur={() => renameConversation(item.id, renameDraft)}
+                      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+                    />
+                  </div>
+                ) : (
                   <button
                     key={item.id}
                     className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
                     onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
+                    onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }}
                     title={item.title}
                   >
                     <MessageSquare size={14} />
@@ -627,6 +669,21 @@ function Workspace() {
                     </span>
                   </button>
                 ))}
+              {historyMenu && (
+                <div
+                  role="menu"
+                  onClick={(event) => event.stopPropagation()}
+                  style={{ position: "fixed", left: historyMenu.x, top: historyMenu.y, zIndex: 1000, background: "#161616", border: "1px solid #3a3a3a", borderRadius: 8, padding: 4, display: "grid", minWidth: 150 }}
+                >
+                  <button role="menuitem" className="history-item" onClick={() => {
+                    const target = conversations.find((c) => c.id === historyMenu.id);
+                    setRenameDraft(target?.title || "");
+                    setRenamingId(historyMenu.id);
+                    setHistoryMenu(null);
+                  }}>Renomear</button>
+                  <button role="menuitem" className="history-item" onClick={() => { const id = historyMenu.id; setHistoryMenu(null); deleteConversation(id); }}>Excluir</button>
+                </div>
+              )}
             </div>
           </div>
         )}
