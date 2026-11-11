@@ -2513,15 +2513,20 @@ html, body { background-color: #090908; color-scheme: dark; }
 
 /* Tela de entrada com conta */
 .login-screen {
+  box-sizing: border-box;
+  width: 100%;
   min-height: 100vh;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   place-items: center;
   padding: 16px;
   background: var(--bg, #0f0f10);
 }
 
 .login-card {
+  box-sizing: border-box;
   width: min(420px, 100%);
+  min-width: 0;
   display: grid;
   gap: 14px;
   padding: 28px;
