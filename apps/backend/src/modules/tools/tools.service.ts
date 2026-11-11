@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { AgentPolicyService } from "./agent-policy.service";
 import { randomUUID } from "node:crypto";
 import { ApprovalsService } from "../audit/approvals.service";
 import { AuditService } from "../audit/audit.service";
@@ -38,6 +39,7 @@ export class ToolsService {
     private readonly memory: MemoryService,
     private readonly mcp: McpService,
     private readonly integrations: IntegrationsService,
+    private readonly policies: AgentPolicyService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -46,12 +48,19 @@ export class ToolsService {
   }
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
-  async invoke(name: string, input: Record<string, unknown>, requestedBy: string): Promise<ToolRun> {
+  async invoke(name: string, input: Record<string, unknown>, requestedBy: string, agentId?: string): Promise<ToolRun> {
     const tool = this.catalog().find((item) => item.name === name) ?? findTool(name);
     if (!tool) throw new NotFoundException({ code: "NOT_FOUND", message: "Ferramenta não encontrada." });
     const id = randomUUID();
 
-    if (tool.risk === "sensitive") {
+    // Regra do agente vem antes de tudo: "deny" recusa e fica na auditoria; "allow" dispensa aprovação.
+    const policy = agentId ? await this.policies.decisionFor(agentId, tool.name) : null;
+    if (policy === "deny") {
+      await this.audit.record({ actor: requestedBy, action: "tool.refused", subject: tool.name, details: { agentId, rule: "deny" } });
+      throw new ForbiddenException({ code: "POLICY_DENIED", message: "A regra deste agente recusa essa ferramenta." });
+    }
+
+    if (tool.risk === "sensitive" && policy !== "allow") {
       const approval = await this.approvals.request({
         action: `tool.${tool.name}`,
         subject: id,
@@ -63,7 +72,7 @@ export class ToolsService {
     }
 
     const output = await this.safeRun(tool.name, input);
-    await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk } });
+    await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk, ...(policy === "allow" ? { agentId, rule: "allow" } : {}) } });
     return this.insert(id, tool.name, requestedBy, statusOf(output), input, output, null);
   }
 
