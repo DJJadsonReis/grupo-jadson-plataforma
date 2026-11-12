@@ -13,8 +13,6 @@ type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
-const API_TOKEN = import.meta.env.VITE_API_TOKEN ?? "";
-
 const SESSION_KEY = "grupo-jadson.session.v1";
 
 /** Sessão da pessoa que entrou com a conta. Fica só neste computador. */
@@ -34,10 +32,30 @@ function saveSession(token: string): void {
   }
 }
 
-/** Envia a sessão (se houver) ou o token do sistema em todas as chamadas ao backend. */
-function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+/**
+ * Token do sistema, usado só em desenvolvimento. O servidor do Vite entrega em tempo de execução
+ * (ver vite.config.ts); em produção não existe token do sistema no app: vale só a sessão de login.
+ */
+let devTokenRequest: Promise<string> | null = null;
+function devSystemToken(): Promise<string> {
+  if (!import.meta.env.DEV) return Promise.resolve("");
+  if (!devTokenRequest) {
+    devTokenRequest = fetch("/__gj/dev-token", { cache: "no-store" })
+      .then((r): Promise<{ token?: string }> => (r.ok ? r.json() : Promise.resolve({})))
+      .then((body) => body.token ?? "")
+      .catch(() => "")
+      .then((token) => {
+        if (!token) devTokenRequest = null; // tenta de novo na próxima chamada
+        return token;
+      });
+  }
+  return devTokenRequest;
+}
+
+/** Envia a sessão (se houver) ou, em desenvolvimento, o token do sistema em todas as chamadas ao backend. */
+async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = readSession() ?? API_TOKEN;
+  const token = readSession() ?? (await devSystemToken());
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 }

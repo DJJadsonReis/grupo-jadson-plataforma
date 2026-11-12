@@ -11,7 +11,7 @@ Pré-requisitos (tudo gratuito, instalado dentro da pasta do projeto):
 
 Arquivos de ambiente (não vão para o git):
 - `apps/backend/.env`: `API_TOKEN`, `API_PORT=3333`, `API_HOST=127.0.0.1`, `DATABASE_URL=postgres://gj:<senha>@127.0.0.1:55432/grupo_jadson`, e opcionalmente `TAVILY_API_KEY`.
-- `apps/desktop/.env.local`: `VITE_API_TOKEN` com o mesmo valor de `API_TOKEN`.
+- `apps/desktop/.env.local`: `GJ_DEV_API_TOKEN` com o mesmo valor de `API_TOKEN` (só desenvolvimento; não usa prefixo `VITE_`, então não vai para o bundle).
 
 Subir o banco local (uma vez por sessão):
 ```
