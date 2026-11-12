@@ -226,6 +226,7 @@ function Workspace() {
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
   const [agentPersistence, setAgentPersistence] = useState<"checking" | "connected" | "local" | "error">("checking");
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
+  const [pendingConversation, setPendingConversation] = useState<Conversation | null>(null);
   const [historyMenu, setHistoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
@@ -285,7 +286,7 @@ function Workspace() {
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-  const active = useMemo(() => conversations.find((c) => c.id === activeConversation) ?? null, [conversations, activeConversation]);
+  const active = useMemo(() => conversations.find((c) => c.id === activeConversation) ?? (pendingConversation && pendingConversation.id === activeConversation ? pendingConversation : null), [conversations, activeConversation, pendingConversation]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -425,7 +426,7 @@ function Workspace() {
       ...(agentId ? { agentId } : {}),
       ...(groupId ? { groupId, type: "group" as const } : {})
     };
-    setConversations((items) => [conversation, ...items]);
+    setPendingConversation(conversation);
     setActiveConversation(conversation.id);
     setPage("chat");
     setError(null);
@@ -444,6 +445,10 @@ function Workspace() {
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
     let conversationId = activeConversation;
+    if (pendingConversation && pendingConversation.id === activeConversation) {
+      setConversations((items) => [{ ...pendingConversation, title: (title || "Nova conversa").slice(0, 48) }, ...items]);
+      setPendingConversation(null);
+    }
     if (!conversationId) {
       const conversation: Conversation = { id: crypto.randomUUID(), title: title.slice(0, 48), messages: [], updatedAt: Date.now() };
       conversationId = conversation.id;
@@ -452,7 +457,7 @@ function Workspace() {
     }
     const id = conversationId;
     const userMessage: ChatMessage = { role: "user", content: content || "Analise a imagem anexada." };
-    const current = conversations.find((item) => item.id === id);
+    const current = conversations.find((item) => item.id === id) ?? (pendingConversation && pendingConversation.id === id ? pendingConversation : undefined);
     const prior = current?.messages ?? [];
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
@@ -656,7 +661,7 @@ function Workspace() {
             </label>
             <div className="history-list">
               {conversations
-                .filter((item) => item.messages.length > 0 || item.id === activeConversation)
+                .filter((item) => item.messages.length > 0)
                 .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
                 .slice(0, 30)
                 .map((item) => renamingId === item.id ? (
