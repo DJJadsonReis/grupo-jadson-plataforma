@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
-  Activity, ArrowUp, ArrowUpRight, Image, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowUp, ArrowUpRight, Image, Mic, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
@@ -1109,6 +1109,39 @@ function Dashboard({
 /* =========================================================================
    CHAT PAGE (EXPERIÊNCIA CONVERSACIONAL MODERNA)
    ========================================================================= */
+/** Ditado por voz: usa o reconhecimento de voz do navegador (gratuito). Some quando o sistema não oferece. */
+type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> & { length: number } }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null };
+function DictateButton({ onText }: { onText: (text: string) => void }) {
+  const [listening, setListening] = useState(false);
+  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike });
+  const Recognition = Ctor.SpeechRecognition ?? Ctor.webkitSpeechRecognition;
+  if (!Recognition) return null;
+
+  function toggle() {
+    if (listening) { recognitionRef.current?.stop(); return; }
+    const recognition = new Recognition!();
+    recognition.lang = "pt-BR";
+    recognition.continuous = false;
+    recognition.interimResults = false;
+    recognition.onresult = (event) => {
+      const text = Array.from(event.results).map((result) => result[0]?.transcript ?? "").join(" ").trim();
+      if (text) onText(text);
+    };
+    recognition.onend = () => setListening(false);
+    recognition.onerror = () => setListening(false);
+    recognitionRef.current = recognition;
+    setListening(true);
+    recognition.start();
+  }
+
+  return (
+    <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "")} onClick={toggle} title={listening ? "Parar ditado" : "Ditar mensagem"} aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening}>
+      <Mic size={16} />
+    </button>
+  );
+}
+
 /** Busca rápida (Ctrl+K): bots, conversas, ações e telas. */
 function CommandPalette({ open, onClose, agents, conversations, onOpenConversation, onChatWithAgent, onNewConversation, onNavigate }: {
   open: boolean; onClose: () => void; agents: Agent[]; conversations: Conversation[];
@@ -1495,6 +1528,7 @@ function ChatPage({
               >
                 <Paperclip size={16} />
               </button>
+              <DictateButton onText={(text) => setDraft(draft ? `${draft} ${text}` : text)} />
 
               {/* SELETOR DE MODELO */}
               <label className="toolbar-pill-label">
