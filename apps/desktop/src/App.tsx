@@ -1104,6 +1104,8 @@ function ChatPage({
   const [model, setModel] = useState("");
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
+  const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
+  const libraryFiles = (conversation?.messages ?? []).flatMap((message) => (Array.isArray(message.attachments) ? message.attachments : [])).filter((file) => file && file.name);
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [delegateTo, setDelegateTo] = useState("");
   const [delegating, setDelegating] = useState(false);
@@ -1476,15 +1478,37 @@ function ChatPage({
       {workspaceOpen && (
         <aside className="chat-workspace-panel" id="chat-workspace" aria-label="Contexto da conversa">
           <div className="workspace-panel-heading">
-            <div>
-              <span className="section-label">PAINEL DE EXECUÇÃO</span>
-              <h2>Contexto</h2>
+            <div className="ctx-agent-head">
+              <span className="ctx-avatar">{(selectedAgent?.name ?? "G").trim().slice(0, 1).toUpperCase()}</span>
+              <div>
+                <h2>{selectedAgent?.name ?? "Assistente Geral"}</h2>
+                <small>{selectedAgent?.role || "Conversa com o Grupo Jadson"}</small>
+              </div>
             </div>
             <button className="icon-btn-close" onClick={() => setWorkspaceOpen(false)} aria-label="Fechar">
               <X size={16} />
             </button>
           </div>
 
+          <div className="ctx-tabs" role="tablist">
+            <button role="tab" aria-selected={contextTab === "activity"} className={contextTab === "activity" ? "active" : ""} onClick={() => setContextTab("activity")}>Atividade</button>
+            <button role="tab" aria-selected={contextTab === "library"} className={contextTab === "library" ? "active" : ""} onClick={() => setContextTab("library")}>Biblioteca</button>
+          </div>
+
+          {contextTab === "library" && (
+            <div className="ctx-library">
+              {libraryFiles.length === 0 ? (
+                <p className="ctx-empty">Nenhum arquivo nesta conversa ainda.</p>
+              ) : libraryFiles.map((file) => (
+                <div className="ctx-file" key={file.id}>
+                  <FileText size={15} />
+                  <span>{file.name}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {contextTab === "activity" && <>
           <div className="workspace-run-state">
             <span className={"run-state-dot " + (busy ? "working" : "idle")} />
             <div>
@@ -1510,6 +1534,7 @@ function ChatPage({
             <ShieldCheck size={16} />
             <p>O backend aplica as instruções persistidas do agente. A disponibilidade do histórico e do provider depende das conexões configuradas.</p>
           </div>
+          </>}
         </aside>
       )}
     </div>

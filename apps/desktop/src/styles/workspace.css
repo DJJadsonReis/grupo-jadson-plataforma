@@ -2677,3 +2677,16 @@ select:focus-visible {
 .history-item.history-active > svg { background: rgba(212, 175, 55, 0.22); }
 .history-copy strong { font-size: 13px; font-weight: 600; color: #f5f2ea; }
 .history-copy small { color: #7e7a70; font-size: 12px; }
+
+/* Painel de contexto no estilo de conversa: agente, abas e biblioteca */
+.ctx-agent-head { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.ctx-agent-head h2 { margin: 0; font-size: 15px; }
+.ctx-agent-head small { color: #7e7a70; font-size: 12px; }
+.ctx-avatar { width: 40px; height: 40px; flex: none; border-radius: 50%; display: grid; place-items: center; background: rgba(212,175,55,0.16); color: #d4af37; font-weight: 700; }
+.ctx-tabs { display: flex; gap: 4px; margin: 12px 0; padding: 4px; border-radius: 10px; background: rgba(255,255,255,0.03); }
+.ctx-tabs button { flex: 1; padding: 6px 10px; border: 0; border-radius: 7px; background: transparent; color: #7e7a70; font: inherit; font-size: 13px; cursor: pointer; }
+.ctx-tabs button.active { background: rgba(255,255,255,0.06); color: #f5f2ea; }
+.ctx-library { display: grid; gap: 8px; }
+.ctx-file { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); color: #d9d4c7; font-size: 13px; overflow: hidden; }
+.ctx-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ctx-empty { color: #7e7a70; font-size: 13px; }
