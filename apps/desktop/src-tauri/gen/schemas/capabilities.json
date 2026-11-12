@@ -1,1 +1,1 @@
-{}
+{"default":{"identifier":"default","description":"Permissões da janela principal do Grupo Jadson","local":true,"windows":["main"],"permissions":["core:default",{"identifier":"opener:allow-open-url","allow":[{"url":"https://instagram.com/*"},{"url":"https://www.instagram.com/*"},{"url":"https://x.com/*"}]}]}}

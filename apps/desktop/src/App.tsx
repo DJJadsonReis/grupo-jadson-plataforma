@@ -2,6 +2,7 @@ import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIco
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { plainPreview } from "./lib/preview";
+import { openExternal } from "./lib/external";
 import { AgentAvatar } from "./components/AgentAvatar";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -2153,8 +2154,8 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
                 <h3>Créditos</h3>
                 <p>Desenvolvido por <strong>DJ Jadson Reis</strong>.</p>
                 <nav className="credits-links" aria-label="Redes do DJ Jadson Reis">
-                  <a href="https://instagram.com/falajadson" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); window.open("https://instagram.com/falajadson", "_blank", "noopener,noreferrer"); }}>Instagram · @falajadson</a>
-                  <a href="https://x.com/djjadsonreis" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); window.open("https://x.com/djjadsonreis", "_blank", "noopener,noreferrer"); }}>X · @djjadsonreis</a>
+                  <a href="https://instagram.com/falajadson" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); void openExternal("https://instagram.com/falajadson").catch(() => undefined); }}>Instagram · @falajadson</a>
+                  <a href="https://x.com/djjadsonreis" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); void openExternal("https://x.com/djjadsonreis").catch(() => undefined); }}>X · @djjadsonreis</a>
                 </nav>
               </article>
             </>

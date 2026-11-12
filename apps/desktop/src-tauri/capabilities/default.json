@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Permissões da janela principal do Grupo Jadson",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://instagram.com/*" },
+        { "url": "https://www.instagram.com/*" },
+        { "url": "https://x.com/*" }
+      ]
+    }
+  ]
+}

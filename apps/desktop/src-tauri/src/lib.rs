@@ -128,6 +128,7 @@ fn open_external(url: String) -> Result<(), String> {
 pub fn run() {
     tauri::Builder::default()
         .manage(SignIn(Mutex::new(None)))
+        .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
