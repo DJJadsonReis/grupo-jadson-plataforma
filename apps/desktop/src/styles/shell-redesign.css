@@ -1,0 +1,301 @@
+/* =========================================================================
+   REDESIGN DA CASCA E DO CHAT (estilo "chat de IA" escuro e neutro)
+   Carregado por último: vence as camadas anteriores com a mesma especificidade.
+   Identidade continua Grupo Jadson: logo própria; dourado só como destaque.
+   ========================================================================= */
+
+:root {
+  --shell-canvas: #0b0b0b;
+  --shell-rail: #0e0e0e;
+  --shell-raised: #161616;
+  --shell-field: #1b1b1b;
+  --shell-hover: #161616;
+  --shell-active: #1f1f1f;
+  --shell-line: #1e1e1e;
+  --shell-line-strong: #2b2b2b;
+  --shell-text: #ececec;
+  --shell-text-2: #a8a8a8;
+  --shell-text-3: #6f6f6f;
+  --shell-column: 760px;
+  --shell-radius: 12px;
+}
+
+/* --- Casca --- */
+.app-shell { background: var(--shell-canvas); }
+.main { background: var(--shell-canvas); }
+
+/* --- Barra lateral estreita e escura --- */
+.sidebar {
+  background: var(--shell-rail);
+  border-right: 1px solid var(--shell-line);
+  padding: 12px 10px;
+}
+
+.brand {
+  padding: 4px 4px 14px;
+  border-bottom: 0;
+  gap: 10px;
+}
+.brand-logo-wrap {
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: var(--shell-raised);
+  border: 1px solid var(--shell-line-strong);
+  box-shadow: none;
+}
+.brand-logo-wrap img { width: 22px; height: 22px; }
+.brand-copy strong { color: var(--shell-text); font-size: 11px; letter-spacing: 0.08em; }
+.brand-copy span { color: var(--shell-text-3); font-size: 9px; letter-spacing: 0.06em; }
+.collapse-button { color: var(--shell-text-3); }
+.collapse-button:hover { color: var(--shell-text); background: var(--shell-hover); }
+
+.history-search {
+  margin: 0 0 8px;
+  padding: 0 10px;
+  height: 34px;
+  border: 1px solid transparent;
+  border-radius: var(--shell-radius);
+  background: var(--shell-raised);
+  color: var(--shell-text-3);
+  box-sizing: border-box;
+}
+.history-search input { font-size: 13px; color: var(--shell-text); }
+.history-search:focus-within { border-color: var(--shell-line-strong); }
+
+.new-chat {
+  height: 36px;
+  padding: 0 10px;
+  gap: 10px;
+  justify-content: flex-start;
+  border: 1px solid var(--shell-line-strong);
+  border-radius: var(--shell-radius);
+  background: transparent;
+  color: var(--shell-text);
+  font-size: 13px;
+  font-weight: 500;
+}
+.new-chat:hover { background: var(--shell-hover); border-color: var(--shell-line-strong); }
+
+.sidebar nav { gap: 2px; margin-top: 10px; }
+.nav-item {
+  min-height: 34px;
+  padding: 0 10px;
+  gap: 10px;
+  border-radius: var(--shell-radius);
+  color: var(--shell-text-2);
+  font-size: 13px;
+  font-weight: 400;
+  background: transparent;
+  box-shadow: none;
+}
+.nav-item:hover { background: var(--shell-hover); color: var(--shell-text); }
+.nav-item.active { background: var(--shell-active); color: var(--shell-text); box-shadow: none; }
+
+.history { margin-top: 14px; }
+.history .section-label {
+  padding: 0 10px 6px;
+  color: var(--shell-text-3);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.04em;
+}
+.history-list { gap: 1px; }
+.history-item {
+  min-height: 34px;
+  padding: 6px 10px;
+  gap: 10px;
+  border-radius: var(--shell-radius);
+  color: var(--shell-text-2);
+  font-size: 13px;
+  background: transparent;
+  box-shadow: none;
+}
+.history-item:hover { background: var(--shell-hover); color: var(--shell-text); }
+.history-item.history-active { background: var(--shell-active); color: var(--shell-text); }
+.history-item > svg {
+  width: auto;
+  height: auto;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: var(--shell-text-3);
+}
+.history-item strong { font-weight: 500; font-size: 13px; color: inherit; }
+.history-item small { color: var(--shell-text-3); }
+
+.sidebar-person {
+  margin-top: auto;
+  padding: 10px 6px 4px;
+  border-top: 1px solid var(--shell-line);
+}
+.sidebar-person-avatar { background: var(--shell-active); color: var(--shell-text-2); width: 28px; height: 28px; }
+.sidebar-person-name { color: var(--shell-text); font-size: 13px; }
+.sidebar-person-connect { background: transparent; color: var(--shell-text-3); width: 28px; height: 28px; }
+.sidebar-person-connect:hover { background: var(--shell-hover); color: var(--shell-text); }
+
+/* --- Topo discreto --- */
+.topbar {
+  height: 52px;
+  padding: 0 20px;
+  background: transparent;
+  border-bottom: 0;
+  backdrop-filter: none;
+}
+.breadcrumb { color: var(--shell-text-3); font-size: 13px; }
+.breadcrumb b { color: var(--shell-text-2); font-weight: 500; }
+.topbar .status {
+  background: transparent;
+  border-color: var(--shell-line-strong);
+  color: var(--shell-text-3);
+  font-weight: 400;
+}
+.topbar .status-connected { color: var(--shell-text-2); border-color: var(--shell-line-strong); background: transparent; }
+.topbar .status-connected i { background: var(--gj-gold, #d4a017); box-shadow: none; }
+
+/* =========================================================================
+   CHAT: estado vazio centralizado, coluna de leitura e composer no rodapé
+   ========================================================================= */
+
+.chat-page {
+  height: calc(100vh - 52px);
+  background: var(--shell-canvas);
+}
+
+/* Composer em fluxo normal: fica no rodapé e não cobre as mensagens. */
+.composer-wrapper {
+  position: relative;
+  bottom: auto;
+  left: auto;
+  right: auto;
+  padding: 0 20px 14px;
+  background: none;
+  z-index: 2;
+}
+
+/* Sem mensagens: greeting e composer ficam juntos, centralizados na tela. */
+/* O cabeçalho fica no topo; greeting + composer dividem o espaço livre e ficam no meio. */
+.chat-page-empty { justify-content: flex-start; }
+.chat-page-empty .messages-area { flex: 0 0 auto; margin-top: auto; overflow: visible; padding: 0 20px; }
+.chat-page-empty .composer-wrapper { margin-bottom: auto; }
+
+.chat-heading {
+  height: 48px;
+  padding: 0 20px;
+  border-bottom: 0;
+  background: transparent;
+}
+.chat-heading h1 { font-size: 14px; font-weight: 500; color: var(--shell-text-2); }
+.chat-heading-actions .workspace-toggle-btn,
+.chat-model-indicator {
+  background: transparent;
+  border-color: var(--shell-line-strong);
+  color: var(--shell-text-3);
+  font-size: 12px;
+}
+
+.messages-area {
+  padding: 16px 20px 24px;
+  scroll-behavior: smooth;
+}
+
+.message-list-stream,
+.chat-empty-hero {
+  width: min(var(--shell-column), 100%);
+  margin-inline: auto;
+}
+.message-list-stream { gap: 22px; }
+
+/* Usuário: bolha discreta, alinhada à direita. */
+.message-row-user .message-bubble {
+  max-width: 78%;
+  background: var(--shell-field);
+  border: 0;
+  border-radius: 18px;
+  padding: 10px 16px;
+  box-shadow: none;
+}
+.message-row-user .message-content { font-size: 15px; line-height: 1.6; color: var(--shell-text); }
+
+/* Assistente: texto puro na coluna de leitura, sem bolha. */
+.message-row-assistant .message-bubble { padding: 0; }
+.message-row-assistant .message-content { font-size: 15px; line-height: 1.7; color: var(--shell-text); }
+.assistant-avatar-badge {
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: var(--shell-raised);
+  border: 1px solid var(--shell-line-strong);
+  box-shadow: none;
+  margin-top: 2px;
+}
+.assistant-avatar-badge img { width: 16px; height: 16px; }
+.message-header-author b { font-size: 12px; font-weight: 500; color: var(--shell-text-3); }
+
+/* Vazio: greeting neutro, cards discretos. */
+.chat-empty-hero { max-width: var(--shell-column); gap: 0; }
+.chat-hero-glow { display: none; }
+.chat-hero-logo { width: 56px; height: 56px; }
+.chat-empty-hero h2 {
+  margin: 14px 0 6px;
+  font-size: 26px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  color: var(--shell-text);
+}
+.chat-hero-desc { font-size: 14px; color: var(--shell-text-3); max-width: 520px; }
+.chat-prompt-suggestions { margin-top: 22px; gap: 8px; }
+.prompt-card {
+  padding: 12px 14px;
+  border: 1px solid var(--shell-line-strong);
+  border-radius: var(--shell-radius);
+  background: transparent;
+}
+.prompt-card:hover { background: var(--shell-hover); border-color: #353535; }
+.prompt-card b { font-size: 13px; font-weight: 500; color: var(--shell-text); }
+.prompt-card small { font-size: 12px; color: var(--shell-text-3); }
+
+/* Composer: caixa grande, arredondada, neutra. */
+.composer-capsule {
+  width: min(var(--shell-column), 100%);
+  margin: 0 auto;
+  padding: 14px 14px 10px;
+  gap: 6px;
+  background: var(--shell-field);
+  backdrop-filter: none;
+  border: 1px solid var(--shell-line-strong);
+  border-radius: 24px;
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35);
+}
+.composer-capsule:focus-within { border-color: #3a3a3a; box-shadow: 0 8px 28px rgba(0, 0, 0, 0.45); }
+.composer-capsule textarea { font-size: 15px; line-height: 1.55; color: var(--shell-text); min-height: 40px; padding: 4px 4px 0; }
+.composer-capsule textarea::placeholder { color: var(--shell-text-3); }
+.composer-capsule .toolbar-btn { color: var(--shell-text-3); }
+.composer-capsule .toolbar-btn:hover { color: var(--shell-text); background: var(--shell-raised); }
+.composer-capsule .toolbar-pill-label {
+  border-color: var(--shell-line-strong);
+  background: transparent;
+  color: var(--shell-text-3);
+  font-size: 12px;
+  border-radius: 999px;
+}
+.send-round-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: var(--shell-text);
+  color: #0b0b0b;
+  border: 0;
+  box-shadow: none;
+}
+.send-round-btn:disabled { background: #242424; color: #5a5a5a; }
+.send-round-btn.stop-action { background: #2a2a2a; color: var(--shell-text); }
+.composer-disclaimer { color: var(--shell-text-3); font-size: 11px; margin: 8px auto 0; text-align: center; }
+
+/* Telas estreitas: o botão de menu fica fixo no canto; o título não pode passar por baixo dele. */
+@media (max-width: 860px) {
+  .mobile-menu { background: var(--shell-raised); border: 1px solid var(--shell-line-strong); }
+  .topbar { padding-left: 60px; }
+  .chat-heading { padding-left: 60px; }
+  .chat-model-indicator { display: none; }
+}

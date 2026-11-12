@@ -197,8 +197,8 @@ const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
 
 const STORAGE_KEY = "grupo-jadson.workspace.v1";
 
-const SIDEBAR_DEFAULT_WIDTH = 260;
-const SIDEBAR_MIN_WIDTH = 220;
+const SIDEBAR_DEFAULT_WIDTH = 248;
+const SIDEBAR_MIN_WIDTH = 200;
 const SIDEBAR_MAX_WIDTH = 420;
 
 function clampSidebarWidth(value: number): number {
@@ -1372,7 +1372,7 @@ function ChatPage({
   const mentionQuery = currentGroup?.mode === "mention" ? /(?:^|\s)@([^\s@]*)$/.exec(draft)?.[1] : undefined;
 
   return (
-    <div className={"chat-page " + (workspaceOpen ? "chat-workspace-open" : "")}>
+    <div className={"chat-page " + (workspaceOpen ? "chat-workspace-open " : "") + (conversation?.messages.length ? "" : "chat-page-empty")}>
       {/* HEADER SUPERIOR DO CHAT */}
       <div className="chat-heading">
         <div className="chat-title-group">

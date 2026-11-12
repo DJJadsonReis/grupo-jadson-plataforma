@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles/global.css";
 import "./styles/workspace.css";
 import "./styles/design-tokens.css";
+import "./styles/shell-redesign.css";
 
 // Janela de aplicativo: sem o menu de navegador (Voltar, Salvar como, Imprimir). Campos de texto mantêm o menu de copiar e colar.
 document.addEventListener("contextmenu", (event) => {
