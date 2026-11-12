@@ -10,6 +10,8 @@ export interface ChatMessage {
   mentions?: AgentMention[];
   attachments?: Attachment[];
   timestamp?: number;
+  /** Falha do envio, mostrada dentro da conversa. Não é enviada ao modelo. */
+  error?: string;
 }
 
 export interface Conversation {
@@ -56,6 +58,33 @@ export interface Workspace {
   groups: Group[];
 }
 
+/**
+ * Lista de textos vinda do armazenamento ou da API. Aceita array, string separada por vírgula ou quebra de linha,
+ * e trata null/undefined/outros tipos como lista vazia. Nunca lança, para não derrubar a tela ao abrir um agente.
+ */
+export function toStringList(value: unknown): string[] {
+  const items = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? value.split(/[,\n]/)
+      : [];
+  return items
+    .filter((item): item is string => typeof item === "string")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+/** Corrige os campos de lista de um agente lido do armazenamento ou da API. Retorna null se não for um objeto. */
+export function normalizeAgent(raw: unknown): Agent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const agent = raw as Agent;
+  return {
+    ...agent,
+    specialties: toStringList(agent.specialties),
+    toolsAllowed: toStringList(agent.toolsAllowed),
+  };
+}
+
 export function parseWorkspace(serialized: string | null): Workspace {
   if (!serialized) return { conversations: [], agents: [], groups: [] };
   try {
@@ -64,7 +93,7 @@ export function parseWorkspace(serialized: string | null): Workspace {
     const value = parsed as Partial<Workspace>;
     return {
       conversations: Array.isArray(value.conversations) ? value.conversations : [],
-      agents: Array.isArray(value.agents) ? value.agents : [],
+      agents: Array.isArray(value.agents) ? value.agents.map(normalizeAgent).filter((agent): agent is Agent => agent !== null) : [],
       groups: Array.isArray(value.groups) ? value.groups : [],
     };
   } catch {
