@@ -2723,3 +2723,9 @@ select:focus-visible {
 .sidebar { overflow: hidden; }
 .sidebar > * { flex-shrink: 0; }
 .sidebar .history-list { max-height: 34vh; overflow-y: auto; flex-shrink: 1; min-height: 0; }
+
+/* Barra do compositor: controles com a mesma altura e alinhados */
+.composer-toolbar-row, .composer-tools { align-items: center; }
+.composer-capsule .toolbar-btn { height: 32px; width: 32px; display: inline-flex; align-items: center; justify-content: center; }
+.composer-capsule .toolbar-pill-label { height: 32px; display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; }
+.composer-capsule .agent-inline-select { height: 32px; }

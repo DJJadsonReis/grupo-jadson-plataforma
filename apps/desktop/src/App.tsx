@@ -1588,7 +1588,6 @@ function ChatPage({
                     <option key={agent.id} value={agent.id}>{agent.name}</option>
                   ))}
                 </select>
-                <ChevronDown size={12} />
               </label>
             </div>
 
