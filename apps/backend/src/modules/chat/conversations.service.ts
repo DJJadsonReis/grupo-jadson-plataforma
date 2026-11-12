@@ -19,6 +19,12 @@ export class ConversationsService {
     return result.rows as StoredConversation[];
   }
 
+  /** Apaga a conversa de vez; mensagens e passagens de bastão vão junto (ON DELETE CASCADE). */
+  async remove(id: string): Promise<boolean> {
+    const result = await this.database.getPool().query("DELETE FROM conversations WHERE id=$1", [id]);
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async create(id: string, title: string, agentId?: string, groupId?: string): Promise<{ id: string; title: string; agentId?: string | null }> {
     const result = await this.database.getPool().query(
       "INSERT INTO conversations(id,title,agent_id,group_id,conversation_type) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET updated_at=now(), agent_id=COALESCE(EXCLUDED.agent_id,conversations.agent_id), group_id=COALESCE(EXCLUDED.group_id,conversations.group_id) RETURNING id,title,agent_id AS \"agentId\"",

@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Param, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post } from "@nestjs/common";
 import { ConversationsService, StoredRole } from "./conversations.service";
 
 @Controller("conversations")
@@ -14,6 +14,13 @@ export class ConversationsController {
     if (value.title !== undefined && typeof value.title !== "string") throw new BadRequestException("Título inválido.");
     if (value.agentId !== undefined && (typeof value.agentId !== "string" || !this.isUuid(value.agentId))) throw new BadRequestException("Identificador de agente inválido.");
     return this.conversations.create((value.id as string | undefined) ?? "", (value.title as string | undefined) ?? "Nova conversa", value.agentId as string | undefined);
+  }
+
+  @Delete(":id") async remove(@Param("id") id: string) {
+    if (!this.isUuid(id)) throw new BadRequestException("Identificador de conversa inválido.");
+    const removed = await this.conversations.remove(id);
+    if (!removed) throw new NotFoundException("Conversa não encontrada.");
+    return { removed: true };
   }
 
   @Post(":id/messages") addMessage(@Param("id") id: string, @Body() body: unknown) {
