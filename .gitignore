@@ -52,3 +52,7 @@ tools/redis/redis.conf.bak-*
 
 # Local snapshots and backups (never versioned)
 .backups/
+
+# Saídas geradas por site-recriado (screenshots e relatório da verificação visual)
+site-recriado/verificacao/
+site-recriado/faq-celular.png

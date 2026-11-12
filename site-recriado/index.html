@@ -1,0 +1,556 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grupo Jadson — Soluções que geram resultado</title>
+<meta name="description" content="Ecossistema corporativo de Salvador: delivery próprio, logística, tecnologia, mídia, consultoria e coleta urgente.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,700;12..96,800&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<link rel="icon" href="assets/logo/gj-marca.png">
+<link rel="stylesheet" href="sites-incriveis.css">
+<script src="sites-incriveis.js" defer></script>
+<style>
+  :root{
+    --papel:#F3EFE6; --tinta:#111113; --tinta-suave:#5A5853;
+    --ouro:#D9A81E; --carvao:#0B0B0C; --linha:rgba(17,17,19,.14);
+    --display:"Bricolage Grotesque", system-ui, sans-serif;
+    --texto:"Inter", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--papel);color:var(--tinta);font-family:var(--texto);font-size:17px;line-height:1.6;-webkit-font-smoothing:antialiased}
+  img{max-width:100%;display:block}
+  a{color:inherit}
+  h1,h2,h3{font-family:var(--display);line-height:1.02;letter-spacing:-.02em;margin:0;font-weight:800}
+  .wrap{width:min(1180px,calc(100% - 32px));margin-inline:auto}
+  .eyebrow{font-size:12px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--tinta-suave)}
+  .escuro{background:var(--carvao);color:#F3EFE6}
+  .escuro .eyebrow{color:#9C978A}
+  .ouro{color:var(--ouro)}
+  .btn{display:inline-flex;align-items:center;gap:10px;padding:16px 24px;border-radius:999px;font-weight:600;text-decoration:none;font-size:15px;letter-spacing:.02em;transition:transform .25s, background .25s}
+  .btn:hover{transform:translateY(-2px)}
+  .btn-ouro{background:var(--ouro);color:var(--carvao)}
+  .btn-linha{border:1px solid currentColor;color:inherit}
+  section{position:relative}
+  #dores,#servicos,#diferenciais,#depoimentos,#faq{color:var(--tinta)}
+  #inicio,#conta,#processo,#trajetoria,#fechamento{color:#F3EFE6}
+  .cabeca{padding:120px 0 40px}
+
+  /* cabeçalho */
+  header.topo{position:fixed;inset:0 0 auto 0;z-index:50;display:flex;align-items:center;justify-content:space-between;padding:14px 20px;backdrop-filter:blur(10px);background:rgba(11,11,12,.62);color:#F3EFE6}
+  header.topo img{height:44px;width:auto}
+  header.topo nav{display:flex;gap:22px;font-size:14px}
+  header.topo nav a{text-decoration:none;opacity:.8}
+  header.topo nav a:hover{opacity:1;color:var(--ouro)}
+  @media (max-width:860px){header.topo nav{display:none}}
+
+  /* herói */
+  #inicio{min-height:100vh;padding:130px 0 60px;display:grid;align-items:center;overflow:hidden}
+  #inicio .grade{display:grid;grid-template-columns:1.25fr .9fr;gap:40px;align-items:center}
+  #inicio h1{font-size:clamp(44px,7.4vw,104px);margin:18px 0 26px}
+  #inicio h1 em{font-style:normal;color:var(--ouro)}
+  .lead{font-size:clamp(17px,1.6vw,20px);max-width:52ch;color:inherit;opacity:.85}
+  .acoes{display:flex;flex-wrap:wrap;gap:12px;margin-top:34px}
+  .selo{width:100%;max-width:520px;justify-self:end;filter:drop-shadow(0 30px 60px rgba(217,168,30,.18))}
+  .numeros{display:grid;grid-template-columns:repeat(4,1fr);gap:0;margin-top:64px;border-top:1px solid rgba(243,239,230,.18)}
+  .numeros div{padding:22px 16px 0 0}
+  .numeros b{display:block;font-family:var(--display);font-size:clamp(30px,3.6vw,46px);font-variant-numeric:tabular-nums;color:var(--ouro)}
+  .numeros span{font-size:14px;opacity:.75}
+  @media (max-width:860px){#inicio .grade{grid-template-columns:1fr}.selo{justify-self:center;max-width:300px}.numeros{grid-template-columns:repeat(2,1fr)}}
+
+  /* a conta da mesa (pico) */
+  #conta{height:500vh}
+  #conta .palco{position:sticky;top:0;height:100vh;display:grid;place-items:center;overflow:hidden;padding:24px}
+  .comanda{width:min(560px,100%);background:#F3EFE6;color:var(--tinta);padding:34px 34px 28px;border-radius:6px;position:relative;box-shadow:0 40px 90px rgba(0,0,0,.5)}
+  .comanda::after{content:"";position:absolute;left:0;right:0;bottom:-10px;height:10px;background:radial-gradient(circle at 10px 0,#F3EFE6 7px,transparent 7.5px) 0 0/20px 10px repeat-x}
+  .comanda h2{font-size:clamp(26px,3vw,36px);margin-bottom:6px}
+  .comanda .sub{font-size:14px;color:var(--tinta-suave);margin-bottom:22px;border-bottom:1px dashed var(--linha);padding-bottom:16px}
+  .linha{display:grid;grid-template-columns:1fr auto;gap:14px;padding:14px 0;border-bottom:1px solid var(--linha);opacity:0;transform:translateY(12px);transition:opacity .5s, transform .5s}
+  .linha.visivel{opacity:1;transform:none}
+  .linha strong{display:block;font-weight:600}
+  .linha small{color:var(--tinta-suave);font-size:14px}
+  .linha .valor{font-family:var(--display);font-weight:700;font-size:18px;white-space:nowrap;align-self:center}
+  .linha.resolvida .valor{color:#2F7D4F}
+  .linha .depois{display:none;color:#2F7D4F;font-size:14px}
+  .linha.resolvida .depois{display:block}
+  .linha.resolvida .antes{text-decoration:line-through;color:var(--tinta-suave)}
+  .total{display:flex;justify-content:space-between;align-items:baseline;margin-top:22px;font-family:var(--display)}
+  .total b{font-size:clamp(30px,5vw,64px);font-variant-numeric:tabular-nums;transition:color .4s;white-space:nowrap}
+  .total{gap:12px}
+  .total span{font-size:14px;color:var(--tinta-suave);font-family:var(--texto)}
+  .frase-pico{position:absolute;left:0;right:0;top:12%;text-align:center;font-family:var(--display);font-weight:800;font-size:clamp(28px,4.4vw,60px);line-height:1.04;padding:0 20px;color:#F3EFE6;pointer-events:none}
+  .frase-pico span{display:block}
+  .frase-pico .p1{opacity:0}
+  @media (prefers-reduced-motion:reduce){
+    #conta{height:auto}
+    #conta .palco{position:relative;height:auto;padding:110px 0}
+    .linha{opacity:1;transform:none}
+    .linha .depois{display:block}
+    .frase-pico{position:relative;top:auto;margin-bottom:30px}
+  }
+
+  /* dores */
+  #dores{padding:150px 0 90px}
+  #dores h2{font-size:clamp(40px,6vw,88px);max-width:14ch}
+  #dores .texto{max-width:56ch;margin-top:26px;font-size:clamp(17px,1.5vw,19px);color:var(--tinta-suave)}
+
+  /* serviços: trilho */
+  #servicos{padding:110px 0 0}
+  #servicos .cabeca-s{margin-bottom:24px}
+  #servicos h2{font-size:clamp(38px,5.2vw,76px);max-width:16ch;margin-top:14px}
+  #servicos .sub{color:var(--tinta-suave);max-width:52ch;margin-top:14px}
+  .trilho{display:flex;gap:22px;padding:24px 0 40px;width:max-content;will-change:transform}
+  .cartao{width:min(380px,80vw);min-height:360px;border:1px solid var(--linha);border-radius:4px;padding:34px;display:flex;flex-direction:column;justify-content:space-between;background:#FBF9F4}
+  .cartao .num{font-family:var(--display);font-size:14px;color:var(--tinta-suave)}
+  .cartao h3{font-size:30px;margin:18px 0 12px}
+  .cartao p{color:var(--tinta-suave);margin:0 0 24px}
+  .cartao a{font-weight:600;text-decoration:none;border-bottom:2px solid var(--ouro);padding-bottom:2px;align-self:flex-start}
+  .cartao:nth-child(2n){background:var(--tinta);color:#F3EFE6}
+  .cartao:nth-child(2n) p{color:#B9B4A8}
+  .cartao:nth-child(2n) a{color:#F3EFE6}
+  .cartao:nth-child(2n) .num{color:#9C978A}
+  .trilho-wrap{overflow:hidden}
+  @media (prefers-reduced-motion:reduce){.trilho{width:auto;flex-wrap:wrap}}
+
+  /* processo */
+  #processo{height:400vh}
+  #processo .palco{position:sticky;top:0;height:100vh;display:grid;grid-template-columns:.9fr 1.1fr;gap:60px;align-items:center;padding:0 max(16px,calc((100% - 1180px)/2))}
+  #processo h2{font-size:clamp(38px,5vw,72px)}
+  #processo .passos{position:relative;min-height:340px}
+  .passo{position:absolute;inset:0;opacity:0;transform:translateY(30px);transition:opacity .6s, transform .6s}
+  .passo.ativo{opacity:1;transform:none}
+  .passo .n{font-family:var(--display);font-size:clamp(90px,14vw,180px);line-height:.9;color:var(--ouro);font-weight:800}
+  .passo h3{font-size:clamp(28px,3vw,42px);margin:14px 0 14px}
+  .passo p{color:var(--tinta-suave);font-size:19px;max-width:40ch}
+  @media (max-width:860px){#processo{height:auto}#processo .palco{position:relative;height:auto;grid-template-columns:1fr;padding:90px 16px}.passos{min-height:0}.passo{position:relative;opacity:1;transform:none;margin-bottom:40px}}
+
+  /* diferenciais */
+  #diferenciais{padding:130px 0;background:#E7E1D3}
+  #diferenciais .grade{display:grid;grid-template-columns:1fr 1.1fr;gap:70px;align-items:start}
+  #diferenciais h2{font-size:clamp(38px,5vw,72px)}
+  #diferenciais .lead2{margin-top:24px;color:var(--tinta-suave);max-width:44ch;font-size:18px}
+  #diferenciais ul{list-style:none;padding:0;margin:0}
+  #diferenciais li{padding:22px 0;border-bottom:1px solid var(--linha);font-size:clamp(19px,2vw,24px);font-family:var(--display);font-weight:600;display:flex;gap:18px;align-items:baseline}
+  #diferenciais li::before{content:"";width:10px;height:10px;background:var(--ouro);border-radius:50%;flex:0 0 10px;transform:translateY(-4px)}
+  .destaque{font-family:var(--display);font-size:clamp(56px,8vw,120px);font-weight:800;margin-top:44px;line-height:.95}
+  @media (max-width:860px){#diferenciais .grade{grid-template-columns:1fr}}
+
+  /* depoimentos */
+  #depoimentos{padding:140px 0 120px}
+  #depoimentos h2{font-size:clamp(38px,5vw,72px);max-width:18ch;margin-bottom:56px}
+  .citacoes{display:grid;grid-template-columns:repeat(3,1fr);gap:22px}
+  .citacao{border-top:2px solid var(--tinta);padding-top:26px}
+  .citacao blockquote{margin:0 0 26px;font-family:var(--display);font-size:clamp(20px,1.9vw,24px);line-height:1.3;font-weight:600}
+  .citacao cite{font-style:normal;font-size:14px;color:var(--tinta-suave)}
+  .citacao cite b{display:block;color:var(--tinta);font-size:16px}
+  @media (max-width:860px){.citacoes{grid-template-columns:1fr}}
+
+  /* trajetória */
+  #trajetoria{padding:140px 0;overflow:hidden}
+  #trajetoria .grade{display:grid;grid-template-columns:auto 1fr;gap:50px;align-items:end}
+  #trajetoria .anos{font-family:var(--display);font-weight:800;font-size:clamp(150px,30vw,380px);line-height:.8;color:var(--ouro);font-variant-numeric:tabular-nums}
+  #trajetoria h2{font-size:clamp(34px,4.4vw,62px);max-width:18ch}
+  #trajetoria p{color:#B9B4A8;max-width:46ch;margin-top:22px;font-size:18px}
+  @media (max-width:860px){#trajetoria .grade{grid-template-columns:1fr}}
+
+  /* faq */
+  #faq{padding:130px 0}
+  #faq h2{font-size:clamp(38px,5vw,72px);margin-bottom:50px}
+  #faq details{border-top:1px solid var(--linha);padding:26px 0}
+  #faq details:last-child{border-bottom:1px solid var(--linha)}
+  #faq summary{list-style:none;cursor:pointer;font-family:var(--display);font-size:clamp(22px,2.4vw,32px);font-weight:700;display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:20px;min-width:0}
+  #faq summary::-webkit-details-marker{display:none}
+  #faq summary::after{content:"+";font-size:36px;line-height:1;color:var(--ouro);transition:transform .3s}
+  #faq details[open] summary::after{transform:rotate(45deg)}
+  #faq details p{color:var(--tinta-suave);max-width:60ch;margin:16px 0 0;font-size:18px}
+
+  /* fechamento */
+  #fechamento{padding:170px 0 120px;text-align:left}
+  #fechamento h2{font-size:clamp(50px,9vw,150px);max-width:12ch}
+  #fechamento .texto{max-width:52ch;margin-top:30px;font-size:19px;color:#B9B4A8}
+  #fechamento .acoes{margin-top:44px}
+
+  /* rodapé */
+  footer{background:#070708;color:#B9B4A8;padding:70px 0 40px;font-size:15px}
+  footer .grade{display:grid;grid-template-columns:1.4fr 1fr 1fr 1fr;gap:40px}
+  footer img{height:76px;width:auto}
+  footer h4{margin:0 0 14px;color:#F3EFE6;font-size:14px;letter-spacing:.12em;text-transform:uppercase}
+  footer ul{list-style:none;padding:0;margin:0}
+  footer li{margin-bottom:10px}
+  footer a{text-decoration:none;color:#B9B4A8}
+  footer a:hover{color:var(--ouro)}
+  footer .base{margin-top:56px;padding-top:24px;border-top:1px solid rgba(243,239,230,.12);font-size:13px}
+  footer a{overflow-wrap:anywhere}
+  @media (max-width:860px){footer .grade{grid-template-columns:1fr 1fr}}
+  @media (max-width:560px){footer .grade{grid-template-columns:1fr}}
+
+  @media (prefers-reduced-motion:reduce){
+    html{scroll-behavior:auto}
+    .passo{position:relative;opacity:1;transform:none;margin-bottom:36px}
+  }
+</style>
+</head>
+<body>
+
+<header class="topo">
+  <a href="#inicio" aria-label="Grupo Jadson — início"><img src="assets/logo/gj-marca.png" alt="Grupo Jadson"></a>
+  <nav aria-label="Principal">
+    <a href="/">Home</a>
+    <a href="/sobre">Sobre</a>
+    <a href="#servicos">Soluções</a>
+    <a href="/empresas">Empresas</a>
+    <a href="/planos">Planos</a>
+    <a href="/contato">Contato</a>
+    <a href="/login">Login</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- 1. ESCUTA -->
+<section id="inicio" class="escuro" data-fx-fundo="#0B0B0C" data-fx-tinta="#F3EFE6">
+  <div class="wrap grade">
+    <div>
+      <p class="eyebrow">Ecossistema Corporativo · Salvador, BA</p>
+      <h1 data-fx="palavras">Escale seu lucro e <em>terceirize</em> a dor de cabeça.</h1>
+      <p class="lead" data-fx="surgir" data-fx-atraso="250">Chega de perder vendas por logística ruim ou tecnologia ineficiente. Nós assumimos a sua operação pesada para você focar no que importa: <strong>vender.</strong></p>
+      <div class="acoes" data-fx="surgir" data-fx-atraso="400">
+        <a class="btn btn-ouro" href="https://wa.me/5522988541809" data-wa="Olá! Gostaria de um diagnóstico gratuito para acelerar o crescimento da minha empresa.">Diagnóstico gratuito</a>
+        <a class="btn btn-linha" href="https://wa.me/5522988541809" data-wa="Olá! Quero falar com um especialista comercial do Grupo Jadson.">Falar com especialista</a>
+      </div>
+    </div>
+    <img class="selo" data-fx="crescer" data-fx-paralaxe="0.12" src="assets/logo/selo-completo.webp" alt="Grupo Jadson — Soluções que geram resultado">
+  </div>
+  <div class="wrap">
+    <div class="numeros">
+      <div><b data-fx="contar" data-fx-fim="50000" data-fx-sufixo="+">0</b><span>Operações</span></div>
+      <div><b data-fx="contar" data-fx-fim="300" data-fx-sufixo="+">0</b><span>Empresas atendidas</span></div>
+      <div><b data-fx="contar" data-fx-fim="98" data-fx-sufixo="%">0</b><span>No prazo</span></div>
+      <div><b data-fx="contar" data-fx-fim="4.9" data-fx-decimais="1">0</b><span>Satisfação</span></div>
+    </div>
+  </div>
+</section>
+
+<!-- 2. DORES -->
+<section id="dores" data-fx-fundo="#F3EFE6" data-fx-tinta="#111113">
+  <div class="wrap">
+    <p class="eyebrow">Antes de tudo, a escuta</p>
+    <h2 data-fx="palavras">Sabemos o que trava o seu crescimento.</h2>
+    <p class="texto" data-fx="subir">Não começamos pela nossa história. Começamos pelo que pesa no seu balcão, na sua cozinha e no seu caixa: a taxa que come o lucro, a entrega que atrasa, a venda que não se fecha. Depois de entender cada um, montamos a solução.</p>
+  </div>
+</section>
+
+<!-- 3. PICO: A CONTA DA MESA -->
+<section id="conta" class="escuro" aria-labelledby="conta-titulo">
+  <div class="palco">
+    <div class="frase-pico" aria-hidden="true">
+      <span class="p1" id="frase-antes">Quanto está saindo da sua mesa?</span>
+    </div>
+    <article class="comanda" id="comanda">
+      <h2 id="conta-titulo">A conta da mesa</h2>
+      <p class="sub">Cada linha é uma perda real de operação. Role para ver quanto ela custa.</p>
+
+      <div class="linha" data-linha="1">
+        <div><strong><span class="antes">Taxa de aplicativo</span></strong><small>Até 30% do faturamento indo para o app</small><small class="depois">Delivery próprio, cardápio e gestão no seu nome</small></div>
+        <div class="valor"><span class="antes">até 30%</span></div>
+      </div>
+      <div class="linha" data-linha="2">
+        <div><strong><span class="antes">Entrega que atrasa</span></strong><small>O cliente espera, reclama e não volta</small><small class="depois">Frota B2B roteirizada, 98% no prazo</small></div>
+        <div class="valor"><span class="antes">perde cliente</span></div>
+      </div>
+      <div class="linha" data-linha="3">
+        <div><strong><span class="antes">Venda sem resposta</span></strong><small>Lead que esfria enquanto a equipe está no balcão</small><small class="depois">WhatsApp e CRM automatizados, vendendo enquanto você dorme</small></div>
+        <div class="valor"><span class="antes">vai embora</span></div>
+      </div>
+      <div class="linha" data-linha="4">
+        <div><strong><span class="antes">Tráfego que não paga boleto</span></strong><small>Curtida em vez de cliente comprador</small><small class="depois">Campanhas de Ads focadas em ROI e atração de compradores</small></div>
+        <div class="valor"><span class="antes">sem retorno</span></div>
+      </div>
+
+      <div class="total">
+        <span id="total-rotulo">Dinheiro na mesa</span>
+        <b id="total-valor" style="color:#B3261E">até 30%+</b>
+      </div>
+    </article>
+  </div>
+</section>
+
+<!-- 4. SERVIÇOS: TRILHO -->
+<section id="servicos" data-fx-fundo="#F3EFE6" data-fx-tinta="#111113">
+  <div class="wrap cabeca-s">
+    <p class="eyebrow">Nossas soluções</p>
+    <h2 data-fx="subir">Como ajudamos você a crescer?</h2>
+    <p class="sub">Deixe de ser "só mais um" nos apps e tenha domínio total sobre seu negócio.</p>
+  </div>
+  <div class="trilho-wrap">
+    <div class="trilho" id="trilho" style="padding-left:max(16px,calc((100% - 1180px)/2 + 16px))">
+      <article class="cartao">
+        <div><span class="num">01 · Delivery Próprio</span><h3>Liberte-se das Taxas</h3><p>Pare de dar até 30% do seu faturamento para o iFood. Construímos seu Delivery Próprio completo com cardápio e gestão.</p></div>
+        <a href="/delivery-proprio">Saber mais →</a>
+      </article>
+      <article class="cartao">
+        <div><span class="num">02 · Logística</span><h3>Entregas sem Atraso</h3><p>Seu cliente odeia esperar. Nossa Frota B2B exclusiva garante coletas e entregas roteirizadas com 98% de pontualidade.</p></div>
+        <a href="/logistica">Saber mais →</a>
+      </article>
+      <article class="cartao">
+        <div><span class="num">03 · Tecnologia</span><h3>Venda no Piloto Automático</h3><p>Desenvolvemos Sites de Alta Conversão, Automações de WhatsApp e CRMs para sua empresa vender enquanto você dorme.</p></div>
+        <a href="/tecnologia">Saber mais →</a>
+      </article>
+      <article class="cartao">
+        <div><span class="num">04 · Mídia</span><h3>Tráfego de Verdade</h3><p>Chega de curtidas que não pagam boleto. Criamos campanhas de Ads focadas 100% em ROI e atração de clientes compradores.</p></div>
+        <a href="/midias">Saber mais →</a>
+      </article>
+      <article class="cartao">
+        <div><span class="num">05 · Negócios</span><h3>Consultoria Premium</h3><p>Seu negócio estagnou? Analisamos seus processos e implementamos estratégias de escala usadas pelas maiores empresas.</p></div>
+        <a href="/negocios">Saber mais →</a>
+      </article>
+      <article class="cartao">
+        <div><span class="num">06 · Express</span><h3>Coleta Urgente</h3><p>Deu problema e precisa pra agora? Jadson Express. Motoboys em minutos para recolher e entregar seus documentos de imediato.</p></div>
+        <a href="/expresso">Saber mais →</a>
+      </article>
+    </div>
+  </div>
+</section>
+
+<!-- 5. PROCESSO: ETAPAS FIXAS -->
+<section id="processo" data-fx-fixa data-fx-altura="4" data-fx-fundo="#0B0B0C" data-fx-tinta="#F3EFE6" class="escuro" aria-labelledby="processo-titulo">
+  <div class="palco">
+    <div>
+      <p class="eyebrow">Como funciona</p>
+      <h2 id="processo-titulo">Um processo simples e direto ao ponto.</h2>
+    </div>
+    <div class="passos" id="passos">
+      <div class="passo ativo"><div class="n">01</div><h3>Solicite Atendimento</h3><p>Entre em contato via WhatsApp ou formulário nos detalhando sua necessidade.</p></div>
+      <div class="passo"><div class="n">02</div><h3>Receba Cotação</h3><p>Nossos consultores desenham a melhor proposta comercial para sua empresa.</p></div>
+      <div class="passo"><div class="n">03</div><h3>Executamos a Operação</h3><p>Assumimos a responsabilidade com SLAs rigorosos e alta qualidade.</p></div>
+      <div class="passo"><div class="n">04</div><h3>Acompanhe Resultados</h3><p>Acesso a painéis gerenciais e relatórios para medir o sucesso da operação.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- 6. DIFERENCIAIS -->
+<section id="diferenciais" data-fx-fundo="#E7E1D3" data-fx-tinta="#111113">
+  <div class="wrap grade">
+    <div>
+      <p class="eyebrow">Por que o Grupo Jadson</p>
+      <h2 data-fx="palavras">Porque escolher o Grupo Jadson?</h2>
+      <p class="lead2" data-fx="subir">Construímos um ecossistema que não deixa sua empresa na mão. Diferente de plataformas genéricas, nós sujamos a mão na massa.</p>
+      <div class="acoes" style="margin-top:36px">
+        <a class="btn btn-ouro" style="color:#111113" href="https://wa.me/5522988541809" data-wa="Olá! Gostaria de ser parceiro do Grupo Jadson.">Falar com consultor</a>
+      </div>
+    </div>
+    <div>
+      <ul>
+        <li data-fx="subir">Resolução de problemas em minutos, não em dias</li>
+        <li data-fx="subir" data-fx-atraso="80">Sem robôs. Suporte humano e próximo</li>
+        <li data-fx="subir" data-fx-atraso="160">Contrato focado no SEU crescimento</li>
+        <li data-fx="subir" data-fx-atraso="240">Tecnologia invisível (fácil de usar)</li>
+        <li data-fx="subir" data-fx-atraso="320">Frota garantida em Salvador</li>
+        <li data-fx="subir" data-fx-atraso="400">Retorno financeiro claro (ROI medido)</li>
+      </ul>
+      <p class="destaque" data-fx="palavras">Operação Real.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 7. DEPOIMENTOS -->
+<section id="depoimentos" data-fx-fundo="#F3EFE6" data-fx-tinta="#111113">
+  <div class="wrap">
+    <p class="eyebrow">Prova real</p>
+    <h2 data-fx="palavras">O que dizem sobre nós.</h2>
+    <div class="citacoes">
+      <figure class="citacao" data-fx="subir" style="margin:0">
+        <blockquote>“Depois que migrei pro delivery próprio do Jadson, minha margem de lucro aumentou 22%. Não dependo mais de iFood.”</blockquote>
+        <cite><b>Carlos Oliveira</b>Dono de Restaurante</cite>
+      </figure>
+      <figure class="citacao" data-fx="subir" data-fx-atraso="120" style="margin:0">
+        <blockquote>“A logística b2b mudou nossa operação. Antes tínhamos muitas reclamações de entrega, hoje a satisfação é 100%.”</blockquote>
+        <cite><b>Mariana Silva</b>Gerente de E-commerce</cite>
+      </figure>
+      <figure class="citacao" data-fx="subir" data-fx-atraso="240" style="margin:0">
+        <blockquote>“O site e CRM construídos pela divisão de tecnologia aceleraram nossas vendas absurdamente. Profissionais acima da média.”</blockquote>
+        <cite><b>Roberto Almeida</b>CEO, Empresa de Serviços</cite>
+      </figure>
+    </div>
+  </div>
+</section>
+
+<!-- 8. TRAJETÓRIA -->
+<section id="trajetoria" class="escuro" data-fx-fundo="#0B0B0C" data-fx-tinta="#F3EFE6">
+  <div class="wrap grade">
+    <div class="anos" data-fx="contar" data-fx-fim="9">0</div>
+    <div>
+      <p class="eyebrow">Nossa trajetória</p>
+      <h2 data-fx="palavras">Nove anos em Salvador, ouvindo antes de propor.</h2>
+      <p data-fx="surgir" data-fx-atraso="200">Desde 2017 construímos operações para empresas da cidade. A humildade de olhar cada detalhe, verificar cada número e ouvir cada cliente é o que nos mantém de pé.</p>
+    </div>
+  </div>
+</section>
+
+<!-- 9. FAQ -->
+<section id="faq" data-fx-fundo="#F3EFE6" data-fx-tinta="#111113">
+  <div class="wrap">
+    <p class="eyebrow">Perguntas que todo mundo faz</p>
+    <h2 data-fx="palavras">Antes de perguntar o preço, pergunte isto.</h2>
+    <details open data-fx="subir">
+      <summary>Por que vocês não mostram preço?</summary>
+      <p>Porque cada operação é de um jeito. Um restaurante, uma loja de roupas e uma empresa de serviços têm rotas, volumes e prazos diferentes. Um consultor desenha a cotação depois de entender o seu caso.</p>
+    </details>
+    <details data-fx="subir">
+      <summary>Como começa?</summary>
+      <p>Você chama no WhatsApp ou preenche o formulário contando o que precisa. Em seguida recebe uma cotação, a operação começa com SLAs definidos e você acompanha os resultados em painéis gerenciais.</p>
+    </details>
+    <details data-fx="subir">
+      <summary>Quem atende do outro lado?</summary>
+      <p>Pessoas. Sem robôs no primeiro contato: consultores humanos e um suporte próximo, que resolve problemas em minutos, não em dias.</p>
+    </details>
+  </div>
+</section>
+
+<!-- 10. FECHAMENTO -->
+<section id="fechamento" class="escuro" data-fx-fundo="#0B0B0C" data-fx-tinta="#F3EFE6">
+  <div class="wrap">
+    <h2 data-fx="palavras">Pare de deixar <span class="ouro">dinheiro</span> na mesa.</h2>
+    <p class="texto" data-fx="surgir" data-fx-atraso="200">Nós sabemos exatamente o que trava o crescimento da sua empresa. Fale com nossa equipe agora e descubra a solução que vai mudar o seu jogo comercial hoje.</p>
+    <div class="acoes" data-fx="surgir" data-fx-atraso="400">
+      <a class="btn btn-ouro" href="https://wa.me/5522988541809" data-wa="Olá! Quero parar de deixar dinheiro na mesa. Podemos conversar sobre meu negócio?">Quero vender mais agora</a>
+      <a class="btn btn-linha" href="https://wa.me/5522988541809" data-wa="Gostaria de tirar algumas dúvidas rápidas.">Tirar dúvidas rápidas</a>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<footer>
+  <div class="wrap grade">
+    <div>
+      <img src="assets/logo/gj-marca.png" alt="Grupo Jadson">
+      <p style="max-width:34ch;margin-top:18px">Ecossistema corporativo com soluções integradas de logística, delivery, tecnologia e mídia. Resultado para quem quer crescer.</p>
+      <div class="acoes" style="margin-top:22px"><a class="btn btn-ouro" href="https://wa.me/5522988541809" data-wa="Olá! Quero falar com um especialista do Grupo Jadson.">Falar com especialista</a></div>
+    </div>
+    <div>
+      <h4>Soluções</h4>
+      <ul>
+        <li><a href="/delivery-proprio">Delivery Próprio</a></li>
+        <li><a href="/logistica">Logística</a></li>
+        <li><a href="/tecnologia">Tecnologia</a></li>
+        <li><a href="/midias">Mídia</a></li>
+        <li><a href="/negocios">Negócios</a></li>
+        <li><a href="/expresso">Express</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Institucional</h4>
+      <ul>
+        <li><a href="/sobre">Sobre</a></li>
+        <li><a href="/empresas">Empresas</a></li>
+        <li><a href="/cases">Cases de Sucesso</a></li>
+        <li><a href="/planos">Planos</a></li>
+        <li><a href="/parceiros">Parceiros</a></li>
+        <li><a href="/trabalhe-conosco">Trabalhe Conosco</a></li>
+        <li><a href="/faq">FAQ</a></li>
+      </ul>
+    </div>
+    <div>
+      <h4>Contato</h4>
+      <ul>
+        <li><a href="tel:+5522988541809">(22) 98854-1809</a></li>
+        <li><a href="https://instagram.com/grupojadson">@grupojadson</a></li>
+        <li><a href="mailto:contato@grupojadson.com.br">contato@grupojadson.com.br</a></li>
+        <li><a href="/contato">→ Página de Contato</a></li>
+        <li><a href="/seja-parceiro">→ Seja Parceiro</a></li>
+        <li><a href="/trabalhe-conosco">→ Trabalhe Conosco</a></li>
+      </ul>
+    </div>
+  </div>
+  <div class="wrap base">© 2017 - 2026 <strong>Grupo Jadson · Soluções que geram resultado</strong> · Salvador, BA</div>
+</footer>
+
+<script>
+  // Links do WhatsApp com a mensagem original de cada botão
+  document.querySelectorAll('a[data-wa]').forEach(function (a) {
+    a.href = 'https://wa.me/5522988541809?text=' + encodeURIComponent(a.dataset.wa);
+  });
+
+  // Carrossel de serviços: o trilho desliza de lado conforme a rolagem
+  (function () {
+    var trilho = document.getElementById('trilho');
+    var secao = document.getElementById('servicos');
+    if (!trilho || !secao || matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    function mover() {
+      var r = secao.getBoundingClientRect();
+      var alvo = secao.offsetHeight - innerHeight;
+      var p = Math.min(1, Math.max(0, -r.top / alvo));
+      var deslocamento = Math.max(0, trilho.scrollWidth - innerWidth + 40);
+      trilho.style.transform = 'translate3d(' + (-p * deslocamento) + 'px,0,0)';
+    }
+    secao.style.height = '320vh';
+    secao.querySelector('.trilho-wrap').style.position = 'sticky';
+    secao.querySelector('.trilho-wrap').style.top = '0';
+    addEventListener('scroll', mover, { passive: true });
+    addEventListener('resize', mover);
+    mover();
+  })();
+
+  // Processo: troca a etapa conforme a rolagem
+  (function () {
+    var secao = document.getElementById('processo');
+    if (!secao) return;
+    var passos = document.querySelectorAll('#passos .passo');
+    function atualizar() {
+      var r = secao.getBoundingClientRect();
+      var alvo = secao.offsetHeight - innerHeight;
+      var p = Math.min(1, Math.max(0, -r.top / alvo));
+      var i = Math.min(passos.length - 1, Math.floor(p * passos.length));
+      passos.forEach(function (el, k) { el.classList.toggle('ativo', k === i); });
+    }
+    addEventListener('scroll', atualizar, { passive: true });
+    atualizar();
+  })();
+
+  // A conta da mesa: cada linha entra, depois é automatizada e o total zera
+  (function () {
+    var secao = document.getElementById('conta');
+    var linhas = document.querySelectorAll('#comanda .linha');
+    var total = document.getElementById('total-valor');
+    var rot = document.getElementById('total-rotulo');
+    var frase = document.getElementById('frase-antes');
+    if (!secao) return;
+    var reduzido = matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reduzido) {
+      linhas.forEach(function (l) { l.classList.add('visivel', 'resolvida'); });
+      total.textContent = '0%';
+      total.style.color = '#2F7D4F';
+      rot.textContent = 'Com o Grupo Jadson';
+      return;
+    }
+    function atualizar() {
+      var r = secao.getBoundingClientRect();
+      var alvo = secao.offsetHeight - innerHeight;
+      var p = Math.min(1, Math.max(0, -r.top / alvo));
+      frase.parentElement.parentElement.style.setProperty('--x', p);
+      frase.style.opacity = p < 0.08 ? Math.max(0, p / 0.08) : Math.max(0, 1 - (p - 0.08) / 0.1);
+      linhas.forEach(function (l, k) {
+        var entra = 0.12 + k * 0.1;
+        var resolve = 0.62 + k * 0.07;
+        l.classList.toggle('visivel', p >= entra);
+        l.classList.toggle('resolvida', p >= resolve);
+      });
+      if (p >= 0.62 + 3 * 0.07) {
+        total.textContent = '0%';
+        total.style.color = '#2F7D4F';
+        rot.textContent = 'Com o Grupo Jadson';
+      } else {
+        total.textContent = 'até 30%+';
+        total.style.color = '#B3261E';
+        rot.textContent = 'Dinheiro na mesa';
+      }
+    }
+    addEventListener('scroll', atualizar, { passive: true });
+    atualizar();
+  })();
+</script>
+</body>
+</html>

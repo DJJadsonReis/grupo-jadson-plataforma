@@ -1,0 +1,11 @@
+﻿import { chromium } from "playwright-core";
+import { existsSync } from "node:fs";
+const chrome = ["C:/Program Files/Google/Chrome/Application/chrome.exe","C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"].find(c=>existsSync(c));
+const b = await chromium.launch({ executablePath: chrome, headless: true });
+const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" });
+const p = await ctx.newPage();
+await p.goto("http://localhost:4600/", { waitUntil: "load" });
+await p.evaluate(() => document.getElementById("faq").scrollIntoView());
+await p.waitForTimeout(900);
+await p.screenshot({ path: "faq-celular.png" });
+await b.close();

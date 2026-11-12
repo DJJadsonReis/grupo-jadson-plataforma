@@ -1,0 +1,11 @@
+﻿import { chromium } from "playwright-core";
+import { existsSync } from "node:fs";
+const chrome = ["C:/Program Files/Google/Chrome/Application/chrome.exe","C:/Program Files (x86)/Google/Chrome/Application/chrome.exe"].find(c=>existsSync(c));
+const b = await chromium.launch({ executablePath: chrome, headless: true });
+const ctx = await b.newContext({ viewport: { width: 390, height: 844 }, reducedMotion: "no-preference" });
+const p = await ctx.newPage();
+await p.goto("http://localhost:4600/", { waitUntil: "load" });
+await p.waitForTimeout(500);
+const r = await p.evaluate(() => [...document.querySelectorAll("#faq, #faq *")].filter(e => e.scrollWidth > e.clientWidth + 1 || e.getBoundingClientRect().right > 390).map(e => ({ t: e.tagName + "." + e.className + (e.tagName==="DETAILS"?" open="+e.open:""), sw: e.scrollWidth, cw: e.clientWidth, right: Math.round(e.getBoundingClientRect().right), dataFx: e.getAttribute("data-fx") })));
+console.log(JSON.stringify(r, null, 2));
+await b.close();
