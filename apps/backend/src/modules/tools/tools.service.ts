@@ -10,6 +10,8 @@ import { McpService } from "../mcp/mcp.service";
 import { searchTavily, searchWikipedia } from "./web-search";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { GoogleService } from "../google/google.service";
+import { createNotionPage, searchNotion } from "./notion";
+import { listFiles, readText, writeText } from "./workspace-files";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -139,6 +141,38 @@ export class ToolsService {
       return { apagadas: removed.rowCount ?? 0 };
     }
     if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);
+    if (name.startsWith("notion.")) return this.runNotion(name, input);
+    if (name.startsWith("computador.")) return this.runComputer(name, input);
+    throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
+  }
+
+  /** Computador do Bot: só dentro da pasta de trabalho; a escrita já chega aqui depois da aprovação. */
+  private async runComputer(name: string, input: Record<string, unknown>): Promise<unknown> {
+    try {
+      if (name === "computador.listar") return { itens: await listFiles(String(input.pasta ?? "")) };
+      if (name === "computador.ler") return { arquivo: String(input.caminho ?? ""), ...(await readText(String(input.caminho ?? ""))) };
+      if (name === "computador.escrever") {
+        const caminho = String(input.caminho ?? "");
+        if (!caminho) return { erro: true, mensagem: "Informe o caminho do arquivo." };
+        return { arquivo: caminho, ...(await writeText(caminho, String(input.conteudo ?? ""))) };
+      }
+    } catch (error) {
+      return { erro: true, mensagem: error instanceof Error ? error.message : "Falha no arquivo." };
+    }
+    throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
+  }
+
+  /** Notion: usa o token salvo nas integrações. Sem token, a ferramenta recusa com mensagem clara. */
+  private async runNotion(name: string, input: Record<string, unknown>): Promise<unknown> {
+    const token = await this.integrations.secret("notion");
+    if (!token) return { erro: true, mensagem: "O Notion não está configurado. Cole o token em Configurações." };
+    if (name === "notion.buscar") return { resultados: await searchNotion(token, String(input.consulta ?? input.query ?? "")) };
+    if (name === "notion.criar_pagina") {
+      const pai = String(input.pagina_pai ?? "").trim();
+      const titulo = String(input.titulo ?? "").trim();
+      if (!pai || !titulo) return { erro: true, mensagem: "Informe o id da página pai e o título." };
+      return createNotionPage(token, pai, titulo, String(input.texto ?? ""));
+    }
     throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
   }
 

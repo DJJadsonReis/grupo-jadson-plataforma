@@ -2043,6 +2043,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
       <MemorySettings />
       <ModelSettings />
       <IntegrationSettings />
+      <NotionSettings />
       <GoogleSettings />
       <AccessSettings />
     </div>
@@ -2201,6 +2202,62 @@ function IntegrationSettings() {
           style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
         />
         <button className="btn-primary-gold" onClick={save} disabled={!key.trim()}>Salvar</button>
+        {configured && <button className="icon-btn-close" onClick={remove}>Remover</button>}
+      </div>
+    </article>
+  );
+}
+
+/** Notion: cole o token da integração criada em notion.so/my-integrations. Fica cifrado no servidor. */
+function NotionSettings() {
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [token, setToken] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/integrations`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("integrations"))))
+      .then((state: { notion: { configured: boolean } }) => setConfigured(state.notion.configured))
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível verificar o Notion."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function save() {
+    const value = token.trim();
+    if (!value) return;
+    const response = await apiFetch(`${API_URL}/integrations/notion`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ secret: value }),
+    });
+    if (response.ok) { setToken(""); setError(null); setVersion((v) => v + 1); }
+    else { const data = (await response.json().catch(() => ({}))) as { message?: string }; setError(data.message ?? "Não foi possível salvar o token."); }
+  }
+
+  async function remove() {
+    const response = await apiFetch(`${API_URL}/integrations/notion`, { method: "DELETE" });
+    if (response.ok) { setError(null); setVersion((v) => v + 1); } else setError("Não foi possível remover o token.");
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Notion</h3>
+      <p>Permite que os agentes pesquisem e criem páginas no seu Notion, depois da sua aprovação. Compartilhe as páginas com a integração no próprio Notion.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <div className="workspace-fact">
+        <span>Status</span>
+        <b>{configured === null ? "Verificando..." : configured ? "Configurado" : "Não configurado"}</b>
+      </div>
+      <div className="security-notice" style={{ alignItems: "center" }}>
+        <input
+          type="password"
+          value={token}
+          onChange={(event) => setToken(event.target.value)}
+          placeholder={configured ? "Trocar o token" : "Cole o token secreto do Notion"}
+          autoComplete="off"
+          style={{ flex: 1, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
+        />
+        <button className="btn-primary-gold" onClick={save} disabled={!token.trim()}>Salvar</button>
         {configured && <button className="icon-btn-close" onClick={remove}>Remover</button>}
       </div>
     </article>
