@@ -17,6 +17,8 @@
 
 O projeto declara dependências em `package.json` e nos manifests de `apps/*` e `packages/*`. As dependências diretas incluem React, TypeScript, Vite, Tauri, NestJS, PostgreSQL (`pg`), Redis (`redis`), Lucide React, Jest e Vitest. Consulte os manifests para nomes e faixas de versão atualmente declaradas.
 
+Avisos de licença de componentes de terceiros (incluindo o aviso MIT do OpenBot, de CopilotKit, usado como referência) estão em `THIRD_PARTY_NOTICES.md`.
+
 Os componentes de terceiros mantêm seus próprios autores e licenças. O Grupo Jadson não reivindica autoria sobre eles. Antes de distribuir binários, gerar o lockfile com pnpm 9.15.0 e produzir o inventário de licenças das dependências resolvidas.
 
 ## Contribuições
