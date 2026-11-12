@@ -47,5 +47,8 @@ coverage/
 Apresentacao_Grupo_Jadson_2026.pdf
 
 # Local reference checkout; the project uses its own implementation and documents the comparison
-Exemplo OpenBot/
+OpenBot/
 tools/redis/redis.conf.bak-*
+
+# Local snapshots and backups (never versioned)
+.backups/
