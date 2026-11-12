@@ -376,3 +376,6 @@
   .gx-chat .gx-prompts { grid-template-columns: 1fr; }
   .gx-chat .gx-pill-input { width: 80px; }
 }
+
+/* Avatar do agente ao lado do título da conversa. */
+.gx-chat .gx-title-avatar { margin-right: 8px; vertical-align: middle; }

@@ -1387,6 +1387,7 @@ function ChatPage({
       {/* CABEÇALHO MÍNIMO: só o título e as ações de conversa */}
       <header className="gx-header">
         <h1 className="gx-title" title={currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}>
+          {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" className="gx-title-avatar" />}
           {currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}
         </h1>
         <div className="gx-header-actions">
