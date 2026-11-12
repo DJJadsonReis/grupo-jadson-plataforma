@@ -93,6 +93,9 @@ importers:
 
   apps/desktop:
     dependencies:
+      '@solar-icons/react':
+        specifier: ^2.5.0
+        version: 2.5.0(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@tauri-apps/api':
         specifier: ^2.2.0
         version: 2.12.4
@@ -1074,6 +1077,17 @@ packages:
 
   '@sinonjs/fake-timers@10.3.0':
     resolution: {integrity: sha512-V4BG07kuYSUkTCSBHG8G8TNhM+F19jXFWnQtzj+we8DrkpSBCee9Z3Ms8yiGer/dlmhe35/Xdgyo3/0rQKg7YA==}
+
+  '@solar-icons/react@2.5.0':
+    resolution: {integrity: sha512-RZefAWdwSh6qA38qIViEVip4mkAuwnKa9UidIL8xqkLqDRK+bCwIBgcCUM1S/zXaz0EVis1nL1cEF/po5MJiGQ==}
+    engines: {node: '>=16'}
+    peerDependencies:
+      '@types/react': '>= 16.8'
+      react: '>= 16.8'
+      react-dom: '>= 16.8'
+    peerDependenciesMeta:
+      '@types/react':
+        optional: true
 
   '@tauri-apps/api@2.12.4':
     resolution: {integrity: sha512-pVmfis+4zT8H0Qhp3xPZx9Ju7kpzvA6rr/PSJPyuwfvucTQ8sVt61NYU9KMkK703UFlYadFmjKA4HhybOtN0gg==}
@@ -4680,6 +4694,13 @@ snapshots:
   '@sinonjs/fake-timers@10.3.0':
     dependencies:
       '@sinonjs/commons': 3.0.1
+
+  '@solar-icons/react@2.5.0(@types/react@18.3.31)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+    dependencies:
+      react: 18.3.1
+      react-dom: 18.3.1(react@18.3.1)
+    optionalDependencies:
+      '@types/react': 18.3.31
 
   '@tauri-apps/api@2.12.4': {}
 
