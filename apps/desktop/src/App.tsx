@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
-  Activity, ArrowUp, ArrowUpRight, Image, Mic, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
@@ -1209,6 +1209,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
           ))}
           <small className="cmdk-group">Ações</small>
           <button className="cmdk-item" onClick={() => done(onNewConversation)}><Plus size={16} /><span className="cmdk-copy"><strong>Nova conversa</strong></span></button>
+          <button className="cmdk-item" onClick={() => done(() => onNavigate("settings"))}><Plug size={16} /><span className="cmdk-copy"><strong>Conectar aplicativos</strong><small>Chaves de serviços e modelo de IA em Configurações</small></span></button>
           {pages.length > 0 && <small className="cmdk-group">Telas</small>}
           {pages.map((page) => (
             <button key={page.id} className="cmdk-item" onClick={() => done(() => onNavigate(page.id))}>
