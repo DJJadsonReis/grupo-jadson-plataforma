@@ -1,10 +1,10 @@
 :root {
   /* Grupo Jadson institutional palette, based on the official logo. */
-  --gj-canvas: #090908;
-  --gj-sidebar: #10100e;
-  --gj-surface: #151512;
-  --gj-surface-raised: #1b1a16;
-  --gj-surface-pressed: #211e16;
+  --gj-canvas: #0b0b0b;
+  --gj-sidebar: #101010;
+  --gj-surface: #161616;
+  --gj-surface-raised: #1c1c1c;
+  --gj-surface-pressed: #232323;
   --gj-border: #302d24;
   --gj-border-strong: #4a4027;
   --gj-gold: #d4a017;
