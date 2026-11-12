@@ -2272,6 +2272,33 @@
 .settings-box h3 { margin: 0; font-size: 15px; font-weight: 600; color: #f5f3ee; }
 .settings-box p { margin: 0; font-size: 13px; line-height: 1.5; color: rgba(245, 243, 238, 0.65); }
 
+.version-line { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; }
+.beta-badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border: 1px solid var(--gj-border-strong);
+  border-radius: var(--gj-radius-pill);
+  background: rgba(212, 160, 23, 0.08);
+  color: var(--gj-gold-bright);
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.credits-box strong { color: #f5f3ee; font-weight: 600; }
+.credits-links { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+.credits-links a {
+  padding: 7px 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: var(--gj-radius-sm);
+  color: #e6e3da;
+  font-size: 13px;
+  text-decoration: none;
+  transition: background 0.15s ease, border-color 0.15s ease;
+}
+.credits-links a:hover { background: rgba(255, 255, 255, 0.05); border-color: var(--gj-border-strong); }
+
 .security-notice {
   display: flex;
   align-items: flex-start;

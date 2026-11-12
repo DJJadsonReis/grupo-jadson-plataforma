@@ -2186,10 +2186,23 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
           )}
           {tab === "uso" && <UsageSettings />}
           {tab === "atualizacoes" && (
-            <article className="settings-box">
-              <h3>Atualizações</h3>
-              <p>Versão instalada: 0.1.0.</p>
-            </article>
+            <>
+              <article className="settings-box">
+                <h3>Atualizações</h3>
+                <p className="version-line">
+                  Versão instalada: 0.1.0
+                  <span className="beta-badge" title="Esta versão ainda está em teste">Versão beta</span>
+                </p>
+              </article>
+              <article className="settings-box credits-box">
+                <h3>Créditos</h3>
+                <p>Desenvolvido por <strong>DJ Jadson Reis</strong>.</p>
+                <nav className="credits-links" aria-label="Redes do DJ Jadson Reis">
+                  <a href="https://instagram.com/falajadson" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); window.open("https://instagram.com/falajadson", "_blank", "noopener,noreferrer"); }}>Instagram · @falajadson</a>
+                  <a href="https://x.com/djjadsonreis" target="_blank" rel="noopener noreferrer" onClick={(event) => { event.preventDefault(); window.open("https://x.com/djjadsonreis", "_blank", "noopener,noreferrer"); }}>X · @djjadsonreis</a>
+                </nav>
+              </article>
+            </>
           )}
         </div>
       </div>
