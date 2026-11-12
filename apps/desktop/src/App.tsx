@@ -1109,6 +1109,31 @@ function Dashboard({
 /* =========================================================================
    CHAT PAGE (EXPERIÊNCIA CONVERSACIONAL MODERNA)
    ========================================================================= */
+/** Leitura em voz alta da resposta: usa a síntese de voz do navegador (gratuita). Some quando o sistema não oferece. */
+function ReadAloudButton({ text }: { text: string }) {
+  const [speaking, setSpeaking] = useState(false);
+  const supported = typeof window !== "undefined" && "speechSynthesis" in window;
+  useEffect(() => () => { if (supported) window.speechSynthesis.cancel(); }, [supported]);
+  if (!supported) return null;
+
+  function toggle() {
+    if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
+    const utterance = new SpeechSynthesisUtterance(text.replace(/[*#_`>]/g, " "));
+    utterance.lang = "pt-BR";
+    utterance.onend = () => setSpeaking(false);
+    utterance.onerror = () => setSpeaking(false);
+    window.speechSynthesis.cancel();
+    window.speechSynthesis.speak(utterance);
+    setSpeaking(true);
+  }
+
+  return (
+    <button type="button" className="read-aloud-btn" onClick={toggle} aria-pressed={speaking} title={speaking ? "Parar leitura" : "Ouvir resposta"}>
+      {speaking ? "Parar" : "Ouvir"}
+    </button>
+  );
+}
+
 /** Ditado por voz: usa o reconhecimento de voz do navegador (gratuito). Some quando o sistema não oferece. */
 type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> & { length: number } }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null };
 function DictateButton({ onText }: { onText: (text: string) => void }) {
@@ -1414,6 +1439,7 @@ function ChatPage({
                 <div className="message-bubble">
                   <div className="message-header-author">
                     <b>{message.role === "user" ? "Você" : agents.find((item) => item.id === message.agentId)?.name ?? "Grupo Jadson"}</b>
+                    {message.role === "assistant" && message.content && <ReadAloudButton text={message.content} />}
                   </div>
                   <div className="message-content">
                     {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="message-image-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
