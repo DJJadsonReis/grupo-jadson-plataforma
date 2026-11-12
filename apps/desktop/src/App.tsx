@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
-  Activity, ArrowUp, ArrowUpRight, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
+  Activity, ArrowUp, ArrowUpRight, Image, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
 } from "lucide-react";
@@ -804,6 +804,7 @@ function Workspace() {
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
             focusMode={focusMode}
+            onOpenAutomations={() => setPage("automations")}
             setFocusMode={setFocusMode}
           />
         )}
@@ -1091,8 +1092,9 @@ function Dashboard({
    ========================================================================= */
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations
 }: {
+  onOpenAutomations: () => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: (value: string) => void; setFiles: (value: File[]) => void;
@@ -1105,7 +1107,15 @@ function ChatPage({
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
-  const libraryFiles = (conversation?.messages ?? []).flatMap((message) => (Array.isArray(message.attachments) ? message.attachments : [])).filter((file) => file && file.name);
+  const [libraryFilter, setLibraryFilter] = useState<"all" | "media" | "files">("all");
+  const libraryItems = (conversation?.messages ?? []).flatMap((message) =>
+    (Array.isArray(message.attachments) ? message.attachments : []).filter((file) => file && file.name).map((file) => ({ ...file, when: message.timestamp ?? 0 })));
+  const WEEK = 7 * 24 * 60 * 60 * 1000;
+  const isMedia = (type: string) => type.startsWith("image/") || type.startsWith("video/");
+  const shownItems = libraryItems.filter((file) => libraryFilter === "all" || (libraryFilter === "media" ? isMedia(file.type) : !isMedia(file.type)));
+  const recent = shownItems.filter((file) => !file.when || Date.now() - file.when < WEEK);
+  const older = shownItems.filter((file) => file.when && Date.now() - file.when >= WEEK);
+  const libraryFiles = shownItems;
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [delegateTo, setDelegateTo] = useState("");
   const [delegating, setDelegating] = useState(false);
@@ -1497,18 +1507,41 @@ function ChatPage({
 
           {contextTab === "library" && (
             <div className="ctx-library">
+              <div className="ctx-filters" role="group" aria-label="Filtrar arquivos">
+                {([["all", "Todos"], ["media", "Mídia"], ["files", "Arquivos"]] as const).map(([key, label]) => (
+                  <button key={key} className={libraryFilter === key ? "active" : ""} onClick={() => setLibraryFilter(key)}>{label}</button>
+                ))}
+              </div>
               {libraryFiles.length === 0 ? (
                 <p className="ctx-empty">Nenhum arquivo nesta conversa ainda.</p>
-              ) : libraryFiles.map((file) => (
-                <div className="ctx-file" key={file.id}>
-                  <FileText size={15} />
-                  <span>{file.name}</span>
-                </div>
-              ))}
+              ) : (
+                <>
+                  {recent.length > 0 && <small className="ctx-group-label">Esta semana</small>}
+                  {recent.map((file) => (
+                    <div className="ctx-file" key={file.id}>
+                      {isMedia(file.type) ? <Image size={15} /> : <FileText size={15} />}
+                      <span>{file.name}</span>
+                    </div>
+                  ))}
+                  {older.length > 0 && <small className="ctx-group-label">Mais antigos</small>}
+                  {older.map((file) => (
+                    <div className="ctx-file" key={file.id}>
+                      {isMedia(file.type) ? <Image size={15} /> : <FileText size={15} />}
+                      <span>{file.name}</span>
+                    </div>
+                  ))}
+                </>
+              )}
             </div>
           )}
 
           {contextTab === "activity" && <>
+          <div className="ctx-suggestions">
+            <div className="ctx-suggestions-head"><span>Sugestões</span></div>
+            <button className="ctx-suggestion" onClick={onOpenAutomations}>
+              <Clock3 size={15} /><span>Criar uma rotina</span><ChevronRight size={14} />
+            </button>
+          </div>
           <div className="workspace-run-state">
             <span className={"run-state-dot " + (busy ? "working" : "idle")} />
             <div>

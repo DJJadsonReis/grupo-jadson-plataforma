@@ -2690,3 +2690,14 @@ select:focus-visible {
 .ctx-file { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 10px; background: rgba(255,255,255,0.03); color: #d9d4c7; font-size: 13px; overflow: hidden; }
 .ctx-file span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ctx-empty { color: #7e7a70; font-size: 13px; }
+
+/* Painel de contexto: filtros da biblioteca, grupos por data e sugestões */
+.ctx-filters { display: flex; gap: 6px; }
+.ctx-filters button { padding: 5px 12px; border: 0; border-radius: 999px; background: rgba(255,255,255,0.04); color: #7e7a70; font: inherit; font-size: 12px; cursor: pointer; }
+.ctx-filters button.active { background: rgba(255,255,255,0.1); color: #f5f2ea; }
+.ctx-group-label { color: #7e7a70; font-size: 12px; margin-top: 6px; }
+.ctx-suggestions { display: grid; gap: 8px; margin-bottom: 14px; }
+.ctx-suggestions-head { display: flex; justify-content: space-between; color: #7e7a70; font-size: 12px; }
+.ctx-suggestion { display: flex; align-items: center; gap: 10px; width: 100%; padding: 12px; border: 1px solid rgba(255,255,255,0.06); border-radius: 12px; background: rgba(255,255,255,0.03); color: #f5f2ea; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.ctx-suggestion span { flex: 1; }
+.ctx-suggestion:hover { background: rgba(255,255,255,0.06); }
