@@ -2733,3 +2733,252 @@ select:focus-visible {
 .composer-capsule .toolbar-btn { height: 32px; width: 32px; display: inline-flex; align-items: center; justify-content: center; }
 .composer-capsule .toolbar-pill-label { height: 32px; display: inline-flex; align-items: center; gap: 6px; box-sizing: border-box; }
 .composer-capsule .agent-inline-select { height: 32px; }
+
+/* Mascotes animados no formulário de agente */
+.mascot-picker { display: grid; gap: 8px; }
+.mascot-picker > span { font-size: 13px; color: var(--gj-text-muted, #96938a); }
+.mascot-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(56px, 1fr)); gap: 8px; }
+.mascot-option { display: grid; place-items: center; padding: 6px; border-radius: 12px; border: 1px solid var(--gj-border, #302d24); background: var(--gj-surface-raised, #1c1c1c); cursor: pointer; }
+.mascot-option img { width: 44px; height: 44px; }
+.mascot-option.selected, .mascot-option:focus-visible { border-color: var(--gj-gold-bright, #f5ce55); box-shadow: 0 0 0 2px rgba(245, 206, 85, 0.25); }
+
+/* Diálogo "Criar novo Bot" (Criar Agente): cartão com prévia, nome, grade de mascotes e opções recolhidas */
+.bot-create-dialog {
+  width: min(460px, calc(100vw - 32px));
+  max-height: min(680px, 92vh);
+  display: flex;
+  flex-direction: column;
+  border-radius: 18px;
+  background: #161616;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.55);
+  overflow: hidden;
+  color: #f5f2ea;
+}
+.bot-create-dialog .modal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+}
+.bot-create-dialog .modal-header h2 { font-size: 15px; font-weight: 600; margin: 0; }
+.bot-create-body { overflow-y: auto; display: grid; gap: 16px; padding: 20px; }
+.bot-preview {
+  display: grid;
+  place-items: center;
+  height: 168px;
+  border-radius: 16px;
+  background: radial-gradient(circle at 50% 40%, rgba(212, 175, 55, 0.14), rgba(28, 28, 28, 0) 70%), #1c1c1c;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+}
+.bot-preview img { width: 112px; height: 112px; max-width: none; }
+.bot-name-input {
+  width: 100%;
+  height: 46px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: #1c1c1c;
+  color: #f5f2ea;
+  font: inherit;
+  font-size: 14px;
+  text-align: center;
+  box-sizing: border-box;
+}
+.bot-name-input::placeholder { color: #7e7a70; }
+.bot-name-input:focus { outline: none; border-color: rgba(245, 206, 85, 0.6); box-shadow: 0 0 0 3px rgba(245, 206, 85, 0.15); }
+.bot-mascot-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 10px; }
+.bot-mascot-grid .mascot-option {
+  aspect-ratio: 1;
+  width: 100%;
+  padding: 8px;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: #1c1c1c;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.bot-mascot-grid .mascot-option img { width: 100%; height: 100%; }
+.bot-mascot-grid .mascot-option:hover { transform: translateY(-2px); border-color: rgba(255, 255, 255, 0.16); }
+.bot-mascot-grid .mascot-option.selected { border-color: #f5ce55; background: #232323; box-shadow: 0 0 0 3px rgba(245, 206, 85, 0.18); }
+.bot-advanced { border-top: 1px solid rgba(255, 255, 255, 0.06); padding-top: 12px; }
+.bot-advanced summary { cursor: pointer; color: #96938a; font-size: 13px; padding: 4px 0; list-style: none; }
+.bot-advanced summary::-webkit-details-marker { display: none; }
+.bot-advanced summary::before { content: "▸ "; }
+.bot-advanced[open] summary::before { content: "▾ "; }
+.bot-advanced .modal-fields { margin-top: 12px; }
+.bot-create-dialog .modal-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding: 14px 20px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+.bot-create-dialog .modal-footer button { height: 38px; padding: 0 18px; border-radius: 10px; font: inherit; font-size: 14px; cursor: pointer; }
+.bot-create-dialog .modal-footer .btn-outline-sm { background: #1c1c1c; color: #c2bfb5; border: 1px solid rgba(255, 255, 255, 0.08); }
+.bot-create-dialog .modal-footer .btn-primary-gold { background: #d4af37; color: #17130a; border: 0; font-weight: 600; }
+
+/* Corpo do diálogo rola sozinho; cabeçalho e botões ficam sempre visíveis */
+.bot-create-body { flex: 1 1 auto; min-height: 0; }
+.bot-create-dialog .modal-footer { flex: 0 0 auto; }
+.bot-create-dialog .modal-header { flex: 0 0 auto; }
+
+/* Mascote do agente nos lugares que antes mostravam a letra */
+.agent-mark-img { width: 100%; height: 100%; object-fit: contain; display: block; }
+
+/* Avatar do agente com mascote: círculo escuro, anel dourado e selo de estrela */
+.agent-avatar:has(.agent-mark-img),
+.ctx-avatar:has(.agent-mark-img),
+.agent-avatar-char:has(.agent-mark-img),
+.agent-hero-avatar:has(.agent-mark-img) {
+  position: relative;
+  border-radius: 50%;
+  overflow: visible;
+  padding: 4px;
+  background: radial-gradient(circle at 50% 35%, #2b2b2b, #111111);
+  border: 2px solid #d4af37;
+  box-shadow: 0 0 0 3px rgba(212, 175, 55, 0.15);
+}
+.agent-avatar:has(.agent-mark-img)::after,
+.agent-avatar-char:has(.agent-mark-img)::after,
+.agent-hero-avatar:has(.agent-mark-img)::after {
+  content: "★";
+  position: absolute;
+  right: -4px;
+  bottom: -4px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  color: #17130a;
+  background: #f5ce55;
+  border: 2px solid #111111;
+}
+.agent-avatar:has(.agent-mark-img) .agent-mark-img,
+.ctx-avatar:has(.agent-mark-img) .agent-mark-img,
+.agent-avatar-char:has(.agent-mark-img) .agent-mark-img,
+.agent-hero-avatar:has(.agent-mark-img) .agent-mark-img { border-radius: 50%; }
+
+/* Menu da conta, no rodapé da barra lateral */
+.sidebar-user { position: relative; padding: 8px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.user-row { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px; border: 0; border-radius: 12px; background: transparent; color: #f5f2ea; font: inherit; cursor: pointer; text-align: left; }
+.user-row:hover, .user-row[aria-expanded="true"] { background: #1c1c1c; }
+.user-avatar { width: 32px; height: 32px; flex: none; display: grid; place-items: center; border-radius: 50%; background: #232323; border: 1.5px solid #d4af37; color: #f5ce55; font-weight: 700; font-size: 13px; }
+.user-copy { display: grid; min-width: 0; }
+.user-copy strong { font-size: 13px; font-weight: 600; }
+.user-copy small { font-size: 12px; color: #96938a; }
+.user-menu { position: absolute; left: 8px; right: 8px; bottom: calc(100% - 4px); padding: 6px; border-radius: 14px; background: #161616; border: 1px solid rgba(255, 255, 255, 0.08); box-shadow: 0 18px 40px rgba(0, 0, 0, 0.5); display: grid; gap: 2px; z-index: 5; }
+.user-menu-item { display: flex; align-items: center; gap: 10px; padding: 9px 10px; border: 0; border-radius: 10px; background: transparent; color: #d9d4c7; font: inherit; font-size: 13px; cursor: pointer; text-align: left; }
+.user-menu-item:hover, .user-menu-item:focus-visible { background: #232323; outline: none; }
+.user-menu-sep { height: 1px; background: rgba(255, 255, 255, 0.06); margin: 4px 6px; }
+
+/* Configurações em abas laterais */
+.settings-tabs-layout { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 20px; align-items: start; }
+.settings-tabs { display: grid; gap: 4px; position: sticky; top: 12px; }
+.settings-tab { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border: 0; border-radius: 10px; background: transparent; color: #96938a; font: inherit; font-size: 14px; cursor: pointer; text-align: left; }
+.settings-tab:hover { background: #1c1c1c; color: #d9d4c7; }
+.settings-tab.active { background: #232323; color: #f5ce55; }
+.settings-tab-panel { display: grid; gap: 16px; min-width: 0; }
+@media (max-width: 760px) {
+  .settings-tabs-layout { grid-template-columns: 1fr; }
+  .settings-tabs { grid-auto-flow: column; overflow-x: auto; position: static; }
+}
+
+/* Uso e cobrança */
+.usage-totals { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.usage-totals > div { display: grid; gap: 4px; padding: 14px; border-radius: 12px; background: #1c1c1c; }
+.usage-totals span { font-size: 12px; color: #96938a; }
+.usage-totals b { font-size: 20px; color: #f5ce55; font-weight: 600; }
+.usage-rows { display: grid; gap: 8px; }
+
+/* Menu da conta abre ao lado da barra, sem ser cortado por ela */
+.sidebar-user { position: static; }
+.user-menu {
+  position: fixed;
+  left: calc(var(--sidebar-width, 260px) + 8px);
+  bottom: 84px;
+  width: 220px;
+  z-index: 60;
+}
+
+/* Lateral como antes: barra com rolagem própria desativada e itens inferiores sempre visíveis */
+.sidebar { overflow: hidden; }
+.sidebar > * { flex-shrink: 0; }
+.sidebar .history-list { max-height: 34vh; overflow-y: auto; flex-shrink: 1; min-height: 0; }
+
+/* Conectar aplicativos e linha da pessoa na lateral */
+.sidebar-person { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
+.sidebar-person-avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: #2a2a2a; color: #eee; font-size: 13px; flex-shrink: 0; }
+.sidebar-person-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: #eee; }
+.sidebar-person-connect { width: 30px; height: 30px; border-radius: 50%; border: 0; background: #2a2a2a; color: #ddd; display: grid; place-items: center; cursor: pointer; flex-shrink: 0; }
+.sidebar-collapsed .sidebar-person-name { display: none; }
+.connect-scrim { position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6); display: grid; place-items: center; z-index: 1100; }
+.connect-dialog { width: min(640px, calc(100vw - 32px)); max-height: min(720px, calc(100vh - 48px)); overflow: auto; background: #161616; border: 1px solid #2e2e2e; border-radius: 14px; padding: 20px; color: #eee; }
+.connect-head { display: flex; align-items: center; gap: 12px; }
+.connect-head h2 { flex: 1; margin: 0; font-size: 18px; font-weight: 600; }
+.connect-count { font-size: 12px; color: #999; }
+.connect-search { display: flex; align-items: center; gap: 8px; margin-top: 16px; padding: 8px 12px; background: #1f1f1f; border-radius: 8px; color: #999; }
+.connect-search input { flex: 1; background: transparent; border: 0; outline: none; color: inherit; font: inherit; }
+.connect-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 6px; }
+.connect-chip { border: 0; border-radius: 999px; padding: 6px 12px; background: #1f1f1f; color: #ccc; font: inherit; font-size: 12px; cursor: pointer; }
+.connect-chip.active { background: #eee; color: #111; }
+.connect-list { display: grid; grid-template-columns: 1fr 1fr; gap: 4px 16px; margin-top: 12px; }
+.connect-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; }
+.connect-name { font-size: 14px; }
+.connect-btn { border: 0; border-radius: 8px; padding: 6px 14px; background: #262626; color: #eee; font: inherit; font-size: 13px; cursor: pointer; }
+.connect-btn:disabled { opacity: 0.5; cursor: default; }
+.connect-empty { grid-column: 1 / -1; color: #999; font-size: 13px; }
+@media (max-width: 640px) { .connect-list { grid-template-columns: 1fr; } }
+
+/* Menu da conta, aberto ao clicar no nome */
+.sidebar-person-name { background: none; border: 0; padding: 0; text-align: left; cursor: pointer; font: inherit; }
+.account-menu { display: grid; gap: 2px; margin: 0 8px 6px; padding: 6px; background: #1c1c1c; border: 1px solid #2e2e2e; border-radius: 10px; }
+.account-menu-item { text-align: left; border: 0; background: transparent; color: #eee; padding: 8px 10px; border-radius: 6px; font: inherit; font-size: 13px; cursor: pointer; }
+.account-menu-item:hover:not(:disabled) { background: #262626; }
+.account-menu-item:disabled { opacity: 0.45; cursor: default; }
+/* Menu da conta flutuante, por cima da lateral */
+.account-menu { position: fixed; left: 12px; bottom: 96px; width: 230px; margin: 0; z-index: 1200; box-shadow: 0 12px 32px rgba(0, 0, 0, 0.5); }
+/* Linha da pessoa fixa no rodapé da lateral */
+.sidebar-person { margin-top: auto; flex-shrink: 0; }
+
+/* Conversas: agente com anel dourado e inicial, como no print */
+.history-agent .agent-avatar { width: 36px; height: 36px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1c1c1c; box-shadow: 0 0 0 1.5px #d4a017; color: #d4a017; font-weight: 700; font-size: 14px; }
+.history-agent strong { color: #f2f2f2; }
+.history-agent small { color: #8a8a8a; }
+
+/* Lateral recolhida: linha da pessoa empilhada e cabendo na largura */
+.sidebar-collapsed .sidebar-person { flex-direction: column; gap: 8px; padding: 8px 0; justify-content: center; }
+.sidebar-collapsed .sidebar-person-connect { width: 32px; height: 32px; }
+.sidebar-collapsed .sidebar-person-avatar { width: 32px; height: 32px; }
+
+/* Logo visível na lateral recolhida */
+.sidebar-collapsed .brand > .brand-logo-wrap { display: grid; }
+
+/* Lateral recolhida que abre com o mouse por cima */
+.app-shell-collapsed .sidebar.sidebar-hover-open { width: 260px !important; padding-left: 12px; padding-right: 12px; }
+
+.history-agent .agent-avatar { overflow: hidden; }
+
+/* Foto do bot no painel de contexto e no perfil */
+.ctx-avatar-image, .agent-hero-avatar-image { object-fit: cover; border-radius: 50%; }
+
+/* Foto do bot no perfil: ao passar o mouse aparece Editar avatar */
+.agent-hero-avatar-button { position: relative; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; flex: none; overflow: hidden; }
+.agent-hero-avatar-button .agent-hero-avatar { display: block; }
+.agent-hero-avatar-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 8px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 12px; font-weight: 600; text-align: center; opacity: 0; transition: opacity 0.15s; }
+.agent-hero-avatar-button:hover .agent-hero-avatar-overlay, .agent-hero-avatar-button:focus-visible .agent-hero-avatar-overlay { opacity: 1; }
+
+/* Foto do bot no painel de contexto: passar o mouse mostra Editar avatar */
+.ctx-avatar-button { position: relative; padding: 0; border: 0; border-radius: 50%; background: none; cursor: pointer; flex: none; overflow: hidden; }
+.ctx-avatar-button:disabled { cursor: default; }
+.ctx-avatar-button .ctx-avatar { display: flex; }
+.ctx-avatar-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 4px; border-radius: 50%; background: rgba(0, 0, 0, 0.6); color: #fff; font-size: 10px; font-weight: 600; text-align: center; opacity: 0; transition: opacity 0.15s; }
+.ctx-avatar-button:hover .ctx-avatar-overlay, .ctx-avatar-button:focus-visible .ctx-avatar-overlay { opacity: 1; }
+
+/* Função do bot ao lado do nome na lista de Conversas */
+.agent-role-chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(212, 160, 23, 0.45); color: #d4a017; font-size: 10px; font-weight: 600; vertical-align: middle; }
