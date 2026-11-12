@@ -2043,6 +2043,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
       <MemorySettings />
       <ModelSettings />
       <IntegrationSettings />
+      <GoogleSettings />
       <AccessSettings />
     </div>
   );
@@ -2201,6 +2202,57 @@ function IntegrationSettings() {
         />
         <button className="btn-primary-gold" onClick={save} disabled={!key.trim()}>Salvar</button>
         {configured && <button className="icon-btn-close" onClick={remove}>Remover</button>}
+      </div>
+    </article>
+  );
+}
+
+/** Conta Google: liga Drive e Agenda para a pessoa que está usando o app. */
+function GoogleSettings() {
+  const [connected, setConnected] = useState<boolean | null>(null);
+  const [waiting, setWaiting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/google/status`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
+      .then((state: { connected: boolean }) => setConnected(state.connected))
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível verificar a conta Google."); });
+    return () => controller.abort();
+  }, [version]);
+
+  async function connect() {
+    setError(null);
+    const response = await apiFetch(`${API_URL}/google/connect`);
+    if (!response.ok) { setError("Não foi possível iniciar a conexão com o Google."); return; }
+    const data = (await response.json()) as { url: string };
+    await invoke("open_external", { url: data.url });
+    setWaiting(true);
+  }
+
+  async function disconnect() {
+    const response = await apiFetch(`${API_URL}/google/connection`, { method: "DELETE" });
+    if (response.ok) { setWaiting(false); setError(null); setVersion((v) => v + 1); } else setError("Não foi possível desconectar.");
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Google (Drive e Agenda)</h3>
+      <p>Permite que os agentes vejam seus próximos eventos e arquivos recentes do Drive, e criem eventos na sua Agenda depois da sua aprovação.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <div className="workspace-fact">
+        <span>Status</span>
+        <b>{connected === null ? "Verificando..." : connected ? "Conectada" : waiting ? "Aguardando você concluir no navegador" : "Não conectada"}</b>
+      </div>
+      <div className="security-notice" style={{ alignItems: "center", justifyContent: "flex-end", gap: 8 }}>
+        {connected ? (
+          <button className="icon-btn-close" onClick={disconnect}>Desconectar</button>
+        ) : (
+          <button className="btn-primary-gold" onClick={connect}>Conectar Google</button>
+        )}
+        {waiting && !connected && <button className="icon-btn-close" onClick={() => setVersion((v) => v + 1)}>Já conectei</button>}
       </div>
     </article>
   );

@@ -18,11 +18,11 @@ export class ToolsController {
   }
 
   @Post(":name/invoke")
-  invoke(@Param("name") name: string, @Body() body: { input?: unknown; agentId?: unknown }, @Req() request: { principal?: { name: string } }) {
+  invoke(@Param("name") name: string, @Body() body: { input?: unknown; agentId?: unknown }, @Req() request: { principal?: { id: string; name: string } }) {
     const input = body?.input && typeof body.input === "object" && !Array.isArray(body.input) ? (body.input as Record<string, unknown>) : {};
     if (typeof name !== "string" || !name) throw new BadRequestException({ code: "INVALID_TOOL", message: "Informe a ferramenta." });
     const agentId = typeof body?.agentId === "string" && body.agentId ? body.agentId : undefined;
-    return this.tools.invoke(name, input, request.principal?.name ?? "sistema", agentId);
+    return this.tools.invoke(name, input, request.principal?.name ?? "sistema", agentId, request.principal?.id);
   }
 
   /** Executa uma ação sensível depois que a aprovação foi concedida. */

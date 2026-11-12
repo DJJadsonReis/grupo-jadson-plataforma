@@ -42,6 +42,7 @@ function build(approvalStatus: string) {
     { catalog: () => [], find: () => undefined, call: async () => ({}) } as never,
     { secret: async () => undefined } as never,
     { decisionFor: async () => null } as never,
+    {} as never,
   );
   return { service, memoryCalls, approvalsCalls };
 }

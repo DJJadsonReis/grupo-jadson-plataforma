@@ -8,9 +8,10 @@ import { ToolsController } from "./tools.controller";
 import { ToolsService } from "./tools.service";
 import { McpService } from "../mcp/mcp.service";
 import { IntegrationsModule } from "../integrations/integrations.module";
+import { GoogleModule } from "../google/google.module";
 
 @Module({
-  imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule],
+  imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule, GoogleModule],
   controllers: [ToolsController, AgentPoliciesController],
   providers: [ToolsService, McpService, AgentPolicyService],
   exports: [ToolsService],

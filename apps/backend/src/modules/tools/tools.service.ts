@@ -9,6 +9,15 @@ import { findTool, TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
 import { McpService } from "../mcp/mcp.service";
 import { searchTavily, searchWikipedia } from "./web-search";
 import { IntegrationsService } from "../integrations/integrations.service";
+import { GoogleService } from "../google/google.service";
+
+/** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
+function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
+  const scoped = { ...input };
+  delete scoped.pessoaId;
+  if (requesterId) scoped.pessoaId = requesterId;
+  return scoped;
+}
 
 export interface ToolRun {
   id: string;
@@ -40,6 +49,7 @@ export class ToolsService {
     private readonly mcp: McpService,
     private readonly integrations: IntegrationsService,
     private readonly policies: AgentPolicyService,
+    private readonly google: GoogleService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -48,9 +58,10 @@ export class ToolsService {
   }
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
-  async invoke(name: string, input: Record<string, unknown>, requestedBy: string, agentId?: string): Promise<ToolRun> {
+  async invoke(name: string, rawInput: Record<string, unknown>, requestedBy: string, agentId?: string, requesterId?: string): Promise<ToolRun> {
     const tool = this.catalog().find((item) => item.name === name) ?? findTool(name);
     if (!tool) throw new NotFoundException({ code: "NOT_FOUND", message: "Ferramenta não encontrada." });
+    const input = scopeInput(rawInput, requesterId);
     const id = randomUUID();
 
     // Regra do agente vem antes de tudo: "deny" recusa e fica na auditoria; "allow" dispensa aprovação.
@@ -127,6 +138,17 @@ export class ToolsService {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
       return { apagadas: removed.rowCount ?? 0 };
     }
+    if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);
+    throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
+  }
+
+  /** Ferramentas do Google: usam a conexão da própria pessoa que pediu. */
+  private async runGoogle(name: string, input: Record<string, unknown>): Promise<unknown> {
+    const pessoaId = typeof input.pessoaId === "string" ? input.pessoaId : "";
+    if (!pessoaId) return { erro: true, mensagem: "Entre na sua conta para usar o Google." };
+    if (name === "agenda.listar_eventos") return { eventos: await this.google.listEvents(pessoaId) };
+    if (name === "drive.listar_arquivos") return { arquivos: await this.google.listFiles(pessoaId) };
+    if (name === "agenda.criar_evento") return this.google.createEvent(pessoaId, input);
     throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
   }
 

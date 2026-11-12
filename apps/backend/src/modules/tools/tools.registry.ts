@@ -18,6 +18,9 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "memoria.apagar_tudo", description: "Apaga todas as memórias salvas. Exige aprovação.", risk: "sensitive" },
   { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read" },
   { name: "busca.web", description: "Pesquisa na web com o Tavily. Precisa da chave TAVILY_API_KEY no .env.", risk: "read" },
+  { name: "agenda.listar_eventos", description: "Próximos eventos da Agenda Google da pessoa. Precisa de conexão Google.", risk: "read" },
+  { name: "drive.listar_arquivos", description: "Arquivos recentes do Google Drive da pessoa. Precisa de conexão Google.", risk: "read" },
+  { name: "agenda.criar_evento", description: "Cria um evento na Agenda Google da pessoa. Exige aprovação.", risk: "sensitive" },
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

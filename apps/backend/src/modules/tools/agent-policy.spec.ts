@@ -55,7 +55,7 @@ describe("ToolsService.invoke com regra do agente", () => {
     const db = { getPool: () => ({ query: async () => ({ rows: [], rowCount: 1 }) }) };
     const memory = { list: async () => [] };
     const integrations = { secret: async () => undefined };
-    const service = new ToolsService(db as never, approvals as never, audit as never, memory as never, mcp as never, integrations as never, policies);
+    const service = new ToolsService(db as never, approvals as never, audit as never, memory as never, mcp as never, integrations as never, policies, {} as never);
     return { service, audits, approvalsRequested };
   }
 

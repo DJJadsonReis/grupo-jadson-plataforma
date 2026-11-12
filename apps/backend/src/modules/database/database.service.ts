@@ -15,6 +15,7 @@ import { migrationId as agentPoliciesMigrationId, up as addAgentPolicies } from 
 import { migrationId as signInMigrationId, up as addSignIn } from "./migrations/014-sign-in";
 import { migrationId as loopbackReturnMigrationId, up as addLoopbackReturn } from "./migrations/015-loopback-return";
 import { migrationId as integrationsMigrationId, up as addIntegrations } from "./migrations/011-integrations";
+import { migrationId as googleMigrationId, up as addGoogleConnections } from "./migrations/016-google-connections";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -52,6 +53,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: signInMigrationId, apply: async () => addSignIn(this.pool!) },
         { id: loopbackReturnMigrationId, apply: async () => addLoopbackReturn(this.pool!) },
         { id: integrationsMigrationId, apply: async () => addIntegrations(this.pool!) },
+        { id: googleMigrationId, apply: async () => addGoogleConnections(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

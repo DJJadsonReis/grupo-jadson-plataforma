@@ -11,6 +11,7 @@ import { DocumentsModule } from "./modules/documents/documents.module";
 import { ToolsModule } from "./modules/tools/tools.module";
 import { RoutinesModule } from "./modules/routines/routines.module";
 import { IntegrationsModule } from "./modules/integrations/integrations.module";
+import { GoogleModule } from "./modules/google/google.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule] })
 export class AppModule {}
