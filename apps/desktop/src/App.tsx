@@ -205,6 +205,15 @@ function readFavoriteAgents(): string[] {
 
 function Workspace() {
   const [page, setPage] = useState<PageId>("chat");
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen((value) => !value); }
+      if (event.key === "Escape") setPaletteOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
   const [health, setHealth] = useState<Health>("checking");
   const [postgresHealth, setPostgresHealth] = useState<Health>("checking");
   const [vectorHealth, setVectorHealth] = useState<Health>("checking");
@@ -577,6 +586,16 @@ function Workspace() {
   return (
     <div className={`app-shell flex min-h-dvh ${sidebarCollapsed ? "app-shell-collapsed" : ""} ${focusMode ? "app-shell-focus" : ""}`} style={{ "--sidebar-width": `${sidebarCollapsed ? 72 : sidebarWidth}px` } as CSSProperties}>
       <button className="mobile-menu" onClick={() => setMobileOpen((value) => !value)} aria-label="Abrir menu"><Boxes size={19} /></button>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        agents={agents}
+        conversations={conversations}
+        onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }}
+        onChatWithAgent={(id) => newConversation(id)}
+        onNewConversation={() => newConversation()}
+        onNavigate={(target) => setPage(target)}
+      />
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
 
       {/* SIDEBAR PREMIUM */}
@@ -1090,6 +1109,60 @@ function Dashboard({
 /* =========================================================================
    CHAT PAGE (EXPERIÊNCIA CONVERSACIONAL MODERNA)
    ========================================================================= */
+/** Busca rápida (Ctrl+K): bots, conversas, ações e telas. */
+function CommandPalette({ open, onClose, agents, conversations, onOpenConversation, onChatWithAgent, onNewConversation, onNavigate }: {
+  open: boolean; onClose: () => void; agents: Agent[]; conversations: Conversation[];
+  onOpenConversation: (id: string) => void; onChatWithAgent: (id: string) => void;
+  onNewConversation: () => void; onNavigate: (page: PageId) => void;
+}) {
+  const [query, setQuery] = useState("");
+  if (!open) return null;
+  const q = query.trim().toLowerCase();
+  const has = (text: string) => text.toLowerCase().includes(q);
+  const bots = agents.filter((agent) => has(agent.name)).slice(0, 6);
+  const chats = conversations.filter((item) => item.messages.length > 0 && has(item.title || "")).slice(0, 6);
+  const pages = ([
+    { id: "chat", label: "Conversas" }, { id: "agents", label: "Galeria de Agentes" },
+    { id: "automations", label: "Rotinas" }, { id: "settings", label: "Configurações" },
+  ] as { id: PageId; label: string }[]).filter((page) => has(page.label));
+  const done = (action: () => void) => { action(); setQuery(""); onClose(); };
+
+  return (
+    <div className="cmdk-overlay" onClick={() => { setQuery(""); onClose(); }}>
+      <div className="cmdk" role="dialog" aria-label="Buscar" onClick={(event) => event.stopPropagation()}>
+        <div className="cmdk-input">
+          <Search size={16} />
+          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar bots, chats, configurações..." />
+        </div>
+        <div className="cmdk-list">
+          {bots.length > 0 && <small className="cmdk-group">Bots</small>}
+          {bots.map((agent) => (
+            <button key={agent.id} className="cmdk-item" onClick={() => done(() => onChatWithAgent(agent.id))}>
+              <span className="ctx-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+              <span className="cmdk-copy"><strong>{agent.name}</strong><small>{agent.role || agent.description || "Agente"}</small></span>
+            </button>
+          ))}
+          {chats.length > 0 && <small className="cmdk-group">Conversas</small>}
+          {chats.map((item) => (
+            <button key={item.id} className="cmdk-item" onClick={() => done(() => onOpenConversation(item.id))}>
+              <MessageSquare size={16} />
+              <span className="cmdk-copy"><strong>{item.title || "Nova conversa"}</strong></span>
+            </button>
+          ))}
+          <small className="cmdk-group">Ações</small>
+          <button className="cmdk-item" onClick={() => done(onNewConversation)}><Plus size={16} /><span className="cmdk-copy"><strong>Nova conversa</strong></span></button>
+          {pages.length > 0 && <small className="cmdk-group">Telas</small>}
+          {pages.map((page) => (
+            <button key={page.id} className="cmdk-item" onClick={() => done(() => onNavigate(page.id))}>
+              <ChevronRight size={16} /><span className="cmdk-copy"><strong>{page.label}</strong></span>
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations
