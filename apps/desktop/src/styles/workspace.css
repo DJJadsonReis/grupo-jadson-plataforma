@@ -2720,9 +2720,13 @@ select:focus-visible {
 .read-aloud-btn:hover, .read-aloud-btn[aria-pressed="true"] { color: #d4af37; border-color: rgba(212,175,55,0.35); }
 
 /* Barra lateral: a lista de conversas rola sozinha e não sobrepõe o rodapé */
-.sidebar { overflow: hidden; }
+/* Janela baixa: a barra rola por inteiro, então "Configurações" nunca fica cortada. */
+.sidebar { overflow-x: hidden; overflow-y: auto; }
 .sidebar > * { flex-shrink: 0; }
 .sidebar .history-list { max-height: 34vh; overflow-y: auto; flex-shrink: 1; min-height: 0; }
+@media (max-height: 760px) {
+  .sidebar .history-list { max-height: 20vh; }
+}
 
 /* Barra do compositor: controles com a mesma altura e alinhados */
 .composer-toolbar-row, .composer-tools { align-items: center; }
