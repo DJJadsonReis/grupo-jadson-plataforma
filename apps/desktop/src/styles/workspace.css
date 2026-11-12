@@ -2635,3 +2635,19 @@ select:focus-visible {
 .composer-capsule textarea:focus-visible {
   border: 0 !important;
 }
+
+/* Organograma de agentes por setor */
+.org-view-toggle { display: inline-flex; gap: 4px; padding: 4px; margin: 12px 0 18px; border: 1px solid rgba(255,255,255,0.06); border-radius: 10px; background: rgba(255,255,255,0.02); }
+.org-view-toggle button { padding: 6px 14px; border: 0; border-radius: 7px; background: transparent; color: var(--gj-text-muted, #96938a); font: inherit; font-size: 13px; cursor: pointer; }
+.org-view-toggle button.active { background: rgba(212,175,55,0.14); color: #d4af37; }
+.org-sectors { display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; align-items: start; }
+.org-sector { border: 1px solid rgba(255,255,255,0.06); border-radius: 14px; padding: 16px; background: rgba(255,255,255,0.015); display: grid; gap: 12px; }
+.org-sector-head { display: grid; gap: 2px; }
+.org-sector-head h2 { margin: 0; font-size: 17px; }
+.org-sector-head small { color: var(--gj-text-muted, #96938a); font-size: 12px; }
+.org-sector-members { display: grid; gap: 8px; }
+.org-member { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; width: 100%; padding: 10px; border: 1px solid rgba(255,255,255,0.05); border-radius: 10px; background: transparent; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.org-member:hover { border-color: rgba(212,175,55,0.35); }
+.org-member-copy { display: grid; gap: 2px; min-width: 0; }
+.org-member-copy strong { font-size: 14px; }
+.org-member-copy small { color: var(--gj-text-muted, #96938a); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

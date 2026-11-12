@@ -1560,6 +1560,12 @@ function AgentsPage({
   const persistenceMessage = persistence === "connected"
     ? "PostgreSQL conectado: perfis sincronizados em tempo real."
     : "Modo Local: perfis e instruções salvos no armazenamento deste desktop.";
+  const [view, setView] = useState<"gallery" | "org">("gallery");
+  const sectors = new Map<string, Agent[]>();
+  for (const agent of agents) {
+    const key = agent.department?.trim() || "Sem setor";
+    sectors.set(key, [...(sectors.get(key) ?? []), agent]);
+  }
 
   return (
     <div className="page-content agents-gallery-page">
@@ -1580,7 +1586,38 @@ function AgentsPage({
         <span>{persistenceMessage}</span>
       </div>
 
-      {agents.length === 0 ? (
+      <div className="org-view-toggle" role="tablist" aria-label="Modo de visualização">
+        <button role="tab" aria-selected={view === "gallery"} className={view === "gallery" ? "active" : ""} onClick={() => setView("gallery")}>Galeria</button>
+        <button role="tab" aria-selected={view === "org"} className={view === "org" ? "active" : ""} onClick={() => setView("org")}>Organograma</button>
+      </div>
+
+      {view === "org" && agents.length > 0 && (
+        <div className="org-sectors">
+          {[...sectors.entries()].map(([sector, members]) => (
+            <section className="org-sector" key={sector}>
+              <header className="org-sector-head">
+                <span className="section-label">SETOR</span>
+                <h2>{sector}</h2>
+                <small>{members.length} {members.length === 1 ? "agente" : "agentes"}</small>
+              </header>
+              <div className="org-sector-members">
+                {members.map((agent) => (
+                  <button className="org-member" key={agent.id} onClick={() => onOpen(agent.id)}>
+                    <span className="agent-avatar-char">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+                    <span className="org-member-copy">
+                      <strong>{agent.name}</strong>
+                      <small>{agent.role || agent.description || "Sem função definida"}</small>
+                    </span>
+                    <i className={"agent-badge-dot " + (agent.enabled ? "active" : "inactive")} />
+                  </button>
+                ))}
+              </div>
+            </section>
+          ))}
+        </div>
+      )}
+
+      {view === "gallery" && agents.length === 0 ? (
         <EmptyState
           title="Monte sua equipe de agentes"
           text="Crie personas especializadas com instruções e objetivos distintos para tarefas específicas."
@@ -1590,7 +1627,7 @@ function AgentsPage({
             </button>
           }
         />
-      ) : (
+      ) : view === "gallery" ? (
         <div className="agents-gallery-grid">
           {agents.map((agent) => (
             <article className="agent-card-premium" key={agent.id}>
@@ -1635,7 +1672,7 @@ function AgentsPage({
             </article>
           ))}
         </div>
-      )}
+      ) : null}
     </div>
   );
 }
