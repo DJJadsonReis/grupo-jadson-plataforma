@@ -1,6 +1,8 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
-import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { plainPreview } from "./lib/preview";
+import { AgentAvatar } from "./components/AgentAvatar";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -208,7 +210,7 @@ function clampSidebarWidth(value: number): number {
 /** Prévia de uma linha: o último texto da conversa, sem quebras de linha. */
 function lastMessagePreview(conversation: Conversation): string {
   const last = [...conversation.messages].reverse().find((message) => message.content.trim().length > 0);
-  return last ? last.content.replace(/\s+/g, " ").trim().slice(0, 80) : "Sem mensagens";
+  return last ? plainPreview(last.content) : "Sem mensagens";
 }
 
 function readStoredValue(key: string): string | null {
@@ -405,7 +407,7 @@ function Workspace() {
     apiFetch(`${API_URL}/agents`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("A API de agentes não respondeu.");
-        let remote = await response.json() as Agent[];
+        let remote = (await response.json() as unknown[]).map(normalizeAgent).filter((agent): agent is Agent => agent !== null);
         const knownIds = new Set(remote.map((agent) => agent.id));
         let migrationFailed = false;
         for (const localAgent of readWorkspace().agents) {
@@ -418,7 +420,8 @@ function Workspace() {
               body: JSON.stringify(localAgent)
             });
             if (!created.ok) throw new Error("Não foi possível migrar um agente local.");
-            const saved = await created.json() as Agent;
+            const saved = normalizeAgent(await created.json());
+            if (!saved) throw new Error("Resposta inválida ao migrar um agente local.");
             knownIds.add(saved.id);
             remote = [...remote, saved];
           } catch (cause) {
@@ -503,7 +506,8 @@ function Workspace() {
     const id = conversationId;
     const userMessage: ChatMessage = { role: "user", content: content || "Analise a imagem anexada." };
     const current = conversations.find((item) => item.id === id) ?? (pendingConversation && pendingConversation.id === id ? pendingConversation : undefined);
-    const prior = current?.messages ?? [];
+    // Mensagens de erro são só para a tela: não voltam ao modelo.
+    const prior = (current?.messages ?? []).filter((message) => !message.error);
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
       ...(agent ? { agentId: agent.id } : {}),
@@ -567,8 +571,15 @@ function Workspace() {
       if (!answer) throw new Error("O provedor encerrou a resposta sem conteúdo.");
     } catch (cause) {
       const aborted = cause instanceof DOMException && cause.name === "AbortError";
-      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0) } : item));
-      if (!aborted) setError(cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.");
+      const reason = cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.";
+      // O erro vira uma mensagem dentro da conversa, no lugar da resposta que não chegou.
+      setConversations((items) => items.map((item) => item.id === id ? {
+        ...item,
+        messages: [
+          ...item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0),
+          ...(aborted ? [] : [{ role: "assistant" as const, content: "", error: reason, ...(agent ? { agentId: agent.id } : {}) }]),
+        ],
+      } : item));
     } finally { setBusy(false); setActiveAgentId(null); abortRef.current = null; }
   }
 
@@ -1076,7 +1087,7 @@ function Dashboard({
                   title={agent.enabled ? "Selecionar no lançador de tarefas" : "Agente desativado"}
                 >
                   <div className="agent-avatar-ring">
-                    <span className="agent-avatar-text">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+                    <AgentAvatar agent={agent} size="md" />
                   </div>
                   <div className="agent-quick-info">
                     <b>{agent.name}</b>
@@ -1246,7 +1257,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
           {bots.length > 0 && <small className="cmdk-group">Bots</small>}
           {bots.map((agent) => (
             <button key={agent.id} className="cmdk-item" onClick={() => done(() => onChatWithAgent(agent.id))}>
-              <span className="ctx-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+              <AgentAvatar agent={agent} size="sm" />
               <span className="cmdk-copy"><strong>{agent.name}</strong><small>{agent.role || agent.description || "Agente"}</small></span>
             </button>
           ))}
@@ -1372,187 +1383,168 @@ function ChatPage({
   const mentionQuery = currentGroup?.mode === "mention" ? /(?:^|\s)@([^\s@]*)$/.exec(draft)?.[1] : undefined;
 
   return (
-    <div className={"chat-page " + (workspaceOpen ? "chat-workspace-open " : "") + (conversation?.messages.length ? "" : "chat-page-empty")}>
-      {/* HEADER SUPERIOR DO CHAT */}
-      <div className="chat-heading">
-        <div className="chat-title-group">
-          <h1>{currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}</h1>
-          {selectedAgent && (
-            <span className="chat-agent-badge">
-              <Bot size={13} />
-              {selectedAgent.name}
-            </span>
+    <div className={"chat-page gx-chat " + (workspaceOpen ? "chat-workspace-open " : "") + (conversation?.messages.length ? "" : "is-empty")}>
+      {/* CABEÇALHO MÍNIMO: só o título e as ações de conversa */}
+      <header className="gx-header">
+        <h1 className="gx-title" title={currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}>
+          {currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}
+        </h1>
+        <div className="gx-header-actions">
+          {conversation && conversation.messages.length > 0 && (
+            <button
+              type="button"
+              className={"gx-icon-btn " + (delegateOpen ? "is-active" : "")}
+              onClick={() => (delegateOpen ? (setDelegateOpen(false), setDelegateError(null)) : setDelegateOpen(true))}
+              aria-expanded={delegateOpen}
+              aria-label="Delegar conversa a outro agente"
+              title="Delegar conversa a outro agente"
+            >
+              <Bot size={16} />
+            </button>
           )}
-        </div>
-        <div className="chat-heading-actions">
           <button
-            className="focus-mode-btn"
+            className="gx-icon-btn"
             onClick={() => setFocusMode((value) => !value)}
             aria-pressed={focusMode}
             aria-label={focusMode ? "Sair do modo foco" : "Ativar modo foco"}
             title={focusMode ? "Sair do modo foco (Esc)" : "Modo foco: oculta menus laterais"}
           >
-            {focusMode ? <Minimize2 size={15} /> : <Maximize2 size={15} />}
+            {focusMode ? <Minimize2 size={16} /> : <Maximize2 size={16} />}
           </button>
-          {conversation && conversation.messages.length > 0 && (
-            <div className="chat-delegate">
-              {!delegateOpen ? (
-                <button className="workspace-toggle-btn" onClick={() => setDelegateOpen(true)} title="Passar a conversa para outro agente">
-                  <Bot size={14} />
-                  <span>Delegar</span>
-                </button>
-              ) : (
-                <>
-                  <select
-                    className="chat-delegate-select"
-                    value={delegateTo}
-                    onChange={(event) => setDelegateTo(event.target.value)}
-                    aria-label="Agente de destino"
-                  >
-                    <option value="">Escolha um agente</option>
-                    {agents.filter((agent) => agent.enabled && agent.id !== agentId).map((agent) => (
-                      <option key={agent.id} value={agent.id}>{agent.name}</option>
-                    ))}
-                  </select>
-                  <button className="workspace-toggle-btn" disabled={!delegateTo || delegating} onClick={delegate}>
-                    <span>{delegating ? "Delegando..." : "Confirmar"}</span>
-                  </button>
-                  <button className="workspace-toggle-btn" onClick={() => { setDelegateOpen(false); setDelegateError(null); }}>
-                    <span>Cancelar</span>
-                  </button>
-                </>
-              )}
-              {delegateError && <small className="chat-delegate-error" role="alert">{delegateError}</small>}
-            </div>
-          )}
-          <div className="chat-model-indicator">
-            <Sparkles size={13} />
-            <span>{model.trim() || "Modelo Padrão"}</span>
-          </div>
           <button
-            className={"workspace-toggle-btn " + (workspaceOpen ? "is-open" : "")}
+            className={"gx-icon-btn " + (workspaceOpen ? "is-active" : "")}
             onClick={() => setWorkspaceOpen((open) => !open)}
             aria-expanded={workspaceOpen}
+            aria-label="Painel de contexto"
             title="Painel de contexto"
           >
             <PanelRight size={16} />
-            <span>Contexto</span>
           </button>
+        </div>
+      </header>
+
+      {delegateOpen && conversation && conversation.messages.length > 0 && (
+        <div className="gx-delegate" role="group" aria-label="Delegar conversa">
+          <select value={delegateTo} onChange={(event) => setDelegateTo(event.target.value)} aria-label="Agente de destino">
+            <option value="">Escolha um agente</option>
+            {agents.filter((agent) => agent.enabled && agent.id !== agentId).map((agent) => (
+              <option key={agent.id} value={agent.id}>{agent.name}</option>
+            ))}
+          </select>
+          <button type="button" className="gx-text-btn gx-text-btn-strong" disabled={!delegateTo || delegating} onClick={delegate}>
+            {delegating ? "Delegando…" : "Confirmar"}
+          </button>
+          <button type="button" className="gx-text-btn" onClick={() => { setDelegateOpen(false); setDelegateError(null); }}>Cancelar</button>
+          {delegateError && <small className="gx-delegate-error" role="alert">{delegateError}</small>}
+        </div>
+      )}
+
+      {/* FLUXO DA CONVERSA: coluna central de leitura */}
+      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
+        <div className="gx-column">
+          {!conversation?.messages.length ? (
+            <div className="gx-empty">
+              <img src={logo} alt="" className="gx-empty-logo" />
+              <h2>O que vamos construir hoje?</h2>
+              <p>Envie instruções, analise dados ou peça ajuda a um agente da equipe.</p>
+              <div className="gx-prompts">
+                {[
+                  { title: "Verificar serviços", desc: "Consultar conexões e APIs disponíveis", prompt: "Quais serviços e bancos de dados estão conectados no momento?" },
+                  { title: "Consultar agentes", desc: "Listar perfis e especialidades ativas", prompt: "Quais agentes de IA estão configurados para operar comigo?" },
+                  { title: "Elaborar plano de ação", desc: "Estruturar etapas para nova meta", prompt: "Ajude-me a estruturar um plano de ação completo para uma nova iniciativa." },
+                  { title: "Analisar código e arquitetura", desc: "Revisar estrutura e boas práticas", prompt: "Quais são as melhores práticas para orquestração de IA moderna?" }
+                ].map((item) => (
+                  <button key={item.title} className="gx-prompt" onClick={() => setDraft(item.prompt)}>
+                    <b>{item.title}</b>
+                    <small>{item.desc}</small>
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="gx-thread">
+              {conversation.messages.map((message, index) => {
+                const isLast = index === conversation.messages.length - 1;
+                if (message.role === "user") {
+                  return (
+                    <div className="gx-turn gx-turn-user" key={index + "-user"}>
+                      {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
+                      <div className="gx-user-bubble">{message.content}</div>
+                    </div>
+                  );
+                }
+                if (message.error) {
+                  return (
+                    <div className="gx-turn gx-turn-error" role="alert" key={index + "-error"}>
+                      <CircleHelp size={16} />
+                      <p>{message.error}</p>
+                    </div>
+                  );
+                }
+                // Resposta vazia enquanto o modelo ainda não respondeu: o indicador "Pensando" ocupa o lugar.
+                if (!message.content) return isLast && busy ? <ThinkingTurn key={index + "-thinking"} agent={runningAgent ?? selectedAgent} /> : null;
+                const author = agents.find((item) => item.id === message.agentId);
+                return (
+                  <div className="gx-turn gx-turn-assistant" key={index + "-assistant"}>
+                    <div className="gx-turn-head">
+                      <AuthorAvatar agent={author} />
+                      <span className="gx-turn-name">{author?.name ?? "Grupo Jadson"}</span>
+                      <ReadAloudButton text={message.content} />
+                    </div>
+                    <div className="gx-turn-body">
+                      <MarkdownContent content={message.content} />
+                    </div>
+                  </div>
+                );
+              })}
+              {busy && conversation.messages[conversation.messages.length - 1]?.role !== "assistant" && <ThinkingTurn agent={runningAgent ?? selectedAgent} />}
+            </div>
+          )}
+          <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* ÁREA DE MENSAGENS */}
-      <div className="messages-area" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
-        {!conversation?.messages.length ? (
-          /* ESTADO INICIAL VAZIO */
-          <div className="chat-empty-hero">
-            <div className="chat-hero-glow">
-              <img src={logo} alt="Grupo Jadson" className="chat-hero-logo" />
+      {/* COMPOSER FIXO NO RODAPÉ, NA MESMA LARGURA DA COLUNA */}
+      <div className="gx-dock">
+        <div className="gx-column">
+          {error && (
+            <div className="gx-notice" role="alert">
+              <span>{error}</span>
+              <button type="button" onClick={onDismissError} aria-label="Fechar aviso"><X size={14} /></button>
             </div>
-            <h2>O que vamos construir hoje?</h2>
-            <p className="chat-hero-desc">
-              Envie instruções, analise dados ou orquestre agentes de IA para acelerar seus projetos.
-            </p>
+          )}
 
-            <div className="chat-prompt-suggestions">
-              {[
-                { title: "Verificar serviços", desc: "Consultar conexões e APIs disponíveis", prompt: "Quais serviços e bancos de dados estão conectados no momento?" },
-                { title: "Consultar agentes", desc: "Listar perfis e especialidades ativas", prompt: "Quais agentes de IA estão configurados para operar comigo?" },
-                { title: "Elaborar plano de ação", desc: "Estruturar etapas para nova meta", prompt: "Ajude-me a estruturar um plano de ação completo para uma nova iniciativa." },
-                { title: "Analisar código e arquitetura", desc: "Revisar estrutura e boas práticas", prompt: "Quais são as melhores práticas para orquestração de IA moderna?" }
-              ].map((item) => (
-                <button
-                  key={item.title}
-                  className="prompt-card"
-                  onClick={() => setDraft(item.prompt)}
-                >
-                  <div className="prompt-card-top">
-                    <b>{item.title}</b>
-                    <ArrowUpRight size={14} className="prompt-card-arrow" />
-                  </div>
-                  <small>{item.desc}</small>
-                </button>
+          {files.length > 0 && (
+            <div className="gx-chips">
+              {files.map((file) => (
+                <span key={file.name + "-" + file.size} className="gx-chip">
+                  <FilePreview file={file} />
+                  {file.name}
+                  <button type="button" onClick={() => setFiles(files.filter((item) => item !== file))} aria-label="Remover anexo">
+                    <X size={12} />
+                  </button>
+                </span>
               ))}
             </div>
-          </div>
-        ) : (
-          /* FLUXO DE MENSAGENS CONVERSACIONAIS */
-          <div className="message-list-stream">
-            {conversation.messages.map((message, index) => (
-              <div
-                className={"message-row message-row-" + message.role}
-                key={index + "-" + message.role}
-              >
-                {message.role === "assistant" && (
-                  <div className="assistant-avatar-badge">
-                    <img src={logo} alt="GJ" />
-                  </div>
-                )}
-                <div className="message-bubble">
-                  <div className="message-header-author">
-                    <b>{message.role === "user" ? "Você" : agents.find((item) => item.id === message.agentId)?.name ?? "Grupo Jadson"}</b>
-                    {message.role === "assistant" && message.content && <ReadAloudButton text={message.content} />}
-                  </div>
-                  <div className="message-content">
-                    {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="message-image-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
-                    {message.content ? (
-                      <MarkdownContent content={message.content} />
-                    ) : busy ? (
-                      <div className="streaming-indicator">
-                        <span className="streaming-dot" />
-                        <span className="streaming-dot" />
-                        <span className="streaming-dot" />
-                      </div>
-                    ) : null}
-                  </div>
-                </div>
-              </div>
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
-      </div>
+          )}
 
-      {/* COMPOSER FLUTUANTE MODERNO */}
-      <div className="composer-wrapper">
-        {error && (
-          <div className="composer-error" role="alert">
-            <CircleHelp size={15} />
-            <span>{error}</span>
-            <button onClick={onDismissError} aria-label="Fechar erro"><X size={14} /></button>
-          </div>
-        )}
+          {pdfDocs.length > 0 && (
+            <div className="gx-chips">
+              {pdfDocs.map((doc) => (
+                <span key={doc.id} className="gx-chip">
+                  {doc.name} · {doc.pages} página{doc.pages === 1 ? "" : "s"}
+                  <button type="button" onClick={() => setPdfDocs((items) => items.filter((item) => item.id !== doc.id))} aria-label="Remover PDF">
+                    <X size={12} />
+                  </button>
+                </span>
+              ))}
+            </div>
+          )}
 
-        {files.length > 0 && (
-          <div className="composer-attachments">
-            {files.map((file) => (
-              <span key={file.name + "-" + file.size} className="attachment-pill">
-                <FilePreview file={file} />
-                {file.name}
-                <button onClick={() => setFiles(files.filter((item) => item !== file))} aria-label="Remover">
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
+          {pdfError && <div className="gx-notice" role="alert" onClick={() => setPdfError(null)}>{pdfError}</div>}
 
-        {pdfDocs.length > 0 && (
-          <div className="composer-attachments">
-            {pdfDocs.map((doc) => (
-              <span key={doc.id} className="attachment-pill">
-                {doc.name} · {doc.pages} página{doc.pages === 1 ? "" : "s"}
-                <button type="button" onClick={() => setPdfDocs((items) => items.filter((item) => item.id !== doc.id))} aria-label="Remover PDF">
-                  <X size={12} />
-                </button>
-              </span>
-            ))}
-          </div>
-        )}
-
-        {pdfError && <div className="composer-error" role="alert" onClick={() => setPdfError(null)}>{pdfError}</div>}
-        <form
-          className="composer-capsule"
+          <form
+            className="gx-composer"
             onSubmit={(event) => {
               event.preventDefault();
               // Cada PDF vai como bloco de documento antes do texto digitado.
@@ -1565,107 +1557,69 @@ function ChatPage({
               onSend(message, model, selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
               setPdfDocs([]);
             }}
-        >
-          <textarea
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="Como o Grupo Jadson pode ajudar você hoje? (Shift+Enter para quebra de linha)"
-            rows={1}
-            aria-label="Mensagem"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey) {
-                event.preventDefault();
-                event.currentTarget.form?.requestSubmit();
-              }
-            }}
-            onPaste={(event) => { const images = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => Boolean(file)).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); if (images.length) setFiles([...files, ...images]); }}
-          />
-          {mentionQuery !== undefined && <div className="mention-suggestions" role="listbox">{availableAgents.filter((agent) => agent.name.toLocaleLowerCase().includes(mentionQuery.toLocaleLowerCase())).map((agent) => <button type="button" key={agent.id} role="option" onClick={() => setDraft(draft.replace(/@[^\s@]*$/, `@${agent.name} `))}><span className="mention-avatar">{agent.name.slice(0, 1)}</span><span><b>{agent.name}</b><small>{agent.role || agent.description || "Agente"}</small></span></button>)}</div>}
+          >
+            <textarea
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="Mensagem para o Grupo Jadson"
+              rows={1}
+              aria-label="Mensagem"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && !event.shiftKey) {
+                  event.preventDefault();
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+              onPaste={(event) => { const images = Array.from(event.clipboardData.items).filter((item) => item.type.startsWith("image/")).map((item) => item.getAsFile()).filter((file): file is File => Boolean(file)).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); if (images.length) setFiles([...files, ...images]); }}
+            />
+            {mentionQuery !== undefined && <div className="mention-suggestions" role="listbox">{availableAgents.filter((agent) => agent.name.toLocaleLowerCase().includes(mentionQuery.toLocaleLowerCase())).map((agent) => <button type="button" key={agent.id} role="option" onClick={() => setDraft(draft.replace(/@[^\s@]*$/, `@${agent.name} `))}><AgentAvatar agent={agent} size="xs" /><span><b>{agent.name}</b><small>{agent.role || agent.description || "Agente"}</small></span></button>)}</div>}
 
-          <div className="composer-toolbar">
-            <div className="composer-left-actions">
-              <input
-                ref={inputRef}
-                hidden
-                type="file"
-                multiple
-                accept="image/png,image/jpeg,image/webp,application/pdf"
-                onChange={(event) => {
-                  const chosen = Array.from(event.target.files ?? []);
-                  setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))]);
-                  void attachPdfs(chosen.filter((file) => file.type === "application/pdf"));
-                  event.target.value = "";
-                }}
-              />
-              <button
-                type="button"
-                className="toolbar-btn"
-                onClick={onChooseFiles}
-                title="Anexar arquivo"
-                aria-label="Anexar arquivo"
-              >
-                <Paperclip size={16} />
-              </button>
-              <DictateButton onText={(text) => setDraft(draft ? `${draft} ${text}` : text)} />
-
-              {/* SELETOR DE MODELO */}
-              <label className="toolbar-pill-label">
-                <Sparkles size={13} className="text-gold" />
+            <div className="gx-toolbar">
+              <div className="gx-tools">
                 <input
-                  className="model-inline-input"
-                  aria-label="ID do modelo"
-                  placeholder="Modelo padrão"
-                  value={model}
-                  onChange={(event) => setModel(event.target.value)}
+                  ref={inputRef}
+                  hidden
+                  type="file"
+                  multiple
+                  accept="image/png,image/jpeg,image/webp,application/pdf"
+                  onChange={(event) => {
+                    const chosen = Array.from(event.target.files ?? []);
+                    setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))]);
+                    void attachPdfs(chosen.filter((file) => file.type === "application/pdf"));
+                    event.target.value = "";
+                  }}
                 />
-              </label>
-
-              {/* SELETOR DE PERFIL / AGENTE */}
-              <label className="toolbar-pill-label">
-                <Bot size={14} />
-                <select
-                  className="agent-inline-select"
-                  aria-label="Perfil associado"
-                  value={agentId}
-                  onChange={(event) => setAgentId(event.target.value)}
-                >
-                  <option value="">Sem perfil</option>
-                  {availableAgents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>{agent.name}</option>
-                  ))}
-                </select>
-              </label>
-            </div>
-
-            <div className="composer-right-actions">
+                <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
+                  <Paperclip size={16} />
+                </button>
+                <DictateButton onText={(text) => setDraft(draft ? `${draft} ${text}` : text)} />
+                <label className="gx-pill" title="Modelo usado nesta conversa">
+                  <Sparkles size={13} />
+                  <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
+                </label>
+                <label className="gx-pill" title="Agente que responde">
+                  {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
+                  <select className="gx-pill-select" aria-label="Perfil associado" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                    <option value="">Sem perfil</option>
+                    {availableAgents.map((agent) => (
+                      <option key={agent.id} value={agent.id}>{agent.name}</option>
+                    ))}
+                  </select>
+                </label>
+              </div>
               {busy ? (
-                <button
-                  type="button"
-                  className="send-round-btn stop-action"
-                  onClick={onCancel}
-                  title="Parar geração"
-                  aria-label="Parar geração"
-                >
-                  <Square size={14} />
+                <button type="button" className="gx-send is-stop" onClick={onCancel} title="Parar geração" aria-label="Parar geração">
+                  <Square size={13} />
                 </button>
               ) : (
-                <button
-                  type="submit"
-                  className="send-round-btn send-action"
-                  disabled={!draft.trim() && files.length === 0}
-                  title="Enviar mensagem"
-                  aria-label="Enviar mensagem"
-                >
+                <button type="submit" className="gx-send" disabled={!draft.trim() && files.length === 0} title="Enviar mensagem" aria-label="Enviar mensagem">
                   <ArrowUp size={18} />
                 </button>
               )}
             </div>
-          </div>
-        </form>
-
-        <p className="composer-disclaimer">
-          Grupo Jadson AI Controller · O histórico local é mantido neste dispositivo; sincronização PostgreSQL e geração dependem do backend configurado.
-        </p>
+          </form>
+          <p className="gx-disclaimer">O histórico fica neste dispositivo. As respostas dependem do modelo configurado em Configurações.</p>
+        </div>
       </div>
 
       {/* WORKSPACE PANEL FLUTUANTE */}
@@ -1845,7 +1799,7 @@ function AgentsPage({
               <div className="org-sector-members">
                 {members.map((agent) => (
                   <button className="org-member" key={agent.id} onClick={() => onOpen(agent.id)}>
-                    <span className="agent-avatar-char">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
+                    <AgentAvatar agent={agent} size="sm" />
                     <span className="org-member-copy">
                       <strong>{agent.name}</strong>
                       <small>{agent.role || agent.description || "Sem função definida"}</small>
@@ -1875,7 +1829,7 @@ function AgentsPage({
             <article className="agent-card-premium" key={agent.id}>
               <div className="agent-card-header">
                 <div className="agent-avatar-wrap">
-                  {agent.avatar ? <img className="agent-avatar-char-image" src={agent.avatar} alt="" /> : <span className="agent-avatar-char">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>}
+                  <AgentAvatar agent={agent} size="lg" />
                   <i className={"agent-badge-dot " + (agent.enabled ? "active" : "inactive")} />
                 </div>
                 <div className="agent-title-info">
@@ -1941,7 +1895,7 @@ function AgentDetailPage({
 
       <section className="agent-detail-hero-box">
         <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
-          {agent.avatar ? <img className="agent-hero-avatar agent-hero-avatar-image" src={agent.avatar} alt="" /> : <span className="agent-hero-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>}
+          <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />
           <span className="agent-hero-avatar-overlay">Editar avatar</span>
         </button>
         <div className="agent-hero-info">
@@ -2563,17 +2517,6 @@ function ConnectAppsDialog({ onClose, onOpenSettings }: { onClose: () => void; o
 }
 
 /** Foto do bot na lista; se a imagem não carregar, mostra a inicial no mesmo círculo. */
-function AgentAvatar({ agent }: { agent: Agent }) {
-  const [failed, setFailed] = useState(false);
-  const letter = agent.name.trim().slice(0, 1).toUpperCase() || "A";
-  if (!agent.avatar || failed) return <span className="agent-avatar">{letter}</span>;
-  return (
-    <span className="agent-avatar">
-      <img src={agent.avatar} alt="" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} />
-    </span>
-  );
-}
-
 type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean };
 const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
 
@@ -3107,7 +3050,7 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
               <label><span>Cargo / função</span><input value={agent.role ?? ""} onChange={(event) => onChange({ ...agent, role: event.target.value })} placeholder="Ex.: Coordenador de Projetos" /></label>
               <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
-              <label><span>Especialidades (separadas por vírgula)</span><input value={(agent.specialties ?? []).join(", ")} onChange={(event) => onChange({ ...agent, specialties: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="TypeScript, UX, pesquisa" /></label>
+              <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
               <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
               <label>
                 <span>Especialidade / Descrição Curta</span>
@@ -3132,6 +3075,21 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
         </div>
       </form>
     </div>
+  );
+}
+
+/** Texto livre das especialidades: guarda o que foi digitado (com vírgulas no meio) e envia a lista limpa. */
+function SpecialtiesInput({ value, onChange }: { value: string[]; onChange: (list: string[]) => void }) {
+  const [text, setText] = useState(value.join(", "));
+  return (
+    <label>
+      <span>Especialidades (separadas por vírgula)</span>
+      <input
+        value={text}
+        onChange={(event) => { setText(event.target.value); onChange(toStringList(event.target.value)); }}
+        placeholder="TypeScript, UX, pesquisa"
+      />
+    </label>
   );
 }
 
@@ -3165,6 +3123,28 @@ function ComingSoonPage({ page, onNavigate }: { page: PageId; onNavigate: (page:
       </div>
     </div>
   );
+}
+
+/** Indicador de espera dentro do fluxo, no lugar da resposta que ainda não chegou. */
+function ThinkingTurn({ agent }: { agent?: Agent | undefined }) {
+  return (
+    <div className="gx-turn gx-turn-assistant gx-thinking" role="status" aria-live="polite">
+      <div className="gx-turn-head">
+        <AuthorAvatar agent={agent} />
+        <span className="gx-turn-name">{agent?.name ?? "Grupo Jadson"}</span>
+      </div>
+      <div className="gx-thinking-line">
+        <span className="gx-thinking-dots" aria-hidden="true"><i /><i /><i /></span>
+        <span>Pensando…</span>
+      </div>
+    </div>
+  );
+}
+
+/** Avatar do autor da resposta: a foto ou inicial do agente; sem agente, o logo do Grupo Jadson. */
+function AuthorAvatar({ agent }: { agent?: Agent | undefined }) {
+  if (agent) return <AgentAvatar agent={agent} size="sm" />;
+  return <span className="gx-avatar gx-avatar-sm gx-avatar-logo"><img src={logo} alt="" /></span>;
 }
 
 function MarkdownContent({ content }: { content: string }) {
