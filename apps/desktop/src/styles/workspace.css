@@ -2651,3 +2651,29 @@ select:focus-visible {
 .org-member-copy { display: grid; gap: 2px; min-width: 0; }
 .org-member-copy strong { font-size: 14px; }
 .org-member-copy small { color: var(--gj-text-muted, #96938a); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Coluna de conversas em estilo de mensagens: avatar circular, título e prévia */
+.history-list { gap: 4px; }
+.history-item {
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  align-items: center;
+}
+.history-item > svg {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  padding: 9px;
+  box-sizing: border-box;
+  border-radius: 50%;
+  background: rgba(212, 175, 55, 0.12);
+  color: #d4af37;
+}
+.history-item.history-active {
+  background: rgba(255, 255, 255, 0.05);
+  color: #f5f2ea;
+}
+.history-item.history-active > svg { background: rgba(212, 175, 55, 0.22); }
+.history-copy strong { font-size: 13px; font-weight: 600; color: #f5f2ea; }
+.history-copy small { color: #7e7a70; font-size: 12px; }
