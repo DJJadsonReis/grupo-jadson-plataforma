@@ -810,3 +810,15 @@ Li a especificação colada como instrução de produto, mantendo seus pedidos s
 - O relatório foi sanitizado para retirar o caminho absoluto `T:\Grupo Jadson` antes do commit.
 - O push foi concluído sem prompt de credenciais. A árvore local ficou limpa e acompanhando `origin/main`.
 - Não rodei testes, typecheck, migrations, builds nem workflows Actions como parte da publicação; o commit não representa validação de execução do produto.
+
+### 2026-11-12 — backup, organização do Git e token fora do frontend
+
+- **Backup:** cópia do projeto em `T:\backups\grupo-jadson-2026-11-12` (77.618 arquivos, conferidos um a um com a origem; inclui `.git` e os `.env`; sem `node_modules`, `dist`, `target`, `.runtime` e `.cache`) e bundle `T:\backups\grupo-jadson-2026-11-12.bundle` (`git bundle create --all`, verificado). O snapshot `.backups\pre-referencia-externa-2026-11-07` citado no plano não existia no disco.
+- **OpenBot fora do Git** (`6a0d776`): `OpenBot/` saiu do índice (3.198 arquivos), a pasta continua no disco. A regra do `.gitignore` estava com o nome errado ("Exemplo OpenBot/"); agora é `OpenBot/`. Adicionada `.backups/`.
+- **Aviso MIT** (`e7c442f`): `THIRD_PARTY_NOTICES.md` com a licença do OpenBot (CopilotKit), copiada do `OpenBot/LICENSE`. `CREDITS.md` aponta para ele.
+- **Token fora do frontend** (`d7c472f`): `VITE_API_TOKEN` saía no bundle do desktop. Agora produção não tem token do sistema; em dev, `GJ_DEV_API_TOKEN` (no `.env.local`, sem prefixo `VITE_`) é entregue pelo servidor do Vite só para mesma origem. Build verificado: o `dist/` não contém o nome da variável nem o valor. Pendências em `docs/SECURITY.md`: entrega pelo Tauri/Rust (não compilado nesta sessão), login obrigatório em produção e rotação do `API_TOKEN`.
+- **Commits separados por assunto** (`09d8fea`, `efa33ae`, `cb2d65a`, `a0a221e`, `0bf6b21`): o `App.tsx` ficou num commit só, porque os trechos dependem de tipos e estados compartilhados entre si; separar por trecho geraria commits que não compilam.
+- **Ativos e código-fonte:** mascotes, logos e documentos entraram no Git. `site-recriado/` teve o código-fonte versionado (`3239810`); `site-recriado/verificacao/` e `faq-celular.png` (saídas geradas) foram para o `.gitignore`. `node_modules` já era ignorado.
+- **Testes em 2026-11-12:** `pnpm install` (CI=true) OK. Backend: typecheck OK; 24 suítes e 94 testes passando. Desktop: typecheck OK; 3 testes passando; build OK.
+- **Pendências:** validação visual do layout (F1) no desktop e no celular; decisão sobre rotação do `API_TOKEN`; entrega do token pelo Tauri/Rust; Anthropic (F5) ainda não existe no código.
+- **Git:** o projeto tem histórico; nada foi enviado ao GitHub (`git push` não foi usado).

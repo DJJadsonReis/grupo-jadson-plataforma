@@ -1,10 +1,12 @@
 # Plano de migração do referência externa para o Grupo Jadson
 
-Data: 2026-11-07. Status: **plano para aprovação**. Autorização recebida para trabalhar dentro de `T:\grupo-jadson`.
+Data: 2026-11-07. Status atualizado em **2026-11-12** (ver seção 6). Autorização recebida para trabalhar dentro de `T:\grupo-jadson`.
 
-## 0. Salvaguarda feita
+## 0. Salvaguarda
 
-Snapshot completo do projeto antes de qualquer alteração: `T:\grupo-jadson\.backups\pre-referencia-externa-2026-11-07` (3.340 arquivos, 58 MB, sem `node_modules`). Para restaurar: copiar a pasta de volta sobre o projeto. O snapshot fica dentro do projeto e não deve ser versionado (incluir `.backups/` no `.gitignore` ao restaurar o Git).
+- **Snapshot de 2026-11-07 (`.backups\pre-referencia-externa-2026-11-07`):** não existia no disco quando verificado em 2026-11-12. Nunca foi possível confirmar se foi criado ou apagado; não há como restaurá-lo a partir dele.
+- **Backup novo de 2026-11-12:** `T:\backups\grupo-jadson-2026-11-12` (cópia do projeto, incluindo `.git` e os `.env`, sem `node_modules`, `dist`, `target`, `.runtime` e `.cache`; 77.618 arquivos, conferidos um a um com a origem) e `T:\backups\grupo-jadson-2026-11-12.bundle` (histórico Git completo, verificado com `git bundle verify`). O bundle não inclui alterações sem commit; essas estão na cópia de pasta.
+- A pasta `.backups/` agora está no `.gitignore`, caso um snapshot seja recriado dentro do projeto.
 
 ## 1. Escopo realista
 
@@ -19,18 +21,18 @@ Restrições que continuam valendo:
 
 ## 2. Fases
 
-| Fase | Conteúdo | Origem no referência externa | Pronto quando |
-|---|---|---|---|
-| F0 | Snapshot, licenças, notice MIT | `LICENSE`, manifests | Snapshot feito (ok); notice criado |
-| F1 | Layout estilo referência de mercado: sidebar recolhível, área central de chat, campo de entrada fixo, modo tela cheia e tema escuro dourado | referência de navegação em `app/` e `desktop/` (padrões, não código) | Tela renderiza no desktop e no celular; identidade visual preservada |
-| F2 | Autenticação e permissões (sessão, papéis) | `server/src/auth`, `identity` | Rotas protegidas; testes de autorização |
-| F3 | Aprovação humana de ações e auditoria | `approvals/`, `audit.ts` | Ação sensível pede aprovação; log gravado |
-| F4 | Medição de tokens e custos | `model-billing.ts` (ler, reescrever) | Uso gravado por conversa e agente |
-| F5 | Provedores: contrato comum + Anthropic + Google + endpoint local compatível com OpenAI | `shared/model-providers.json` | Escolha de modelo e fallback testados |
-| F6 | Memória por pessoa com opt-out | `server/src/memory/` | Lembrar, esquecer, separar por usuário |
-| F7 | Handoff entre agentes e limite de ferramentas | `agents/handoff-*`, `tool-limit.ts` | Delegação registrada e limitada |
-| F8 | Ferramentas (MCP) e rotinas em cron | `plugins/mcp.ts`, `routines/` | Só após F2 e F3 |
-| F9 | Análise de documentos (PDF/Office) | não existe no referência externa | Biblioteca escolhida com licença verificada |
+| Fase | Conteúdo | Origem no referência externa | Pronto quando | Status real (2026-11-12) |
+|---|---|---|---|---|
+| F0 | Snapshot, licenças, notice MIT | `LICENSE`, manifests | Snapshot feito; notice criado | **Feita.** Notice em `THIRD_PARTY_NOTICES.md` (`e7c442f`). Snapshot de 2026-11-07 não existe; backup novo em `T:\backups` (seção 0) |
+| F1 | Layout estilo referência de mercado: sidebar recolhível, área central de chat, campo de entrada fixo, modo tela cheia e tema escuro dourado | referência de navegação em `app/` e `desktop/` (padrões, não código) | Tela renderiza no desktop e no celular; identidade visual preservada | **Parcial.** Código commitado (`09d8fea`, `efa33ae`, `0bf6b21`). Validação visual não feita: o Tauri não roda neste computador. Falta conferir no desktop e no celular |
+| F2 | Autenticação e permissões (sessão, papéis) | `server/src/auth`, `identity` | Rotas protegidas; testes de autorização | **Parcial.** Papéis (admin, operador, leitor) e tokens por pessoa implementados; testes para o guard e para usuários existem. Cobertura de todas as rotas não confirmada. Token do sistema saiu do bundle (`d7c472f`); pendências em `docs/SECURITY.md` |
+| F3 | Aprovação humana de ações e auditoria | `approvals/`, `audit.ts` | Ação sensível pede aprovação; log gravado | **Parcial.** Aprovação e auditoria implementadas e aplicadas a Notion, Computador do Bot e Google (Agenda e Drive). Cobertura das demais ações não confirmada |
+| F4 | Medição de tokens e custos | `model-billing.ts` (ler, reescrever) | Uso gravado por conversa e agente | **Parcial.** Serviço de uso e migração 004 existem; uso por agente aparece em Atividades. Granularidade por conversa não confirmada |
+| F5 | Provedores: contrato comum + Anthropic + Google + endpoint local compatível com OpenAI | `shared/model-providers.json` | Escolha de modelo e fallback testados | **Parcial.** Endpoint compatível com OpenAI, Gemini e Ollama. **Anthropic não existe no código.** Fallback sem teste |
+| F6 | Memória por pessoa com opt-out | `server/src/memory/` | Lembrar, esquecer, separar por usuário | **Parcial.** Lembrar e esquecer existem (`memory.service`). Opt-out não confirmado |
+| F7 | Handoff entre agentes e limite de ferramentas | `agents/handoff-*`, `tool-limit.ts` | Delegação registrada e limitada | **Parcial.** Serviço de delegação com limite de 3 por conversa e registro na auditoria. Política de ferramentas em `agent-policy` |
+| F8 | Ferramentas (MCP) e rotinas em cron | `plugins/mcp.ts`, `routines/` | Só após F2 e F3 | **Parcial.** MCP por stdio. Rotinas usam `setInterval`, não cron de verdade |
+| F9 | Análise de documentos (PDF/Office) | não existe no referência externa | Biblioteca escolhida com licença verificada | **Parcial.** Só PDF (`pdf-parse`). DOCX e XLSX não implementados |
 
 ## 3. Layout tipo referência de mercado (F1): proposta
 
@@ -45,10 +47,18 @@ Decisão necessária: você quer só o layout (F1) agora, ou também as fases de
 
 ## 4. Verificação
 
-Cada fase termina com `typecheck`, testes e build executados pelo GitHub Actions (`typecheck.yml`, `test-backend.yml`, `build-frontend.yml`). Não há como verificar a UI aqui sem rodar o app.
+Cada fase termina com `typecheck`, testes e build. Em 2026-11-12 os testes passaram localmente (ver seção 6). A UI só pode ser verificada rodando o app.
 
-## 5. Pendências que bloqueiam
+## 5. Pendências
 
-- Repositório Git: pasta `.git` ausente; antes de versionar as fases é preciso restaurar o histórico (ver `docs/LOCALIZACAO_REPOSITORIO_GIT.md`).
+- Validação visual do layout (F1) no desktop e no celular.
+- Decisão sobre rotação do `API_TOKEN` e sobre a entrega do token pelo Tauri/Rust (ver `docs/SECURITY.md`).
+- Anthropic (F5) ainda não existe no código.
 - Login no GitHub no navegador do app, para disparar os workflows.
-- Confirmação do nome do repositório remoto (`grupo-jadson-plataforma` ou `grupo-jadson-platform`).
+- Confirmação do nome do repositório remoto (`grupo-jadson-plataforma` ou `grupo-jadson-platform`). O `origin` atual é `DJJadsonReis/grupo-jadson-plataforma`.
+
+## 6. Estado em 2026-11-12
+
+- Repositório Git: o projeto tem `.git` e histórico (o trecho antigo dizia o contrário e foi removido). Commits locais à frente de `origin/main`: ver `ACOMPANHAMENTO_DESENVOLVIMENTO.md`, entrada de 2026-11-12. Nada foi enviado ao GitHub.
+- Veja a seção 0 para o backup novo.
+- Testes em 2026-11-12: backend typecheck OK, 24 suítes e 94 testes passando; desktop typecheck OK, 3 testes passando, build OK.
