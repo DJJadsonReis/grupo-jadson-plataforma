@@ -1,10 +1,10 @@
+import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
 import { parseWorkspace, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
-  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2
-} from "lucide-react";
+  PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import logo from "./assets/grupo-jadson-logo.png";
 
@@ -13,6 +13,12 @@ type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
 const API_URL = import.meta.env.VITE_API_BASE_URL ?? "http://127.0.0.1:3333/api/v1";
+
+/** Mascotes animados do Grupo Jadson (pasta public/mascotes, cópia de mascotes-jadson/animados). */
+const MASCOTES = [
+  "01-nuvem", "02-redondo", "03-quadrado-arredondado", "04-diamante", "05-estrela", "06-flor", "07-hexagono",
+  "08-escudo", "09-chama", "10-gota", "11-triangulo", "12-engrenagem", "13-capsula",
+].map((name) => `/mascotes/${name}.svg`);
 const SESSION_KEY = "grupo-jadson.session.v1";
 
 /** Sessão da pessoa que entrou com a conta. Fica só neste computador. */
@@ -224,6 +230,19 @@ function readFavoriteAgents(): string[] {
 function Workspace() {
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [connectOpen, setConnectOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [sidebarHover, setSidebarHover] = useState(false);
+  useEffect(() => {
+    if (!accountOpen) return;
+    const onPointer = (event: PointerEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (target?.closest(".account-menu, .sidebar-person")) return;
+      setAccountOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointer);
+    return () => document.removeEventListener("pointerdown", onPointer);
+  }, [accountOpen]);
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") { event.preventDefault(); setPaletteOpen((value) => !value); }
@@ -264,9 +283,17 @@ function Workspace() {
     setRenamingId(null);
   }
 
-  function deleteConversation(id: string) {
+  async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
     if (!item) return;
+    try {
+      const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
+      if (!response.ok && response.status !== 404) throw new Error("falhou");
+    } catch {
+      setHistoryNotice("Não foi possível excluir a conversa. Tente de novo.");
+      window.setTimeout(() => setHistoryNotice(null), 3000);
+      return;
+    }
     setConversations((items) => items.filter((c) => c.id !== id));
     if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
     setHistoryNotice("Conversa excluída.");
@@ -298,7 +325,7 @@ function Workspace() {
   const [agentEditor, setAgentEditor] = useState<Agent | null>(null);
   const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("grupo-jadson.sidebar-collapsed") === "true");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("grupo-jadson.sidebar-collapsed.v2") === "true");
   const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
@@ -425,7 +452,7 @@ function Workspace() {
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents, groups }));
   }, [conversations, agents, groups]);
-  useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed.v2", String(sidebarCollapsed)); }, [sidebarCollapsed]);
   useEffect(() => { localStorage.setItem("grupo-jadson.focus-mode", String(focusMode)); }, [focusMode]);
   useEffect(() => {
     if (!focusMode) return;
@@ -604,6 +631,11 @@ function Workspace() {
   const serviceLabel = health === "connected" ? "Controlador Conectado" : health === "checking" ? "Verificando API" : "Modo Local";
 
   const visibleSidebarAgents = agents.filter((agent) => agent.name.toLocaleLowerCase().includes(agentSearch.trim().toLocaleLowerCase())).sort((a, b) => Number(favoriteAgentIds.includes(b.id)) - Number(favoriteAgentIds.includes(a.id))).slice(0, 6);
+  function agentPreview(agentId: string): string {
+    const last = conversations.filter((c) => c.agentId === agentId && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+    return last ? lastMessagePreview(last) : "Sem conversas ainda";
+  }
+  const railCollapsed = sidebarCollapsed && !sidebarHover;
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
 
   return (
@@ -620,10 +652,16 @@ function Workspace() {
         onNavigate={(target) => setPage(target)}
       />
       {mobileOpen && <button className="scrim" aria-label="Fechar menu" onClick={() => setMobileOpen(false)} />}
+      {connectOpen && <ConnectAppsDialog onClose={() => setConnectOpen(false)} onOpenSettings={() => { setConnectOpen(false); changePage("settings"); }} />}
 
       {/* SIDEBAR PREMIUM */}
-      <aside className={`sidebar ${mobileOpen ? "sidebar-open" : ""} ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-        {!sidebarCollapsed && (
+      <aside
+        className={`sidebar ${mobileOpen ? "sidebar-open" : ""} ${railCollapsed ? "sidebar-collapsed" : ""} ${sidebarCollapsed && !railCollapsed ? "sidebar-hover-open" : ""}`}
+        style={sidebarCollapsed && !railCollapsed ? { width: 260, zIndex: 60, boxShadow: "8px 0 24px rgba(0,0,0,0.45)" } : undefined}
+        onMouseEnter={() => setSidebarHover(true)}
+        onMouseLeave={() => setSidebarHover(false)}
+      >
+        {!railCollapsed && (
           <div
             className="sidebar-resize-handle"
             role="separator"
@@ -640,10 +678,18 @@ function Workspace() {
             <strong>GRUPO JADSON</strong>
             <span>CONTROLADOR DE IA</span>
           </div>
-          <button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={sidebarCollapsed ? "Expandir menu" : "Recolher menu"} title={sidebarCollapsed ? "Expandir menu" : "Recolher menu"}>
-            {sidebarCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
+          <button className="collapse-button" onClick={() => setSidebarCollapsed((value) => !value)} aria-label={railCollapsed ? "Expandir menu" : "Recolher menu"} title={railCollapsed ? "Expandir menu" : "Recolher menu"}>
+            {railCollapsed ? <ChevronRight size={16} /> : <ChevronLeft size={16} />}
           </button>
         </div>
+
+        {/* BUSCA DE CONVERSAS: fica em cima de Nova conversa */}
+        {!railCollapsed && (
+          <label className="history-search">
+            <Search size={13} />
+            <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
+          </label>
+        )}
 
         {/* NOVA CONVERSA - DESTAQUE */}
         <button className="new-chat" onClick={() => newConversation()} aria-label="Nova conversa">
@@ -658,7 +704,7 @@ function Workspace() {
               className={`nav-item ${page === id || (id === "conversations" && page === "chat") ? "active" : ""}`}
               key={id}
               onClick={() => changePage(id)}
-              title={sidebarCollapsed ? label : undefined}
+              title={railCollapsed ? label : undefined}
               aria-current={page === id ? "page" : undefined}
             >
               <Icon size={17} />
@@ -668,16 +714,37 @@ function Workspace() {
         </nav>
 
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
-        {conversations.length > 0 && !sidebarCollapsed && (
+        {!railCollapsed && (
           <div className="history">
             <div className="sidebar-section-header">
               <span className="section-label">CONVERSAS</span>
             </div>
-            <label className="history-search">
-              <Search size={13} />
-              <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
-            </label>
             <div className="history-list">
+              {groups
+                .filter((group) => group.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
+                .map((group) => {
+                  const last = conversations.filter((c) => c.groupId === group.id && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
+                  return (
+                    <button key={"team-" + group.id} className="history-item history-agent history-team" onClick={() => newConversation(undefined, group.id)} title={group.name} aria-label={"Conversar com a equipe " + group.name}>
+                      <span className="agent-avatar">{group.avatar ? <img src={group.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} /> : group.name.trim().slice(0, 1).toUpperCase() || "E"}</span>
+                      <span className="history-copy">
+                        <strong>{group.name}<span className="agent-role-chip">Equipe · {group.agentIds.length} bots</span></strong>
+                        <small>{last ? lastMessagePreview(last) : "Sem mensagens ainda"}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              {agents
+                .filter((agent) => agent.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
+                .map((agent) => (
+                  <button key={"agent-" + agent.id} className="history-item history-agent" onClick={() => agent.enabled && newConversation(agent.id)} disabled={!agent.enabled} title={agent.name} aria-label={"Conversar com " + agent.name}>
+                    <AgentAvatar agent={agent} />
+                    <span className="history-copy">
+                      <strong>{agent.name}{agent.role ? <span className="agent-role-chip">{agent.role}</span> : null}</strong>
+                      <small>{activeAgentId === agent.id ? "Em execução…" : agentPreview(agent.id)}</small>
+                    </span>
+                  </button>
+                ))}
               {conversations
                 .filter((item) => item.messages.length > 0)
                 .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
@@ -736,66 +803,25 @@ function Workspace() {
           </div>
         )}
 
-        {/* SEUS AGENTES (ACESSO RÁPIDO) */}
-        <div className="sidebar-agents">
-          <div className="sidebar-section-header">
-            <span className="section-label">AGENTES</span>
-            {!sidebarCollapsed && <span className="agent-count-pill">{agents.length}</span>}
-          </div>
-          {!sidebarCollapsed && agents.length > 3 && (
-            <label className="sidebar-agent-search">
-              <Search size={13} />
-              <input value={agentSearch} onChange={(event) => setAgentSearch(event.target.value)} placeholder="Filtrar agentes…" aria-label="Buscar agentes" />
-            </label>
-          )}
-          <div className="sidebar-agent-list">
-            {visibleSidebarAgents.map((agent) => (
-              <div key={agent.id} className="sidebar-agent-row">
-                <button
-                  className="sidebar-agent"
-                  title={sidebarCollapsed ? agent.name + " · " + (activeAgentId === agent.id ? "Pensando" : agent.enabled ? "Ativado" : "Desativado") : undefined}
-                  onClick={() => agent.enabled && newConversation(agent.id)}
-                  disabled={!agent.enabled}
-                  aria-label={"Conversar com " + agent.name}
-                >
-                  <span className="agent-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>
-                  <span className="sidebar-agent-copy">
-                    <b>{agent.name}</b>
-                    <small>{activeAgentId === agent.id ? "Em execução…" : agent.enabled ? "Pronto" : "Desativado"}</small>
-                  </span>
-                  <i className={"agent-presence " + (activeAgentId === agent.id ? "thinking" : agent.enabled ? "enabled" : "")} />
-                </button>
-                {!sidebarCollapsed && (
-                  <button
-                    className={"favorite-agent " + (favoriteAgentIds.includes(agent.id) ? "is-favorite" : "")}
-                    onClick={() => toggleFavoriteAgent(agent.id)}
-                    aria-label={favoriteAgentIds.includes(agent.id) ? "Remover dos favoritos" : "Favoritar"}
-                    title={favoriteAgentIds.includes(agent.id) ? "Remover dos favoritos" : "Favoritar"}
-                  >
-                    <Star size={13} fill={favoriteAgentIds.includes(agent.id) ? "currentColor" : "none"} />
-                  </button>
-                )}
-              </div>
-            ))}
-            {agents.length === 0 && !sidebarCollapsed && <small className="sidebar-empty">Nenhum agente configurado.</small>}
-          </div>
-        </div>
+
 
         {/* NAVEGAÇÃO SECUNDÁRIA INFERIOR */}
-        <div className="sidebar-secondary">
-          {SECONDARY_NAV.map(({ id, label, icon: Icon }) => (
-            <button className={`nav-item ${page === id ? "active" : ""}`} key={id} onClick={() => changePage(id)} title={sidebarCollapsed ? label : undefined}>
-              <Icon size={16} />
-              <span>{label}</span>
-            </button>
-          ))}
+
+        {accountOpen && (
+          <div className="account-menu" role="menu">
+            <button role="menuitem" className="account-menu-item" onClick={() => { setAccountOpen(false); changePage("activity"); }}>Atividades</button>
+            <button role="menuitem" className="account-menu-item" onClick={() => { setAccountOpen(false); changePage("settings"); }}>Configurações</button>
+            <button role="menuitem" className="account-menu-item" onClick={signOutThisComputer}>Sair</button>
+          </div>
+        )}
+        <div className="sidebar-person">
+          <span className="sidebar-person-avatar" aria-hidden="true">J</span>
+          <button className="sidebar-person-name" onClick={() => setAccountOpen((value) => !value)} aria-expanded={accountOpen} aria-haspopup="menu">Jadson</button>
+          <button className="sidebar-person-connect" onClick={() => setConnectOpen(true)} aria-label="Conectar aplicativos" title="Conectar aplicativos">
+            <LayoutGrid size={15} />
+          </button>
         </div>
 
-        {/* RODAPÉ E STATUS */}
-        <div className="sidebar-bottom">
-          <span className={`connection-dot ${health}`} />
-          <span className="status-text">{health === "connected" ? "Controlador Online" : health === "checking" ? "Verificando…" : "Modo Local Seguro"}</span>
-        </div>
       </aside>
 
       {/* ÁREA PRINCIPAL */}
@@ -847,6 +873,7 @@ function Workspace() {
             inputRef={inputRef}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
+            onEditAgent={setAgentEditor}
             setFocusMode={setFocusMode}
           />
         )}
@@ -1247,9 +1274,10 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
+  onEditAgent: (agent: Agent) => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: (value: string) => void; setFiles: (value: File[]) => void;
@@ -1645,7 +1673,7 @@ function ChatPage({
         <aside className="chat-workspace-panel" id="chat-workspace" aria-label="Contexto da conversa">
           <div className="workspace-panel-heading">
             <div className="ctx-agent-head">
-              <span className="ctx-avatar">{(selectedAgent?.name ?? "G").trim().slice(0, 1).toUpperCase()}</span>
+              <button type="button" className="ctx-avatar-button" onClick={() => selectedAgent && onEditAgent(selectedAgent)} aria-label="Editar avatar" title="Editar avatar" disabled={!selectedAgent}>{selectedAgent?.avatar ? <img className="ctx-avatar ctx-avatar-image" src={selectedAgent.avatar} alt="" /> : <span className="ctx-avatar">{(selectedAgent?.name ?? "G").trim().slice(0, 1).toUpperCase()}</span>}<span className="ctx-avatar-overlay">Editar avatar</span></button>
               <div>
                 <h2>{selectedAgent?.name ?? "Assistente Geral"}</h2>
                 <small>{selectedAgent?.role || "Conversa com o Grupo Jadson"}</small>
@@ -1912,7 +1940,10 @@ function AgentDetailPage({
       </button>
 
       <section className="agent-detail-hero-box">
-        <div className="agent-hero-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</div>
+        <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
+          {agent.avatar ? <img className="agent-hero-avatar agent-hero-avatar-image" src={agent.avatar} alt="" /> : <span className="agent-hero-avatar">{agent.name.trim().slice(0, 1).toUpperCase() || "A"}</span>}
+          <span className="agent-hero-avatar-overlay">Editar avatar</span>
+        </button>
         <div className="agent-hero-info">
           <span className="section-label">PERFIL DE IA</span>
           <h1>{agent.name}</h1>
@@ -2040,32 +2071,136 @@ function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | n
   );
 }
 
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "uso" | "atualizacoes";
+const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
+  { id: "geral", label: "Geral", icon: SettingsBoldIcon },
+  { id: "computador", label: "Computador", icon: MonitorBoldIcon },
+  { id: "permissoes", label: "Permissões", icon: ShieldKeyholeBoldIcon },
+  { id: "cofre", label: "Cofre", icon: LockBoldIcon },
+  { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
+  { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
+];
+
+/** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
+function UsageSettings() {
+  const [rows, setRows] = useState<{ agentId: string | null; totalTokens: number; calls: number }[] | null>(null);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/usage/summary?days=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("usage")))),
+      apiFetch(`${API_URL}/agents`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : [])),
+    ])
+      .then(([summary, agents]) => {
+        setRows((summary as { agents: { agentId: string | null; totalTokens: number; calls: number }[] }).agents ?? []);
+        setNames(Object.fromEntries((agents as { id: string; name: string }[]).map((agent) => [agent.id, agent.name])));
+        setError(null);
+      })
+      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
+    return () => controller.abort();
+  }, []);
+
+  const totalTokens = (rows ?? []).reduce((sum, row) => sum + row.totalTokens, 0);
+  const totalCalls = (rows ?? []).reduce((sum, row) => sum + row.calls, 0);
+
+  return (
+    <article className="settings-box">
+      <h3>Uso e cobrança</h3>
+      <p>Consumo dos últimos 30 dias.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      {rows && (
+        <>
+          <div className="usage-totals">
+            <div><span>Tokens</span><b>{totalTokens.toLocaleString("pt-BR")}</b></div>
+            <div><span>Chamadas</span><b>{totalCalls.toLocaleString("pt-BR")}</b></div>
+          </div>
+          {rows.length === 0 ? <small className="sidebar-empty">Nenhum uso registrado ainda.</small> : (
+            <div className="usage-rows">
+              {rows.map((row) => (
+                <div className="workspace-fact" key={row.agentId ?? "sem-agente"}>
+                  <span>{row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente"}</span>
+                  <b>{row.totalTokens.toLocaleString("pt-BR")} tokens · {row.calls} chamadas</b>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+    </article>
+  );
+}
+
+/** Configurações em abas laterais: cada aba mostra só o seu assunto. */
 function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
+  const [tab, setTab] = useState<SettingsTab>("geral");
   return (
     <div className="page-content settings-page">
       <div className="page-header-row">
         <div>
-          <span className="section-label">PREFERÊNCIAS</span>
-          <h1>Configurações do Sistema</h1>
-          <p className="page-subtitle">Parâmetros operacionais e segurança de credenciais.</p>
+          <h1>Configurações</h1>
         </div>
       </div>
-      <article className="settings-box">
-        <h3>Segurança de Chaves e Credenciais</h3>
-        <p>As chaves de provedores de IA são armazenadas estritamente no ambiente do servidor backend e nunca trafegam em código compilado no frontend.</p>
-        <div className="security-notice">
-          <ShieldCheck size={18} />
-          <span>Diretório de Dados: <code>.runtime/webview2-data</code> isolado localmente no drive T:</span>
+      <div className="settings-tabs-layout">
+        <nav className="settings-tabs" aria-label="Seções de configurações">
+          {SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
+            <button type="button" key={id} className={`settings-tab ${tab === id ? "active" : ""}`} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
+              <Icon size={16} />
+              <span>{label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="settings-tab-panel">
+          {tab === "geral" && (
+            <>
+              <article className="settings-box">
+                <h3>Conta</h3>
+                <p>Você está usando o Grupo Jadson neste computador.</p>
+                <div className="security-notice" style={{ alignItems: "center", justifyContent: "space-between" }}>
+                  <span>Sair desta conta libera o computador para outra pessoa entrar.</span>
+                  <button type="button" className="icon-btn-close" onClick={signOutThisComputer}>Sair</button>
+                </div>
+              </article>
+              <MemorySettings />
+            </>
+          )}
+          {tab === "computador" && (
+            <article className="settings-box">
+              <h3>Computador do Bot</h3>
+              <p>Os agentes só leem e alteram arquivos dentro da pasta de trabalho do projeto (<code>workspace</code>). Qualquer escrita pede a sua aprovação antes.</p>
+            </article>
+          )}
+          {tab === "permissoes" && <AccessSettings />}
+          {tab === "cofre" && (
+            <>
+              <article className="settings-box">
+                <h3>Chaves de segurança</h3>
+                <p>As chaves ficam cifradas no servidor e não aparecem de novo depois de salvas.</p>
+              </article>
+              <ModelSettings />
+              <IntegrationSettings />
+              <NotionSettings />
+              <GoogleSettings />
+            </>
+          )}
+          {tab === "uso" && <UsageSettings />}
+          {tab === "atualizacoes" && (
+            <article className="settings-box">
+              <h3>Atualizações</h3>
+              <p>Versão instalada: 0.1.0.</p>
+            </article>
+          )}
         </div>
-      </article>
-      <MemorySettings />
-      <ModelSettings />
-      <IntegrationSettings />
-      <NotionSettings />
-      <GoogleSettings />
-      <AccessSettings />
+      </div>
     </div>
   );
+}
+
+/** Encerra a sessão deste computador e volta para a tela de entrada. */
+function signOutThisComputer() {
+  try { window.localStorage.removeItem(SESSION_KEY); } catch { /* sem armazenamento */ }
+  window.location.reload();
 }
 
 type ModelField = { name: "modelo_chave" | "modelo_endereco" | "modelo_padrao"; label: string; hint: string; secret: boolean; placeholder: string };
@@ -2330,6 +2465,99 @@ function GoogleSettings() {
         {waiting && !connected && <button className="icon-btn-close" onClick={() => setVersion((v) => v + 1)}>Já conectei</button>}
       </div>
     </article>
+  );
+}
+
+/** Conectar aplicativos. Notion e Google abrem Configurações, onde ficam os tokens e a conta. Os demais aparecem só como lista. */
+const CONNECT_APPS: { nome: string; categoria: string; ligado: boolean; chave?: "notion" | "google" }[] = [
+  { nome: "Notion", categoria: "Produtividade", ligado: true, chave: "notion" },
+  { nome: "Google (Drive e Agenda)", categoria: "Produtividade", ligado: true, chave: "google" },
+  { nome: "Atlassian", categoria: "Produtividade", ligado: false },
+  { nome: "Outlook", categoria: "Comunicação", ligado: false },
+  { nome: "AgentMail", categoria: "Comunicação", ligado: false },
+  { nome: "1Password", categoria: "Gerenciadores de senha", ligado: false },
+  { nome: "Vercel", categoria: "Código", ligado: false },
+  { nome: "Supabase", categoria: "Código", ligado: false },
+  { nome: "Cloudflare", categoria: "Código", ligado: false },
+  { nome: "Datadog", categoria: "Código", ligado: false },
+];
+const CONNECT_CATEGORIES = ["Todos", "Gerenciadores de senha", "Produtividade", "Comunicação", "Código"];
+
+function ConnectAppsDialog({ onClose, onOpenSettings }: { onClose: () => void; onOpenSettings: () => void }) {
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("Todos");
+  const [status, setStatus] = useState<{ notion: boolean; google: boolean }>({ notion: false, google: false });
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/integrations`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("integrations"))))
+      .then((state: { notion: { configured: boolean } }) => setStatus((s) => ({ ...s, notion: state.notion.configured })))
+      .catch(() => undefined);
+    apiFetch(`${API_URL}/google/status`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("status"))))
+      .then((state: { connected: boolean }) => setStatus((s) => ({ ...s, google: state.connected })))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  const connected = [status.notion, status.google].filter(Boolean).length;
+  const term = query.trim().toLowerCase();
+  const items = CONNECT_APPS.filter((app) => (category === "Todos" || app.categoria === category) && app.nome.toLowerCase().includes(term));
+
+  return (
+    <div className="connect-scrim" onClick={onClose}>
+      <section className="connect-dialog" role="dialog" aria-modal="true" aria-label="Conectar aplicativos" onClick={(event) => event.stopPropagation()}>
+        <header className="connect-head">
+          <h2>Conectar aplicativos</h2>
+          <span className="connect-count">{connected} conectados</span>
+          <button className="icon-btn-close" onClick={onClose} aria-label="Fechar"><X size={16} /></button>
+        </header>
+        <label className="connect-search">
+          <Search size={14} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar em aplicativos" aria-label="Buscar em aplicativos" />
+        </label>
+        <div className="connect-chips">
+          {CONNECT_CATEGORIES.map((item) => (
+            <button key={item} className={`connect-chip ${category === item ? "active" : ""}`} onClick={() => setCategory(item)}>{item}</button>
+          ))}
+        </div>
+        <div className="connect-list">
+          {items.map((app) => {
+            const on = app.chave ? status[app.chave] : false;
+            return (
+              <div className="connect-row" key={app.nome}>
+                <span className="connect-name">{app.nome}</span>
+                {app.ligado ? (
+                  <button className="connect-btn" onClick={onOpenSettings}>{on ? "Conectado" : "Conectar"}</button>
+                ) : (
+                  <button className="connect-btn" disabled>Em breve</button>
+                )}
+              </div>
+            );
+          })}
+          {items.length === 0 && <p className="connect-empty">Nenhum aplicativo encontrado.</p>}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+/** Foto do bot na lista; se a imagem não carregar, mostra a inicial no mesmo círculo. */
+function AgentAvatar({ agent }: { agent: Agent }) {
+  const [failed, setFailed] = useState(false);
+  const letter = agent.name.trim().slice(0, 1).toUpperCase() || "A";
+  if (!agent.avatar || failed) return <span className="agent-avatar">{letter}</span>;
+  return (
+    <span className="agent-avatar">
+      <img src={agent.avatar} alt="" onError={() => setFailed(true)} style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} />
+    </span>
   );
 }
 
@@ -2845,42 +3073,49 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
 function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
-      <form className="agent-modal-dialog" onSubmit={onSubmit}>
+      <form className="bot-create-dialog" onSubmit={onSubmit}>
         <div className="modal-header">
-          <div>
-            <span className="section-label">PERSONA DE IA</span>
-            <h2>{agent.name ? "Editar Agente" : "Novo Agente"}</h2>
-          </div>
+          <h2>{agent.name ? "Editar Bot" : "Criar novo Bot"}</h2>
           <button type="button" className="icon-btn-close" onClick={onClose} aria-label="Fechar"><X size={18} /></button>
         </div>
-        <div className="modal-fields">
-          <label><span>Cargo / função</span><input value={agent.role ?? ""} onChange={(event) => onChange({ ...agent, role: event.target.value })} placeholder="Ex.: Coordenador de Projetos" /></label>
-          <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
-          <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
-          <label><span>Especialidades (separadas por vírgula)</span><input value={(agent.specialties ?? []).join(", ")} onChange={(event) => onChange({ ...agent, specialties: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="TypeScript, UX, pesquisa" /></label>
-          <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
-          <label>
-            <span>Nome do Agente</span>
-            <input required autoFocus value={agent.name} onChange={(event) => onChange({ ...agent, name: event.target.value })} placeholder="Ex.: Analista Financeiro, Especialista em Código" />
-          </label>
-          <label>
-            <span>Especialidade / Descrição Curta</span>
-            <input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Ex.: Especialista em refatoração e arquitetura" />
-          </label>
-          <label>
-            <span>Instruções de Sistema (Prompt Base)</span>
-            <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
-          </label>
-          <label>
-            <span>Modelo Específico (Opcional)</span>
-            <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
-          </label>
-          <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
-          <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+        <div className="bot-create-body">
+          <div className="bot-preview"><img src={agent.avatar || MASCOTES[0]} alt="" /></div>
+          <input className="bot-name-input" required autoFocus value={agent.name} onChange={(event) => onChange({ ...agent, name: event.target.value })} placeholder="Dê um nome ao seu Bot" aria-label="Nome do Bot" />
+          <div className="mascot-grid bot-mascot-grid" role="radiogroup" aria-label="Escolha o mascote">
+            {MASCOTES.map((src) => (
+              <button type="button" key={src} role="radio" aria-checked={agent.avatar === src} className={`mascot-option ${agent.avatar === src ? "selected" : ""}`} onClick={() => onChange({ ...agent, avatar: src })} title={src.split("/").pop()}>
+                <img src={src} alt="" />
+              </button>
+            ))}
+          </div>
+          <details className="bot-advanced">
+            <summary>Configurações avançadas</summary>
+            <div className="modal-fields">
+              <label><span>Cargo / função</span><input value={agent.role ?? ""} onChange={(event) => onChange({ ...agent, role: event.target.value })} placeholder="Ex.: Coordenador de Projetos" /></label>
+              <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
+              <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
+              <label><span>Especialidades (separadas por vírgula)</span><input value={(agent.specialties ?? []).join(", ")} onChange={(event) => onChange({ ...agent, specialties: event.target.value.split(",").map((value) => value.trim()).filter(Boolean) })} placeholder="TypeScript, UX, pesquisa" /></label>
+              <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
+              <label>
+                <span>Especialidade / Descrição Curta</span>
+                <input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Ex.: Especialista em refatoração e arquitetura" />
+              </label>
+              <label>
+                <span>Instruções de Sistema (Prompt Base)</span>
+                <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
+              </label>
+              <label>
+                <span>Modelo Específico (Opcional)</span>
+                <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
+              </label>
+              <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+              <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+            </div>
+          </details>
         </div>
         <div className="modal-footer">
           <button type="button" className="btn-outline-sm" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn-primary-gold"><Check size={15} /> Salvar Agente</button>
+          <button type="submit" className="btn-primary-gold">{agent.name ? "Salvar" : "Criar"}</button>
         </div>
       </form>
     </div>
