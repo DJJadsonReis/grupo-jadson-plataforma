@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Get, Logger, Post, Req, Res } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Logger, Optional, Post, Req, Res } from "@nestjs/common";
 import { Response } from "express";
 import { AgentsService } from "../agents/agents.service";
 import { GroupsService } from "../agents/groups.service";
@@ -14,6 +14,8 @@ import { markUntrusted, UNTRUSTED_GUIDANCE, withUntrustedNotice } from "../tools
 import { ToolsService, ToolRun } from "../tools/tools.service";
 import { MaskedTextStream } from "../../common/masked-text-stream";
 import { maskSecrets } from "../../common/secret-masking";
+import { generateConversationTitle } from "./conversation-title";
+import { UserPreferencesService } from "../preferences/user-preferences.service";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -125,7 +127,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, @Optional() private readonly preferences?: UserPreferencesService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -157,6 +159,12 @@ export class ChatController {
     // Keep the safety guidance server-owned and directly after the profile instructions.
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
     if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
+    const userPreferences = await this.preferences?.read(request.principal?.id ?? "sistema").catch(() => null);
+    if (userPreferences && (userPreferences.instructions || userPreferences.responseStyle !== "balanced")) {
+      const guidance = messages.findIndex((message) => message.role === "system" && message.content === UNTRUSTED_GUIDANCE);
+      const preferenceMessage = { role: "system" as const, content: `Preferências da pessoa: estilo de resposta ${userPreferences.responseStyle}.${userPreferences.instructions ? ` Instruções: ${userPreferences.instructions}` : ""}` };
+      messages.splice(guidance < 0 ? messages.length : guidance, 0, preferenceMessage);
+    }
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
     const memoryLines = await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
@@ -180,6 +188,7 @@ export class ChatController {
 
     const availableTools = providerTools(this.toolsService.catalog());
     const completion = {
+      provider: agent?.provider === "anthropic" ? "anthropic" as const : "openai" as const,
       tools: availableTools.tools,
       ...(effectiveModel === undefined ? {} : { model: effectiveModel }),
       ...(agent?.generationConfig ? { generationConfig: agent.generationConfig } : {}),
@@ -256,6 +265,10 @@ export class ChatController {
         await this.audit.record({ action: "chat.completion", subject: conversationId ?? null, details: { agentId: agentId ?? null, model: reportedModel, completed: !abort.signal.aborted } });
       } catch (error) { this.logger.warn(`Auditoria não gravada: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       if (conversationId && answer) {
+        try {
+          const title = await generateConversationTitle((input) => this.providers.stream(input, abort.signal), effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
+          if (title) await this.conversations.setTitleForFirstResponse(conversationId, title);
+        } catch { /* the current user-message title is the fallback */ }
         try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}); }
         catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }

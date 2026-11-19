@@ -185,6 +185,12 @@ export class ToolsService {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
       return { apagadas: removed.rowCount ?? 0 };
     }
+    if (name === "atendimento.humano") {
+      const motivo = String(input.motivo ?? "").trim().slice(0, 1000);
+      if (!motivo) return { erro: true, mensagem: "Descreva o motivo do atendimento humano." };
+      await this.audit.record({ actor: typeof input.pessoaId === "string" ? input.pessoaId : "sistema", action: "human_support.requested", subject: typeof input.conversaId === "string" ? input.conversaId : null, details: { motivo } });
+      return { registrada: true, mensagem: "Pedido de atendimento humano registrado internamente." };
+    }
     if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);
     if (name.startsWith("notion.")) return this.runNotion(name, input);
     if (name.startsWith("computador.")) return this.runComputer(name, input);

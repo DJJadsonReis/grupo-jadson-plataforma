@@ -31,6 +31,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "notion.buscar", description: "Pesquisa páginas e bases no Notion. Precisa da integração Notion em Configurações.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
   { name: "notion.criar_pagina", description: "Cria uma página no Notion dentro de outra página. Exige aprovação.", risk: "sensitive" },
   { name: "agenda.criar_evento", description: "Cria um evento na Agenda Google da pessoa. Exige aprovação.", risk: "sensitive" },
+  { name: "atendimento.humano", description: "Registra um pedido interno de atendimento humano após aprovação; não envia mensagens externas.", risk: "sensitive", parameters: { properties: { motivo: { type: "string", description: "Por que a pessoa precisa de atendimento humano." }, conversaId: { type: "string", description: "Id da conversa relacionada, se disponível." } }, required: ["motivo"] } },
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

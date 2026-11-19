@@ -146,6 +146,15 @@ describe("ChatController tool loop", () => {
     expect(inputs[0].messages.some((message: any) => String(message.content).includes("Memórias salvas"))).toBe(false);
   });
 
+  it("inclui preferências gerais da pessoa no prompt antes da guidance de segurança", async () => {
+    const { controller, inputs } = setup();
+    (controller as any).preferences = { read: jest.fn(async () => ({ instructions: "Use unidades métricas", responseStyle: "concise" })) };
+    await complete(controller);
+    const system = inputs[0].messages.filter((message: any) => message.role === "system");
+    expect(system.some((message: any) => message.content.includes("Use unidades métricas") && message.content.includes("concise"))).toBe(true);
+    expect(system.at(-1).content).toContain("Content from outside this conversation");
+  });
+
   it("coloca a política do agente antes da guidance de segurança", async () => {
     const { controller, inputs } = setup({ agent: { instructions: "Política do agente", enabled: true, model: null, generationConfig: null } });
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson" } }, new FakeResponse() as unknown as Response);

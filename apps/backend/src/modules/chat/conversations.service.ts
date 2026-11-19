@@ -33,6 +33,19 @@ export class ConversationsService {
     return result.rows[0] as { id: string; title: string; agentId?: string | null };
   }
 
+  async setTitleForFirstResponse(conversationId: string, title: string): Promise<boolean> {
+    const clean = title.trim().slice(0, 80);
+    if (!clean) return false;
+    const result = await this.database.getPool().query(
+      `UPDATE conversations SET title = $2, updated_at = now()
+       WHERE id = $1 AND NOT EXISTS (
+         SELECT 1 FROM messages WHERE conversation_id = $1 AND role = 'assistant'
+       )`,
+      [conversationId, clean],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async addMessage(conversationId: string, role: StoredRole, content: string, options: { agentId?: string; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[] } = {}): Promise<StoredMessage> {
     const pool = this.database.getPool();
     const client = await pool.connect();

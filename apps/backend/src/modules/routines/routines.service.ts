@@ -10,6 +10,7 @@ export const MIN_INTERVAL_MINUTES = 15;
 export const MAX_ACTIVE_ROUTINES = 20;
 /** Após este número de falhas seguidas, a rotina é desligada em vez de continuar gastando. */
 export const MAX_FAILURE_STREAK = 10;
+export const ROUTINE_CLAIM_LEASE_MS = 5 * 60_000;
 
 export interface Routine {
   id: string;
@@ -111,12 +112,22 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     let ran = 0;
     try {
+      const claimToken = randomUUID();
+      const leaseUntil = new Date(now.getTime() + ROUTINE_CLAIM_LEASE_MS);
       const due = await this.database.getPool().query(
-        `SELECT id, name, tool, interval_minutes AS "intervalMinutes" FROM routines
-         WHERE enabled = true AND next_run_at <= $1 ORDER BY next_run_at ASC LIMIT 20`,
-        [now],
+        `WITH due AS (
+           SELECT id FROM routines
+           WHERE enabled = true AND next_run_at <= $1
+             AND (claim_until IS NULL OR claim_until <= $1)
+           ORDER BY next_run_at ASC
+           FOR UPDATE SKIP LOCKED LIMIT 20
+         )
+         UPDATE routines r SET claim_until = $2, claim_token = $3
+         FROM due WHERE r.id = due.id
+         RETURNING r.id, r.name, r.tool, r.interval_minutes AS "intervalMinutes", r.claim_token AS "claimToken"`,
+        [now, leaseUntil, claimToken],
       );
-      for (const row of due.rows as { id: string; name: string; tool: string; intervalMinutes: number }[]) {
+      for (const row of due.rows as { id: string; name: string; tool: string; intervalMinutes: number; claimToken: string }[]) {
         let status = "done";
         try {
           await this.tools.invoke(row.tool, {}, `rotina:${row.name}`);
@@ -129,8 +140,9 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
           `UPDATE routines SET last_run_at = $2, last_status = $3, next_run_at = $4,
              failure_streak = CASE WHEN $3 = 'failed' THEN failure_streak + 1 ELSE 0 END,
              enabled = CASE WHEN $3 = 'failed' AND failure_streak + 1 >= $5 THEN false ELSE enabled END
-           WHERE id = $1`,
-          [row.id, now, status, nextRunFrom(now, row.intervalMinutes), MAX_FAILURE_STREAK],
+           , claim_until = NULL, claim_token = NULL
+           WHERE id = $1 AND claim_token = $6`,
+          [row.id, now, status, nextRunFrom(now, row.intervalMinutes), MAX_FAILURE_STREAK, row.claimToken],
         );
         if (status === "failed") {
           this.logger.warn(`Rotina ${row.name}: falha registrada (limite de ${MAX_FAILURE_STREAK} falhas seguidas desliga a rotina).`);

@@ -203,3 +203,21 @@ Validação: jest completo em apps/backend com 29 suítes e 126 testes, exit 0; 
 **Validação do item 8 (2026-11-19):** `memory.service.spec.ts` cobre que memória desligada não grava e outra pessoa continua podendo gravar; `chat.controller.spec.ts` verifica que o contexto usa o ID autenticado. Os dois passaram no Jest completo. Typecheck final → exit 0.
 
 **Validação completa desta rodada (2026-11-19):** `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec jest --runInBand` → exit 0, 30 suítes e 141 testes. `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec tsc --noEmit` → exit 0. `git diff --check` → exit 0. Sem instalação de dependências; lockfile e manifests não foram alterados.
+
+## Fechamento de itens autocontidos (2026-11-19, base 84d7c5a)
+
+**Item 1 — claim distribuído de rotinas:** cada rotina vencida é reclamada por uma atualização atômica com `FOR UPDATE SKIP LOCKED`, token de claim e lease de 5 minutos; a conclusão só limpa lease/avança o próximo disparo se o token ainda for o da execução. Migration `018-routine-claims` adiciona as colunas em bancos que já executaram a migration de rotinas. A lease permite nova tentativa após crash. Teste com duas instâncias e banco dublado confirma uma única chamada à ferramenta. Não houve PostgreSQL real nesta verificação.
+
+**Item 2 — retenção de auditoria:** `AUDIT_RETENTION_DAYS` configura a retenção (desligada se ausente/inválida); varredura ao boot e de hora em hora, lotes até 500, até 100 lotes por passagem e advisory lock transacional. `audit_events` relacionados a aprovações pendentes são excluídos do conjunto; `approvals` e `tool_runs` nunca são apagados. Sem teste contra PostgreSQL real.
+
+**Item 3 — título automático:** após a primeira resposta persistida da conversa, o provider já configurado recebe uma chamada curta (máximo 48 tokens) sem ferramentas. Atualização condicionada à ausência de resposta anterior; exceção, HTTP de erro ou título vazio preserva o título inicial. Validado com provider dublado.
+
+**Item 4 — preferências gerais:** nova tabela por principal autenticado com instruções de até 3000 caracteres e estilo `concise|balanced|detailed`; rotas GET/PUT não aceitam escolher outro owner. Preferências entram no prompt antes da guidance de segurança. Migração `017-user-preferences` ainda precisa ser aplicada em instalação PostgreSQL real; nenhuma chamada de serviço externo.
+
+**Item 5 — escalonamento humano:** ferramenta sensível `atendimento.humano` gera aprovação; só a execução aprovada grava `human_support.requested` internamente. Não há envio externo. Validado com dublês de aprovação, banco e auditoria.
+
+**Item 6 — disponibilidade do modelo:** providers oficiais OpenAI e Anthropic consultam `/models/{id}` antes do POST de chat e devolvem erro claro em modelo ausente, chave recusada ou checagem inconclusiva. Endpoints OpenAI-compatible/customizados e Gemini não usam essa verificação, pois não compartilham contrato garantido. Testes usam `fetch` dublado; nenhuma API real foi chamada.
+
+**Item 7 — Anthropic:** adapter implementa Messages API, tradução de system/messages/tool_use/tool_result e converte SSE de texto/argumentos de ferramenta ao formato consumido pelo chat. Chave somente via `ANTHROPIC_API_KEY`; sem novo pacote. Testes de tradução e disponibilidade usam respostas dubladas. O caminho de imagem remota não foi validado contra serviço real.
+
+**Validação final dos itens 1–7 (2026-11-19):** Jest completo (`cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec jest --runInBand`) → exit 0, 34 suítes e 157 testes. Typecheck (`... exec tsc --noEmit`) → exit 0. `git diff --check` → exit 0. Também rodados focados: rotinas 13 testes; retenção+rotinas 16; título+chat 11; preferências+chat+rotinas+retenção 28; aprovação de atendimento+registro 7; providers Anthropic+OpenAI 11, todos exit 0. Sem instalação ou chamadas a serviços externos; manifests e lockfile sem alteração.

@@ -10,6 +10,7 @@ import { UsageController } from "./usage.controller";
 import { AuditModule } from "../audit/audit.module";
 import { MemoryModule } from "../memory/memory.module";
 import { ToolsModule } from "../tools/tools.module";
+import { PreferencesModule } from "../preferences/preferences.module";
 
-@Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule, AuditModule, MemoryModule, ToolsModule],controllers: [ChatController, ConversationsController, UsageController],providers: [ConversationsService, UsageService] })
+@Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule, AuditModule, MemoryModule, ToolsModule, PreferencesModule],controllers: [ChatController, ConversationsController, UsageController],providers: [ConversationsService, UsageService] })
 export class ChatModule {}

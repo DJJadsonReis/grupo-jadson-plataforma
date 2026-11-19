@@ -91,14 +91,14 @@ describe("RoutinesService.tick", () => {
     const query = jest.fn(async () => ({ rows: [], rowCount: 0 }));
     const service = new RoutinesService({ getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService, {} as ToolsService);
     await service.tick(new Date("2026-11-19T12:00:00Z"));
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("next_run_at <= $1"), [new Date("2026-11-19T12:00:00Z")]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("next_run_at <= $1"), expect.arrayContaining([new Date("2026-11-19T12:00:00Z")]));
   });
   it("roda só as rotinas vencidas e registra o resultado", async () => {
     const queries: string[] = [];
     const pool = {
       query: async (text: string) => {
         queries.push(text);
-        if (text.includes("WHERE enabled = true")) return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30 }], rowCount: 1 };
+        if (text.includes("FOR UPDATE SKIP LOCKED")) return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30, claimToken: "claim-1" }], rowCount: 1 };
         return { rows: [], rowCount: 1 };
       },
     };
@@ -107,7 +107,26 @@ describe("RoutinesService.tick", () => {
     const service = new RoutinesService({ getPool: () => pool, isReady: () => true } as unknown as DatabaseService, tools);
     expect(await service.tick(new Date())).toBe(1);
     expect(invoked).toEqual(["tempo.agora|rotina:clima"]);
-    expect(queries.some((text) => text.startsWith("UPDATE routines"))).toBe(true);
+    expect(queries.some((text) => text.includes("claim_until = NULL"))).toBe(true);
+  });
+
+  it("duas instâncias concorrentes só executam o disparo que ganhou o claim PostgreSQL", async () => {
+    let claimed = false;
+    const query = async (text: string) => {
+      if (text.includes("FOR UPDATE SKIP LOCKED")) {
+        if (claimed) return { rows: [], rowCount: 0 };
+        claimed = true;
+        return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30, claimToken: "claim-1" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    };
+    const invoke = jest.fn(async () => ({}));
+    const tools = { invoke, maskSecretText: async (message: string) => message } as unknown as ToolsService;
+    const db = { getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService;
+    const first = new RoutinesService(db, tools);
+    const second = new RoutinesService(db, tools);
+    await Promise.all([first.tick(new Date()), second.tick(new Date())]);
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it("não roda nada enquanto o banco não está pronto", async () => {
