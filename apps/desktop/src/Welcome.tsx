@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
-import { createLocalApiToken, isPostgresUrl, type FirstRunHealth } from "./lib/first-run";
+import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput, type FirstRunHealth } from "./lib/first-run";
 
 type Props = { apiUrl: string; onComplete: () => void };
 
@@ -13,6 +13,10 @@ export function Welcome({ apiUrl, onComplete }: Props) {
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [servicesInfo, setServicesInfo] = useState<{ scriptPath: string; projectRoot: string; servicesConsent: boolean } | null>(null);
+  const [showServicesDialog, setShowServicesDialog] = useState(false);
+  const [startingServices, setStartingServices] = useState(false);
+  const [servicesOutput, setServicesOutput] = useState<string | null>(null);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -52,6 +56,34 @@ export function Welcome({ apiUrl, onComplete }: Props) {
       setError("Não foi possível salvar a configuração local. Abra o aplicativo desktop do Grupo Jadson e tente novamente.");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function requestServicesStart() {
+    setError(null);
+    setServicesOutput(null);
+    try {
+      const info = await invoke<{ scriptPath: string; projectRoot: string; servicesConsent: boolean }>("get_local_services_info");
+      setServicesInfo(info);
+      if (shouldAskServicesConsent(info.servicesConsent)) setShowServicesDialog(true);
+      else await startServices();
+    } catch (cause) {
+      setError(typeof cause === "string" ? cause : "Scripts de inicialização não encontrados; inicie manualmente.");
+    }
+  }
+
+  async function startServices() {
+    setShowServicesDialog(false);
+    setStartingServices(true);
+    setError(null);
+    try {
+      const result = await invoke<{ stdout: string; stderr: string }>("start_local_services");
+      setServicesOutput(summarizeProcessOutput(result.stdout, result.stderr));
+      await check();
+    } catch (cause) {
+      setError(typeof cause === "string" ? cause : "Não foi possível iniciar os serviços locais. Você pode tentar novamente ou iniciá-los manualmente.");
+    } finally {
+      setStartingServices(false);
     }
   }
 
@@ -97,6 +129,29 @@ export function Welcome({ apiUrl, onComplete }: Props) {
         {!health && !saved && <div className="welcome-restart">
           <strong>Backend local não encontrado.</strong>
           <span>Inicie o backend com <code>pnpm dev:backend</code>. Para iniciar o banco incluído no ambiente de desenvolvimento, use <code>docker compose up -d postgres</code> na pasta do projeto.</span>
+        </div>}
+
+        <div className="welcome-restart">
+          <strong>Inicialização local</strong>
+          <span>O script pode iniciar PostgreSQL (se disponível), Redis (se disponível), backend e interface Vite. Os logs ficam em <code>.runtime\logs</code> (incluindo PostgreSQL e Redis); os PIDs ficam em <code>.runtime\processes.json</code> e, para PostgreSQL, em <code>.runtime\database\postmaster.pid</code>.</span>
+          <button type="button" className="btn-primary-gold" onClick={() => void requestServicesStart()} disabled={startingServices}>{startingServices ? "Iniciando serviços…" : "Iniciar serviços locais"}</button>
+        </div>
+
+        {servicesOutput && <pre className="welcome-restart" role="status" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{servicesOutput}</pre>}
+
+        {showServicesDialog && servicesInfo && <div className="modal-backdrop" role="presentation">
+          <section className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="services-dialog-title">
+            <div className="modal-heading"><h2 id="services-dialog-title">Iniciar serviços locais?</h2></div>
+            <div className="modal-fields">
+              <p>O comando será executado somente depois da sua confirmação:</p>
+              <pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describeLocalServicesCommand(servicesInfo.scriptPath, servicesInfo.projectRoot)}</pre>
+              <p>O script pode iniciar PostgreSQL (se disponível), Redis (se disponível), backend e interface Vite. Os logs ficam em <code>.runtime\logs</code> (incluindo PostgreSQL e Redis); os PIDs ficam em <code>.runtime\processes.json</code> e, para PostgreSQL, em <code>.runtime\database\postmaster.pid</code>.</p>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn-outline-sm" onClick={() => setShowServicesDialog(false)}>Pular (eu inicio manualmente)</button>
+              <button type="button" className="btn-primary-gold" onClick={() => void startServices()}>Confirmar e iniciar</button>
+            </div>
+          </section>
         </div>}
 
         {error && <div className="gallery-notice-pill" role="alert">{error}</div>}

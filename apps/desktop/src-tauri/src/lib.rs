@@ -6,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -133,6 +134,100 @@ fn desktop_setup_path() -> Result<PathBuf, String> {
     Ok(root.join("GrupoJadson").join("setup.json"))
 }
 
+fn find_project_root() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(directory) = std::env::current_dir() { candidates.push(directory); }
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() { candidates.push(directory.to_path_buf()); }
+    }
+    candidates.into_iter().flat_map(|path| path.ancestors().map(PathBuf::from).collect::<Vec<_>>())
+        .find(|root| root.join("scripts").join("start.ps1").is_file())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalServicesInfo { script_path: String, project_root: String, services_consent: bool }
+
+fn read_setup_config() -> Result<serde_json::Value, String> {
+    let path = desktop_setup_path()?;
+    match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| "configuração local inválida".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
+        Err(_) => Err("não foi possível ler a configuração local".to_string()),
+    }
+}
+
+fn save_services_consent() -> Result<(), String> {
+    let path = desktop_setup_path()?;
+    let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
+    fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
+    let mut config = read_setup_config()?;
+    if !config.is_object() { return Err("configuração local inválida".to_string()); }
+    config["servicesConsent"] = serde_json::Value::Bool(true);
+    let bytes = serde_json::to_vec(&config).map_err(|_| "não foi possível preparar a configuração".to_string())?;
+    fs::write(path, bytes).map_err(|_| "não foi possível salvar a confirmação local".to_string())
+}
+
+#[tauri::command]
+fn get_local_services_info() -> Result<LocalServicesInfo, String> {
+    let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; inicie manualmente".to_string())?;
+    let script = root.join("scripts").join("start.ps1");
+    let config = read_setup_config()?;
+    Ok(LocalServicesInfo {
+        script_path: script.to_string_lossy().into_owned(),
+        project_root: root.to_string_lossy().into_owned(),
+        services_consent: config.get("servicesConsent").and_then(serde_json::Value::as_bool) == Some(true),
+    })
+}
+
+#[derive(serde::Serialize)]
+struct LocalServicesResult { stdout: String, stderr: String }
+
+#[tauri::command]
+async fn start_local_services() -> Result<LocalServicesResult, String> {
+    tauri::async_runtime::spawn_blocking(run_local_services)
+        .await
+        .map_err(|_| "não foi possível acompanhar o script de inicialização".to_string())?
+}
+
+fn run_local_services() -> Result<LocalServicesResult, String> {
+    let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; inicie manualmente".to_string())?;
+    let script = root.join("scripts").join("start.ps1");
+    save_services_consent()?;
+    let mut child = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .current_dir(&root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "não foi possível iniciar o script de serviços locais".to_string())?;
+    let stdout_reader = child.stdout.take().map(|mut stream| thread::spawn(move || {
+        let mut output = String::new();
+        let _ = stream.read_to_string(&mut output);
+        output
+    }));
+    let stderr_reader = child.stderr.take().map(|mut stream| thread::spawn(move || {
+        let mut output = String::new();
+        let _ = stream.read_to_string(&mut output);
+        output
+    }));
+    let deadline = Instant::now() + Duration::from_secs(300);
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                let stdout = stdout_reader.and_then(|reader| reader.join().ok()).unwrap_or_default();
+                let stderr = stderr_reader.and_then(|reader| reader.join().ok()).unwrap_or_default();
+                if !status.success() { return Err(if stderr.trim().is_empty() { "o script de inicialização terminou com erro".to_string() } else { stderr.chars().take(1200).collect() }); }
+                return Ok(LocalServicesResult { stdout, stderr });
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(250)),
+            Ok(None) => return Err("o script excedeu o limite de 5 minutos; verifique os serviços antes de tentar novamente".to_string()),
+            Err(_) => return Err("não foi possível acompanhar o script de inicialização".to_string()),
+        }
+    }
+}
+
 /// Persiste somente as configurações locais mínimas necessárias para o backend.
 #[tauri::command]
 fn save_first_run_config(database_url: String, api_token: String) -> Result<(), String> {
@@ -153,7 +248,11 @@ fn save_first_run_config(database_url: String, api_token: String) -> Result<(), 
     let path = desktop_setup_path()?;
     let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
     fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
-    let content = serde_json::to_vec(&serde_json::json!({ "databaseUrl": parsed, "apiToken": api_token }))
+    let mut config = read_setup_config()?;
+    if !config.is_object() { config = serde_json::json!({}); }
+    config["databaseUrl"] = serde_json::Value::String(parsed.to_string());
+    config["apiToken"] = serde_json::Value::String(api_token);
+    let content = serde_json::to_vec(&config)
         .map_err(|_| "não foi possível preparar a configuração".to_string())?;
     fs::write(&path, content).map_err(|_| "não foi possível salvar a configuração local".to_string())
 }
@@ -176,7 +275,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
