@@ -1,5 +1,7 @@
 use std::io::{Read, Write};
+use std::fs;
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver};
 use std::sync::Mutex;
 use std::thread;
@@ -124,13 +126,57 @@ fn open_external(url: String) -> Result<(), String> {
     Ok(())
 }
 
+fn desktop_setup_path() -> Result<PathBuf, String> {
+    let root = std::env::var_os("LOCALAPPDATA")
+        .map(PathBuf::from)
+        .ok_or_else(|| "pasta de dados local do Windows indisponível".to_string())?;
+    Ok(root.join("GrupoJadson").join("setup.json"))
+}
+
+/// Persiste somente as configurações locais mínimas necessárias para o backend.
+#[tauri::command]
+fn save_first_run_config(database_url: String, api_token: String) -> Result<(), String> {
+    let parsed = database_url.trim();
+    let postgres_scheme = parsed.strip_prefix("postgres://").or_else(|| parsed.strip_prefix("postgresql://"));
+    let has_authority_and_database = postgres_scheme.is_some_and(|rest| {
+        rest.split_once('/').is_some_and(|(authority, database)| {
+            !authority.rsplit('@').next().unwrap_or("").is_empty() && !database.is_empty()
+        })
+    });
+    if !has_authority_and_database || parsed.chars().any(char::is_control) {
+        return Err("informe um endereço PostgreSQL válido".to_string());
+    }
+    if api_token.len() != 64 || !api_token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+        return Err("token local inválido".to_string());
+    }
+
+    let path = desktop_setup_path()?;
+    let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
+    fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
+    let content = serde_json::to_vec(&serde_json::json!({ "databaseUrl": parsed, "apiToken": api_token }))
+        .map_err(|_| "não foi possível preparar a configuração".to_string())?;
+    fs::write(&path, content).map_err(|_| "não foi possível salvar a configuração local".to_string())
+}
+
+/// Entrega o token do sistema apenas ao frontend local do desktop.
+#[tauri::command]
+fn get_first_run_api_token() -> Result<String, String> {
+    let value: serde_json::Value = serde_json::from_slice(
+        &fs::read(desktop_setup_path()?).map_err(|_| "configuração local ainda não foi salva".to_string())?,
+    ).map_err(|_| "configuração local inválida".to_string())?;
+    value.get("apiToken").and_then(serde_json::Value::as_str)
+        .filter(|token| token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .map(str::to_string)
+        .ok_or_else(|| "token local inválido".to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }

@@ -5,6 +5,7 @@ import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
+import { Welcome } from "./Welcome";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -25,6 +26,7 @@ const MASCOTES = [
   "08-escudo", "09-chama", "10-gota", "11-triangulo", "12-engrenagem", "13-capsula",
 ].map((name) => `/mascotes/${name}.svg`);
 const SESSION_KEY = "grupo-jadson.session.v1";
+const FIRST_RUN_COMPLETE_KEY = "grupo-jadson.first-run-complete.v1";
 
 /** Sessão da pessoa que entrou com a conta. Fica só neste computador. */
 function readSession(): string | null {
@@ -43,30 +45,28 @@ function saveSession(token: string): void {
   }
 }
 
-/**
- * Token do sistema, usado só em desenvolvimento. O servidor do Vite entrega em tempo de execução
- * (ver vite.config.ts); em produção não existe token do sistema no app: vale só a sessão de login.
- */
-let devTokenRequest: Promise<string> | null = null;
-function devSystemToken(): Promise<string> {
-  if (!import.meta.env.DEV) return Promise.resolve("");
-  if (!devTokenRequest) {
-    devTokenRequest = fetch("/__gj/dev-token", { cache: "no-store" })
-      .then((r): Promise<{ token?: string }> => (r.ok ? r.json() : Promise.resolve({})))
-      .then((body) => body.token ?? "")
+/** Token do sistema local: Vite entrega em desenvolvimento e o comando Tauri no app empacotado. */
+let systemTokenRequest: Promise<string> | null = null;
+function localSystemToken(): Promise<string> {
+  if (!systemTokenRequest) {
+    systemTokenRequest = (import.meta.env.DEV
+      ? fetch("/__gj/dev-token", { cache: "no-store" })
+        .then((r): Promise<{ token?: string }> => (r.ok ? r.json() : Promise.resolve({})))
+        .then((body) => body.token ?? "")
+      : invoke<string>("get_first_run_api_token").catch(() => ""))
       .catch(() => "")
       .then((token) => {
-        if (!token) devTokenRequest = null; // tenta de novo na próxima chamada
+        if (!token) systemTokenRequest = null; // tenta de novo na próxima chamada
         return token;
       });
   }
-  return devTokenRequest;
+  return systemTokenRequest;
 }
 
-/** Envia a sessão (se houver) ou, em desenvolvimento, o token do sistema em todas as chamadas ao backend. */
+/** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = readSession() ?? (await devSystemToken());
+  const token = readSession() ?? (await localSystemToken());
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 }
@@ -154,6 +154,9 @@ function writeSignInRequired(required: boolean): void {
 export default function App() {
   const [session, setSession] = useState<string | null>(() => readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
+  const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(FIRST_RUN_COMPLETE_KEY) === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     fetch(`${API_URL}/auth/providers`)
@@ -167,6 +170,12 @@ export default function App() {
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
   }, [session]);
 
+  if (!firstRunComplete) {
+    return <Welcome apiUrl={API_URL} onComplete={() => {
+      try { window.localStorage.setItem(FIRST_RUN_COMPLETE_KEY, "1"); } catch { /* verifica de novo na próxima abertura */ }
+      setFirstRunComplete(true);
+    }} />;
+  }
   if (needsLogin) {
     return (
       <LoginScreen

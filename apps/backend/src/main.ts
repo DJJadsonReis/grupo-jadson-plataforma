@@ -1,8 +1,11 @@
 import "dotenv/config";
 import "reflect-metadata";
+import { applyDesktopSetup } from "./modules/bootstrap/desktop-setup";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
+
+applyDesktopSetup();
 
 async function bootstrap() {
   const app = await NestFactory.create<NestExpressApplication>(AppModule);

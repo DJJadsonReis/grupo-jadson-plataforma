@@ -2552,6 +2552,31 @@ html, body { background-color: #090908; color-scheme: dark; }
   background: var(--bg, #0f0f10);
 }
 
+.welcome-card { width: min(560px, 100%); text-align: left; }
+.welcome-card h1 { margin: 0; color: #f5f2ea; font-size: 24px; }
+.welcome-card > p { margin: 0; color: #96938a; font-size: 13px; line-height: 1.55; }
+.welcome-checklist { display: grid; gap: 10px; padding: 14px; border: 1px solid rgba(255,255,255,.08); border-radius: 12px; background: rgba(255,255,255,.02); }
+.welcome-check-row { display: grid; grid-template-columns: 24px minmax(0,1fr); align-items: start; gap: 10px; }
+.welcome-state { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 50%; color: #ffb779; background: rgba(255,183,121,.12); }
+.welcome-state.ready { color: #8fdaa8; background: rgba(88,189,120,.13); }
+.welcome-state.optional { color: #b8b3a8; background: rgba(255,255,255,.07); }
+.welcome-check-row span:last-child { display: grid; gap: 3px; }
+.welcome-check-row strong { color: #eee9dc; font-size: 13px; font-weight: 550; }
+.welcome-check-row small, .welcome-setup-form small { color: #89867e; font-size: 11px; line-height: 1.45; }
+.welcome-setup-form { display: grid; gap: 9px; text-align: left; }
+.welcome-setup-form label { color: #ddd8cd; font-size: 12px; }
+.welcome-setup-form input { box-sizing: border-box; width: 100%; padding: 11px 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: #111; color: #f5f2ea; font: inherit; font-size: 12px; }
+.welcome-setup-form input:focus { outline: 1px solid #d4af37; border-color: #d4af37; }
+.welcome-setup-form .btn-primary-gold { justify-self: start; margin-top: 3px; }
+.welcome-restart { display: grid; gap: 6px; padding: 12px; border-radius: 9px; background: rgba(212,175,55,.08); color: #d8d1c0; font-size: 12px; line-height: 1.5; text-align: left; }
+.welcome-restart strong { color: #f2d77d; }
+.welcome-restart code { color: #f4dc87; overflow-wrap: anywhere; }
+.welcome-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 9px; }
+.welcome-secondary { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 36px; padding: 0 12px; border: 1px solid rgba(255,255,255,.12); border-radius: 8px; background: transparent; color: #d0cbc0; font: inherit; font-size: 12px; cursor: pointer; }
+.welcome-secondary:hover:not(:disabled) { border-color: rgba(212,175,55,.45); color: #f5ce55; }
+.welcome-secondary:disabled, .welcome-actions .btn-primary-gold:disabled { opacity: .55; cursor: wait; }
+.welcome-redis-note { font-size: 11px !important; }
+
 .login-card {
   box-sizing: border-box;
   width: min(420px, 100%);
