@@ -12,6 +12,7 @@ import { IntegrationsService } from "../integrations/integrations.service";
 import { GoogleService } from "../google/google.service";
 import { createNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
+import { withUntrustedNotice } from "./untrusted-content";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -35,6 +36,18 @@ export interface ToolRun {
 
 const COLUMNS = `id, tool, requested_by AS "requestedBy", status, input, output, approval_id AS "approvalId",
   created_at AS "createdAt", finished_at AS "finishedAt"`;
+
+/** Ferramentas que só devolvem dado local do próprio sistema (hora, memória). Todo o resto é de fora. */
+const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
+
+/** Resultado de ferramenta de fora (web, Notion, Drive, Agenda, arquivo, MCP) é marcado como dado não confiável. */
+function isOutsideTool(name: string): boolean {
+  return !LOCAL_TOOLS.has(name);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
 
 /** Ferramenta que devolve erro (ex.: caminho recusado pelo servidor) não conta como concluída. */
 function statusOf(output: unknown): "done" | "failed" {
@@ -123,7 +136,8 @@ export class ToolsService {
   /** Roda a ferramenta; uma falha vira resultado com erro, gravado no histórico, em vez de derrubar a requisição. */
   private async safeRun(name: string, input: Record<string, unknown>): Promise<unknown> {
     try {
-      return await this.runTool(name, input);
+      const output = await this.runTool(name, input);
+      return isOutsideTool(name) && isPlainObject(output) ? withUntrustedNotice(output, name) : output;
     } catch (error) {
       return { erro: true, mensagem: error instanceof Error ? error.message : "Falha ao executar a ferramenta." };
     }

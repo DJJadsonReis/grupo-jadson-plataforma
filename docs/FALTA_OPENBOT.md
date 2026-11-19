@@ -156,6 +156,8 @@ Ordem de prioridade. Todos podem ser feitos sem serviço pago.
 9. **Compartilhar bot com pessoas e times.** É o que transforma o app de uso individual em uso de equipe. Referência: `server/src/team-bots/`, `server/src/people/`. Esforço M.
 10. **Ditado por voz (entrada).** Ajuda quem digita pouco e amplia o acesso. Pode usar a fala do próprio sistema, sem custo. Referência: `server/src/dictation/`, `shared/on-device-speech.ts`. Esforço M.
 
+**Andamento do item 1 (2026-11-19):** envelope `untrusted_data` em `apps/backend/src/modules/tools/untrusted-content.ts`, aplicado a todo resultado de ferramenta que não seja local (`tools.service.ts`, `safeRun`). Ainda falta: o loop de ferramentas que devolve esses resultados ao modelo (hoje não existe) e o uso de `UNTRUSTED_GUIDANCE` no prompt. Testes escritos (`untrusted-content.spec.ts`), mas não executados: `apps/backend` não tem jest instalado nem o TypeScript está disponível em `node_modules`.
+
 **Por que essa ordem:** os quatro primeiros cobrem segurança, manutenção e primeira experiência, que são os riscos mais altos para um app já distribuído. Os itens 5 a 8 aumentam o que o bot consegue fazer com pouco custo. Os itens 9 e 10 ampliam o uso.
 
 **Fora da lista de 10, de propósito:** computador do bot em contêiner (G, exige Docker e manutenção de contêineres), catálogo de conectores Composio e Arcade (serviços de terceiros, com planos pagos a verificar), Learning (depende do serviço Intelligence, com plano gratuito a verificar e licença própria), aplicativo móvel (G) e responsabilidades contínuas (G, depende de rotinas e check-ins).
