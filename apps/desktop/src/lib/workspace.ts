@@ -26,6 +26,8 @@ export interface Conversation {
 
 export interface Agent {
   id: string;
+  ownerId?: string;
+  permission?: "owner" | "editor" | "user";
   name: string;
   description: string;
   instructions: string;

@@ -1,6 +1,7 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
@@ -443,11 +444,9 @@ function Workspace() {
           }
         }
         setRemoteAgentIds([...knownIds]);
-        setAgents((current) => {
-          const merged = new Map(remote.map((agent) => [agent.id, agent]));
-          for (const agent of current) merged.set(agent.id, agent);
-          return [...merged.values()];
-        });
+        // When the API is connected its filtered list is authoritative; stale local copies
+        // must not put a revoked or inaccessible profile back into the gallery.
+        setAgents(visibleAgentIds(remote, knownIds));
         setAgentPersistence(migrationFailed ? "error" : "connected");
       })
       .catch(() => { if (!controller.signal.aborted) setAgentPersistence("error"); });
@@ -1938,7 +1937,7 @@ function AgentsPage({
                   </button>
                   <span className="agent-model-tag">{agent.model || "Modelo padrão"}</span>
                 </div>
-                <button
+                {canEditAgent(agent) && <button
                   className={"switch-toggle " + (agent.enabled ? "switch-on" : "")}
                   aria-label={agent.enabled ? "Desativar agente" : "Ativar agente"}
                   aria-pressed={agent.enabled}
@@ -1946,7 +1945,7 @@ function AgentsPage({
                   title={agent.enabled ? "Agente ativo" : "Agente desativado"}
                 >
                   <span className="switch-thumb" />
-                </button>
+                </button>}
               </div>
 
               <p className="agent-card-desc">{agent.description || "Agente com diretrizes específicas do Grupo Jadson."}</p>
@@ -1956,7 +1955,7 @@ function AgentsPage({
                   <span className="tag-pill">{remoteAgentIds.includes(agent.id) ? "PostgreSQL" : "Local"}</span>
                 </div>
                 <div className="agent-actions-group">
-                  <button className="btn-outline-sm" onClick={() => onEdit(agent)}>Configurar</button>
+                  {canEditAgent(agent) && <button className="btn-outline-sm" onClick={() => onEdit(agent)}>Configurar</button>}
                   <button className="btn-gold-sm" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>
                     <MessageSquare size={13} />
                     <span>Conversar</span>
@@ -1981,6 +1980,9 @@ function AgentDetailPage({
   onBack: () => void; onEdit: () => void; onChat: () => void;
   onOpenConversation: (id: string) => void;
 }) {
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const canEdit = canEditAgent(agent);
+  const canShare = canShareAgent(agent);
   const history = conversations.filter((conversation) => conversation.agentId === agent.id);
   const persistenceLabel = persistence === "connected" ? "Sincronização Ativa" : "Armazenado Localmente";
 
@@ -1992,10 +1994,12 @@ function AgentDetailPage({
       </button>
 
       <section className="agent-detail-hero-box">
-        <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
-          <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />
-          <span className="agent-hero-avatar-overlay">Editar avatar</span>
-        </button>
+        {canEdit ? (
+          <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
+            <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />
+            <span className="agent-hero-avatar-overlay">Editar avatar</span>
+          </button>
+        ) : <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />}
         <div className="agent-hero-info">
           <span className="section-label">PERFIL DE IA</span>
           <h1>{agent.name}</h1>
@@ -2006,7 +2010,8 @@ function AgentDetailPage({
           </span>
         </div>
         <div className="agent-hero-actions">
-          <button className="btn-outline-sm" onClick={onEdit}>Editar Perfil</button>
+          {canEdit && <button className="btn-outline-sm" onClick={onEdit}>Editar Perfil</button>}
+          {canShare && <button className="btn-outline-sm" aria-expanded={sharingOpen} onClick={() => setSharingOpen((open) => !open)}>Compartilhar</button>}
           <button className="btn-gold-sm" disabled={!agent.enabled} onClick={onChat}>
             <MessageSquare size={14} />
             <span>Iniciar Conversa</span>
@@ -2021,7 +2026,7 @@ function AgentDetailPage({
             <BrainCircuit size={18} className="text-gold" />
           </div>
           <div className="instructions-body">
-            <p>{agent.instructions.trim() || "Nenhuma instrução personalizada configurada."}</p>
+            <p>{agent.permission === "user" ? "As instruções são privadas para o dono e editores deste bot." : agent.instructions.trim() || "Nenhuma instrução personalizada configurada."}</p>
           </div>
           <div className="detail-card-meta">
             <span>Modelo: <b>{agent.model || "Padrão do Provedor"}</b></span>
@@ -2053,7 +2058,85 @@ function AgentDetailPage({
           )}
         </section>
       </div>
+      {canShare && sharingOpen && <AgentSharingPanel agent={agent} />}
     </div>
+  );
+}
+
+type AgentShare = { agentId: string; userId: string | null; userName: string | null; teamId: string | null; teamName: string | null; role: "editor" | "user" };
+type ShareTeam = { id: string; name: string };
+type SharePerson = { id: string; name: string };
+
+function AgentSharingPanel({ agent }: { agent: Agent }) {
+  const [shares, setShares] = useState<AgentShare[]>([]);
+  const [teams, setTeams] = useState<ShareTeam[]>([]);
+  const [people, setPeople] = useState<SharePerson[]>([]);
+  const [targetType, setTargetType] = useState<"people" | "teams">("people");
+  const [targetId, setTargetId] = useState("");
+  const [role, setRole] = useState<"editor" | "user">("user");
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/agents/${agent.id}/shares`, { signal: controller.signal }),
+      apiFetch(`${API_URL}/teams`, { signal: controller.signal }),
+      apiFetch(`${API_URL}/teams/directory/people`, { signal: controller.signal }),
+    ]).then(async ([shareResponse, teamResponse, peopleResponse]) => {
+      if (!shareResponse.ok || !teamResponse.ok || !peopleResponse.ok) throw new Error("Não foi possível carregar os destinos de compartilhamento.");
+      const [shareList, teamList, peopleList] = await Promise.all([shareResponse.json(), teamResponse.json(), peopleResponse.json()]);
+      setShares(shareList as AgentShare[]); setTeams(teamList as ShareTeam[]); setPeople(peopleList as SharePerson[]);
+      setError(null);
+    }).catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Falha ao carregar compartilhamentos."); });
+    return () => controller.abort();
+  }, [agent.id, version]);
+
+  const targets = targetType === "people" ? people : teams;
+
+  async function saveShare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!targetId) return;
+    const response = await apiFetch(`${API_URL}/agents/${agent.id}/shares`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [targetType === "people" ? "userId" : "teamId"]: targetId, role }),
+    });
+    if (!response.ok) { const data = await response.json().catch(() => ({})) as { message?: string }; setError(data.message ?? "Não foi possível compartilhar o bot."); return; }
+    setTargetId(""); setError(null); setVersion((value) => value + 1);
+  }
+
+  async function revokeShare(share: AgentShare) {
+    const kind = share.userId ? "people" : "teams";
+    const id = share.userId ?? share.teamId;
+    if (!id) return;
+    const response = await apiFetch(`${API_URL}/agents/${agent.id}/shares/${kind}/${id}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível remover este compartilhamento."); return; }
+    setVersion((value) => value + 1);
+  }
+
+  return (
+    <section className="detail-card agent-sharing-panel" aria-label="Compartilhamento do bot">
+      <div className="detail-card-header"><h3>Compartilhar bot</h3><span>Conversas e memórias permanecem privadas.</span></div>
+      <form className="security-notice" onSubmit={(event) => void saveShare(event)} style={{ alignItems: "center", gap: 8 }}>
+        <select aria-label="Destino" value={targetType} onChange={(event) => { setTargetType(event.target.value as "people" | "teams"); setTargetId(""); }}>
+          <option value="people">Pessoa</option><option value="teams">Time</option>
+        </select>
+        <select aria-label={targetType === "people" ? "Pessoa" : "Time"} value={targetId} onChange={(event) => setTargetId(event.target.value)} required>
+          <option value="">Selecione</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
+        </select>
+        <select aria-label="Acesso ao bot" value={role} onChange={(event) => setRole(event.target.value as "editor" | "user")}>
+          <option value="user">Usuário — conversar</option><option value="editor">Editor — conversar e editar</option>
+        </select>
+        <button className="btn-primary-gold" type="submit" disabled={!targetId}>Salvar acesso</button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      {shares.length ? shares.map((share) => (
+        <div className="workspace-fact" key={`${share.userId ? "person" : "team"}-${share.userId ?? share.teamId}-${share.role}`}>
+          <span><b>{share.userName ?? share.teamName}</b> · {share.role === "editor" ? "Editor" : "Usuário"}</span>
+          <button className="icon-btn-close" onClick={() => void revokeShare(share)}>Remover</button>
+        </div>
+      )) : !error && <p>Este bot ainda não foi compartilhado.</p>}
+    </section>
   );
 }
 
@@ -2782,7 +2865,109 @@ function AccessSettings() {
           </span>
         </div>
       ))}
+      <TeamManagementSettings />
     </article>
+  );
+}
+
+type TeamEntry = { id: string; name: string };
+type TeamMemberEntry = { id: string; name: string; role: string };
+
+function TeamManagementSettings() {
+  const [teams, setTeams] = useState<TeamEntry[]>([]);
+  const [people, setPeople] = useState<PersonEntry[]>([]);
+  const [members, setMembers] = useState<TeamMemberEntry[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [selectedPersonId, setSelectedPersonId] = useState("");
+  const [name, setName] = useState("");
+  const [canManage, setCanManage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refreshTeams() {
+    const response = await apiFetch(`${API_URL}/teams`);
+    if (!response.ok) throw new Error("Não foi possível carregar os times.");
+    setTeams(await response.json() as TeamEntry[]);
+  }
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([apiFetch(`${API_URL}/teams`), apiFetch(`${API_URL}/users`)]).then(async ([teamResponse, userResponse]) => {
+      if (!teamResponse.ok) throw new Error("Não foi possível carregar os times.");
+      const teamList = await teamResponse.json() as TeamEntry[];
+      if (!active) return;
+      setTeams(teamList);
+      if (!userResponse.ok) return;
+      setPeople(await userResponse.json() as PersonEntry[]);
+      setCanManage(true);
+    }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Falha ao carregar times."); });
+    return () => { active = false; };
+  }, []);
+
+  async function selectTeam(id: string) {
+    setSelectedTeamId(id); setMembers([]);
+    if (!id) return;
+    const response = await apiFetch(`${API_URL}/teams/${id}/members`);
+    if (response.ok) setMembers(await response.json() as TeamMemberEntry[]);
+    else setError("Não foi possível carregar os membros; confirme o papel de administrador.");
+  }
+
+  async function createTeam(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const clean = name.trim();
+    if (!clean) return;
+    const response = await apiFetch(`${API_URL}/teams`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: clean }) });
+    if (!response.ok) { setError("Só administradores globais podem criar times."); return; }
+    setName(""); setError(null);
+    try { await refreshTeams(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao atualizar times."); }
+  }
+
+  async function addMember() {
+    if (!selectedTeamId || !selectedPersonId) return;
+    const response = await apiFetch(`${API_URL}/teams/${selectedTeamId}/members/${selectedPersonId}`, { method: "PUT" });
+    if (!response.ok) { setError("Não foi possível adicionar a pessoa ao time."); return; }
+    setSelectedPersonId(""); setError(null); await selectTeam(selectedTeamId);
+  }
+
+  async function removeMember(userId: string) {
+    if (!selectedTeamId) return;
+    const response = await apiFetch(`${API_URL}/teams/${selectedTeamId}/members/${userId}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível remover a pessoa do time."); return; }
+    await selectTeam(selectedTeamId);
+  }
+
+  async function deleteTeam(id: string) {
+    const response = await apiFetch(`${API_URL}/teams/${id}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível excluir o time."); return; }
+    if (selectedTeamId === id) { setSelectedTeamId(""); setMembers([]); }
+    await refreshTeams();
+  }
+
+  if (!canManage) return null;
+  return (
+    <section className="settings-box team-management-settings">
+      <h3>Times</h3>
+      <p>Somente administradores globais criam times e alteram seus membros. Remover alguém revoga o acesso dado por esse time.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <form className="security-notice" onSubmit={(event) => void createTeam(event)} style={{ alignItems: "center", gap: 8 }}>
+        <input aria-label="Nome do time" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} placeholder="Nome do time" />
+        <button className="btn-primary-gold" type="submit" disabled={!name.trim()}>Criar time</button>
+      </form>
+      <label className="workspace-fact"><span>Time selecionado</span>
+        <select value={selectedTeamId} onChange={(event) => void selectTeam(event.target.value)}>
+          <option value="">Escolha um time</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+        </select>
+      </label>
+      {selectedTeamId && <>
+        <div className="security-notice" style={{ alignItems: "center", gap: 8 }}>
+          <select aria-label="Pessoa para adicionar" value={selectedPersonId} onChange={(event) => setSelectedPersonId(event.target.value)}>
+            <option value="">Escolha uma pessoa ativa</option>{people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+          <button className="btn-outline-sm" onClick={() => void addMember()} disabled={!selectedPersonId}>Adicionar pessoa</button>
+          <button className="icon-btn-close" onClick={() => void deleteTeam(selectedTeamId)}>Excluir time</button>
+        </div>
+        {members.map((member) => <div className="workspace-fact" key={member.id}><b>{member.name}</b><span><small>{ROLE_LABELS[member.role as PersonEntry["role"]] ?? member.role}</small><button className="icon-btn-close" onClick={() => void removeMember(member.id)}>Remover</button></span></div>)}
+      </>}
+    </section>
   );
 }
 
