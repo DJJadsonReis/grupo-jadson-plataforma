@@ -51,4 +51,4 @@ No texto real, os separadores entre as colunas são caracteres tab; a representa
 
 ## Commit
 
-Hash: pendente no momento da redação; será preenchido após o commit local.
+Hash: `fb4e01164701ad354b2e9e9d03dcdbe86988bc2f`. Commit local criado com `Jadson Reis <jrdesign9@gmail.com>`, identidade do último commit, passada somente ao comando para não alterar configuração persistente do repositório.
