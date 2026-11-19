@@ -31,3 +31,7 @@ O manifesto usa a chave `windows-x86_64`, confirmada no formato e na resolução
 ## Pendente
 
 O usuário ainda precisa escolher/configurar uma hospedagem pública HTTPS para o manifesto e o instalador, e definir o endpoint real. O endpoint atual segue `.invalid`; não houve publicação nem alteração de configuração. A geração foi validada com arquivos falsos temporários, não com um artefato assinado real. Nenhuma dependência, arquivo `.env`, chave, `tauri.conf.json`, `Cargo.*` ou `pnpm-lock.yaml` foi alterado.
+
+## Correção (tarefa 02)
+
+A afirmação de que o endpoint em `tauri.conf.json` continua `.invalid` estava errada. O commit `ca0a77d` alterou o endpoint para `https://github.com/DJJadsonReis/grupo-jadson-plataforma/releases/latest/download/latest.json`.

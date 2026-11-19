@@ -4,7 +4,7 @@ O desktop usa o plugin oficial `tauri-plugin-updater` e o pacote JavaScript `@ta
 
 ## Configuração
 
-`apps/desktop/src-tauri/tauri.conf.json` contém a chave pública do signer e um endpoint de exemplo em `https://updates.example.invalid/{{target}}/{{arch}}/{{current_version}}`. O domínio `.invalid` é reservado e não hospeda serviço. Substitua o endpoint por um manifesto HTTPS que você controle quando houver hospedagem; nenhum serviço externo é criado por esta configuração.
+`apps/desktop/src-tauri/tauri.conf.json` contém a chave pública do signer e o endpoint atual `https://github.com/DJJadsonReis/grupo-jadson-plataforma/releases/latest/download/latest.json`. Esse repositório é privado desde 2026-11-03, então um updater anônimo não consegue baixar o manifesto. A hospedagem prevista é GitHub Releases em um repositório público separado, com nome sugerido `grupo-jadson-releases`; criar o repositório e publicar dependem de aprovação do dono. Nenhum serviço externo é criado pela configuração.
 
 O app gera artefatos assinados para MSI/NSIS. A chave privada local fica fora do repositório em `%LOCALAPPDATA%\GrupoJadson\updater\signing.key`; somente a chave pública vai para `tauri.conf.json`. Não copie a chave privada para Git, artefatos ou logs. Antes de empacotar uma versão de atualização, disponibilize-a ao processo de build sem colocá-la em arquivos versionados:
 
@@ -13,7 +13,7 @@ $env:TAURI_SIGNING_PRIVATE_KEY = Join-Path $env:LOCALAPPDATA 'GrupoJadson\update
 node tools/pnpm/node_modules/pnpm/bin/pnpm.cjs --filter @grupo-jadson/desktop exec tauri build
 ```
 
-O manifesto servido pelo endpoint deve seguir o formato do updater do Tauri e conter versão SemVer, URL HTTPS do instalador de atualização e assinatura gerada no build. A verificação e a instalação não foram testadas contra um serviço hospedado; o endpoint de exemplo não deve ser usado para publicar.
+O manifesto servido pelo endpoint deve seguir o formato do updater do Tauri e conter versão SemVer, URL HTTPS do instalador de atualização e assinatura gerada no build. A verificação e a instalação não foram testadas contra um serviço hospedado; não publique em endpoint de exemplo.
 
 ## Gerar manifesto estático
 
@@ -32,4 +32,4 @@ node apps/desktop/scripts/gerar-manifesto-atualizacao.mjs `
 
 Escolhemos NSIS como artefato deste comando porque a configuração atual do app usa `windows.installMode: passive`, que o plugin Tauri updater 2.14.1 converte no argumento `/P` para NSIS (`tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-updater-2.14.1/src/config.rs`, `WindowsUpdateInstallMode::nsis_args`). O código do plugin também reconhece MSI e NSIS (`src/updater.rs`); este fluxo documenta apenas NSIS.
 
-Ainda falta escolher e configurar a hospedagem pública HTTPS para o `latest.json` e para o instalador assinado, além de trocar o endpoint de exemplo no momento apropriado. O endpoint configurado continua em `https://updates.example.invalid/...`; `.invalid` não hospeda serviço. Este script apenas gera o manifesto local.
+O endpoint configurado atualmente é `https://github.com/DJJadsonReis/grupo-jadson-plataforma/releases/latest/download/latest.json`, mas o repositório é privado e um updater anônimo não consegue baixá-lo. A decisão do dono prevê hospedar o `latest.json` e o instalador assinado em GitHub Releases de um repositório público separado, com nome sugerido `grupo-jadson-releases`; criar o repositório e publicar dependem de aprovação do dono. `.invalid` não hospeda serviço continua válido como explicação histórica do endpoint de exemplo anterior, mas não descreve o estado atual. Este script apenas gera o manifesto local.
