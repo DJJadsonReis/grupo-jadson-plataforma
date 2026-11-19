@@ -19,6 +19,7 @@ import { migrationId as integrationsMigrationId, up as addIntegrations } from ".
 import { migrationId as googleMigrationId, up as addGoogleConnections } from "./migrations/016-google-connections";
 import { migrationId as userPreferencesMigrationId, up as addUserPreferences } from "./migrations/017-user-preferences";
 import { migrationId as routineClaimsMigrationId, up as addRoutineClaims } from "./migrations/018-routine-claims";
+import { migrationId as notificationsMigrationId, up as addNotifications } from "./migrations/019-notifications";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -59,6 +60,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: googleMigrationId, apply: async () => addGoogleConnections(this.pool!) },
         { id: userPreferencesMigrationId, apply: async () => addUserPreferences(this.pool!) },
         { id: routineClaimsMigrationId, apply: async () => addRoutineClaims(this.pool!) },
+        { id: notificationsMigrationId, apply: async () => addNotifications(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

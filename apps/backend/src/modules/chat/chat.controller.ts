@@ -16,6 +16,7 @@ import { MaskedTextStream } from "../../common/masked-text-stream";
 import { maskSecrets } from "../../common/secret-masking";
 import { generateConversationTitle } from "./conversation-title";
 import { UserPreferencesService } from "../preferences/user-preferences.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -127,7 +128,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, @Optional() private readonly preferences?: UserPreferencesService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -223,6 +224,7 @@ export class ChatController {
         if (iteration >= MAX_TOOL_ITERATIONS) {
           answer = `Não foi possível concluir: o limite de ${MAX_TOOL_ITERATIONS} ciclos de ferramentas foi atingido.`;
           res.write(sseTextChunk(answer));
+          try { await this.notifications?.create({ owner: request.principal?.id ?? "sistema", kind: "tool_limit.reached", title: "Limite de ferramentas atingido", body: `A conversa atingiu o limite de ${MAX_TOOL_ITERATIONS} ciclos.`, details: { conversationId: conversationId ?? null, limit: MAX_TOOL_ITERATIONS } }); } catch { /* notification storage must not interrupt the response */ }
           break;
         }
         workingMessages.push({ role: "assistant", content: round.content || null, tool_calls: round.toolCalls });

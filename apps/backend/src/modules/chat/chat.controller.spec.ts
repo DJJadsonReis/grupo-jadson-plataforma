@@ -104,12 +104,15 @@ describe("ChatController tool loop", () => {
   it("recusa claramente depois de quatro ciclos de ferramentas", async () => {
     const repeated = Array.from({ length: 5 }, (_, index) => sseResponse([toolCall("busca.web", {}, `call-${index}`)]));
     const { controller, inputs, tools } = setup({ streams: repeated });
+    const notification = jest.fn(async () => ({}));
+    (controller as any).notifications = { create: notification };
     const response = await complete(controller);
     expect(inputs).toHaveLength(5);
     expect(tools.invoke).toHaveBeenCalledTimes(4);
     const body = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
     expect(body).toContain("limite de 4 ciclos de ferramentas");
     expect(body.endsWith("data: [DONE]\n\n")).toBe(true);
+    expect(notification).toHaveBeenCalledWith(expect.objectContaining({ owner: "pessoa-1", kind: "tool_limit.reached" }));
   });
 
   it("mantém ferramenta sensível pendente e não a oferece ao modelo", async () => {

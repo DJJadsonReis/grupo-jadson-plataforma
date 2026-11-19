@@ -1,7 +1,8 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { ToolsService } from "../tools/tools.service";
+import { NotificationsService } from "../notifications/notifications.service";
 
 export const TICK_MS = 60_000;
 /** Intervalo mínimo entre execuções: evita que uma frase agende mais do que a pessoa quis. */
@@ -44,7 +45,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
-  constructor(private readonly database: DatabaseService, private readonly tools: ToolsService) {}
+  constructor(private readonly database: DatabaseService, private readonly tools: ToolsService, @Optional() private readonly notifications?: NotificationsService) {}
 
   onModuleInit(): void {
     // The database owns the next firing; overdue routines resume immediately after boot.
@@ -69,7 +70,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
       `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at) VALUES ($1,$2,$3,$4,$5) RETURNING ${COLUMNS}`,
       [randomUUID(), name, tool.name, input.intervalMinutes, next],
     );
-    void this.scheduleNextTick();
+    await this.scheduleNextTick();
     return result.rows[0] as Routine;
   }
 
@@ -95,14 +96,14 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   async setEnabled(id: string, enabled: boolean): Promise<Routine> {
     if (enabled) await this.assertRoomForOneMore(id);
     const result = await this.database.getPool().query(`UPDATE routines SET enabled = $2 WHERE id = $1 RETURNING ${COLUMNS}`, [id, enabled]);
-    void this.scheduleNextTick();
+    await this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
     return result.rows[0] as Routine;
   }
 
   async remove(id: string): Promise<void> {
     const result = await this.database.getPool().query(`DELETE FROM routines WHERE id = $1`, [id]);
-    void this.scheduleNextTick();
+    await this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
   }
 
@@ -134,6 +135,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
         } catch (error) {
           status = "failed";
           this.logger.warn(`Rotina ${row.name} falhou: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
+          try { await this.notifications?.create({ owner: "sistema", kind: "routine.failed", title: `Falha na rotina ${row.name}`.slice(0, 160), body: "Uma rotina falhou durante sua execução.", details: { routineId: row.id } }); } catch { /* notification storage must not alter the routine result */ }
         }
         // Falha soma à sequência; sucesso zera. Ao atingir o limite, a rotina é desligada.
         await this.database.getPool().query(
@@ -153,7 +155,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Agendador não conseguiu ler as rotinas: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
     } finally {
       this.running = false;
-      void this.scheduleNextTick();
+      await this.scheduleNextTick();
     }
     return ran;
   }

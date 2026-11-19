@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { AgentPolicyService } from "./agent-policy.service";
 import { randomUUID } from "node:crypto";
 import { ApprovalsService } from "../audit/approvals.service";
@@ -14,6 +14,7 @@ import { createNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
 import { withUntrustedNotice } from "./untrusted-content";
 import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
+import { NotificationsService } from "../notifications/notifications.service";
 import { readPage } from "./page-reader";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
@@ -67,6 +68,7 @@ export class ToolsService {
     private readonly integrations: IntegrationsService,
     private readonly policies: AgentPolicyService,
     private readonly google: GoogleService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -123,7 +125,11 @@ export class ToolsService {
         payload: input,
         requestedBy,
       });
-      return this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
+      const pending = await this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
+      try {
+        await this.notifications?.create({ owner: requesterId ?? requestedBy, kind: "approval.pending", title: "Ação aguardando aprovação", body: tool.description, details: { tool: tool.name, runId: id, approvalId: approval.id } });
+      } catch { /* notification failure must not cancel a persisted approval */ }
+      return pending;
     }
 
     const output = await this.safeRun(tool.name, input);
