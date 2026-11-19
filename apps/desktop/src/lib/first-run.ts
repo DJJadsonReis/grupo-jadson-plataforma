@@ -29,10 +29,6 @@ export function shouldAskServicesConsent(consent: unknown): boolean {
   return consent !== true;
 }
 
-export function mergeServicesConsent<T extends Record<string, unknown>>(config: T): T & { servicesConsent: true } {
-  return { ...config, servicesConsent: true };
-}
-
 export function summarizeProcessOutput(stdout: string, stderr: string, limit = 1200): string {
   const output = [stdout.trim(), stderr.trim() ? `Avisos/erros:\n${stderr.trim()}` : ""]
     .filter(Boolean)

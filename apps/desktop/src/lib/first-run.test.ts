@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, mergeServicesConsent, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
+import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
 
 describe("first run setup helpers", () => {
   it("accepts PostgreSQL URLs and rejects other or incomplete URLs", () => {
@@ -22,13 +22,10 @@ describe("first run setup helpers", () => {
     );
   });
 
-  it("asks until consent is explicitly true and preserves existing setup fields", () => {
+  it("asks until consent is explicitly true", () => {
     expect(shouldAskServicesConsent(undefined)).toBe(true);
     expect(shouldAskServicesConsent(false)).toBe(true);
     expect(shouldAskServicesConsent(true)).toBe(false);
-    expect(mergeServicesConsent({ databaseUrl: "postgres://local/db", apiToken: "abc" })).toEqual({
-      databaseUrl: "postgres://local/db", apiToken: "abc", servicesConsent: true,
-    });
   });
 
   it("summarizes captured output and includes stderr", () => {
