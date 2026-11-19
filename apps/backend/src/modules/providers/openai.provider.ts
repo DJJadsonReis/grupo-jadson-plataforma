@@ -53,18 +53,26 @@ export class OpenAiProvider implements LanguageModelProvider {
       });
     }
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      signal: signal ?? null,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: input.model || model, messages: input.messages, stream: true,
-        ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}),
-        stream_options: { include_usage: true },
-        ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
-        ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
-      }),
-    });
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        signal: signal ?? null,
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: input.model || model, messages: input.messages, stream: true,
+          ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}),
+          stream_options: { include_usage: true },
+          ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
+          ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
+        }),
+      });
+    } catch {
+      throw new ServiceUnavailableException({
+        code: "AI_PROVIDER_REQUEST_FAILED",
+        message: "NÃ£o foi possÃ­vel conectar ao provedor de IA. Confira o endereÃ§o e tente novamente.",
+      });
+    }
 
     if (!response.ok) {
       const hasImage = input.messages.some((message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image_url"));

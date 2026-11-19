@@ -58,7 +58,7 @@ describe("limites de rotinas", () => {
         return { rows: [], rowCount: 1 };
       },
     };
-    const tools = { invoke: async () => { throw new Error("falha simulada"); } } as unknown as ToolsService;
+    const tools = { invoke: async () => { throw new Error("falha simulada"); }, maskSecretText: async (text: string) => text } as unknown as ToolsService;
     const service = new RoutinesService({ getPool: () => pool, isReady: () => true } as unknown as DatabaseService, tools);
     await service.tick(new Date());
     // Parâmetro $3 = status ("failed") e $5 = limite de falhas seguidas

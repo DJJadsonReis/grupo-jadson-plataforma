@@ -31,4 +31,18 @@ describe("IntegrationsService — migração de chave em texto puro", () => {
     expect(await service.secret("tavily")).toBe("tvly-antiga-em-texto");
     expect(writes).toHaveLength(1);
   });
+
+  it("lê os segredos para mascaramento sem gravar nem migrar valores", async () => {
+    const writes: string[] = [];
+    const pool = {
+      query: async (sql: string) => {
+        if (sql.startsWith("UPDATE") || sql.startsWith("INSERT")) writes.push(sql);
+        return { rowCount: 1, rows: [{ name: "tavily", secret: "tvly-antiga-em-texto" }] };
+      },
+    };
+    const service = new IntegrationsService({ getPool: () => pool } as never);
+    const values = await service.secretValuesForMasking();
+    expect(values).toContain("tvly-antiga-em-texto");
+    expect(writes).toHaveLength(0);
+  });
 });

@@ -13,6 +13,7 @@ import { GoogleService } from "../google/google.service";
 import { createNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
 import { withUntrustedNotice } from "./untrusted-content";
+import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -70,6 +71,33 @@ export class ToolsService {
   catalog(): ToolDefinition[] {
     const fromMcp = this.mcp.catalog().map((tool) => ({ name: tool.name, description: tool.description, risk: tool.risk }));
     return [...TOOL_DEFINITIONS, ...fromMcp];
+  }
+
+  /** Sanitiza texto de saída/erro usando integrações e ambiente, sem guardar os valores. */
+  async maskSecretText(value: string): Promise<string> {
+    try {
+      return maskSecrets(value, [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())]);
+    } catch {
+      return maskSecrets(value, environmentSecrets());
+    }
+  }
+
+  /** Valores secretos conhecidos (ambiente e integrações), em memória, para mascarar um fluxo de texto. */
+  async secretsForMasking(): Promise<string[]> {
+    try {
+      return [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())];
+    } catch {
+      return environmentSecrets();
+    }
+  }
+
+  private async maskSecretOutput(value: unknown): Promise<unknown> {
+    try {
+      const known = [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())];
+      return maskSecretValues(value, known);
+    } catch {
+      return maskSecretValues(value, environmentSecrets());
+    }
   }
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
@@ -136,10 +164,11 @@ export class ToolsService {
   /** Roda a ferramenta; uma falha vira resultado com erro, gravado no histórico, em vez de derrubar a requisição. */
   private async safeRun(name: string, input: Record<string, unknown>): Promise<unknown> {
     try {
-      const output = await this.runTool(name, input);
+      const output = await this.maskSecretOutput(await this.runTool(name, input));
       return isOutsideTool(name) && isPlainObject(output) ? withUntrustedNotice(output, name) : output;
     } catch (error) {
-      return { erro: true, mensagem: error instanceof Error ? error.message : "Falha ao executar a ferramenta." };
+      const message = error instanceof Error ? error.message : "Falha ao executar a ferramenta.";
+      return { erro: true, mensagem: await this.maskSecretText(message) };
     }
   }
 

@@ -4,6 +4,7 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { existsSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
+import { maskSecrets } from "../../common/secret-masking";
 
 /** Prefixo que identifica as ferramentas vindas de servidores MCP. */
 export const MCP_PREFIX = "arquivos.";
@@ -51,7 +52,7 @@ export class McpService implements OnModuleInit, OnModuleDestroy {
       }));
       this.logger.log(`Servidor de arquivos conectado (${this.tools.length} ferramentas), limitado a ${root}.`);
     } catch (error) {
-      this.logger.warn(`Servidor de arquivos não conectado: ${error instanceof Error ? error.message : "erro"}`);
+      this.logger.warn(`Servidor de arquivos não conectado: ${maskSecrets(error instanceof Error ? error.message : "erro")}`);
     }
   }
 

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
 import { createHash, randomBytes } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, JWTPayload } from "jose";
+import { maskSecrets } from "../../common/secret-masking";
 import { DatabaseService } from "../database/database.service";
 
 export type ProviderId = "google" | "microsoft" | "okta";
@@ -181,7 +182,7 @@ export class OidcService {
       return payload;
     } catch (error) {
       // Registra só o motivo técnico, nunca o token.
-      this.logger.warn(`Token de identidade recusado (${provider.label}): ${error instanceof Error ? error.message : "erro"}`);
+      this.logger.warn(`Token de identidade recusado (${provider.label}): ${maskSecrets(error instanceof Error ? error.message : "erro")}`);
       throw new UnauthorizedException({ code: "INVALID_ID_TOKEN", message: "Identidade inválida." });
     }
   }

@@ -3,6 +3,7 @@ import { Response } from "express";
 import { ChatController } from "./chat.controller";
 import { TOOL_DEFINITIONS } from "../tools/tools.registry";
 import { withUntrustedNotice } from "../tools/untrusted-content";
+import { maskSecrets } from "../../common/secret-masking";
 
 function sseResponse(events: unknown[]): globalThis.Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n";
@@ -32,6 +33,8 @@ function setup(options: {
   const providers = { stream: jest.fn(async (input) => { inputs.push(input); return streams.shift()!; }), list: jest.fn() };
   const tools = {
     catalog: () => TOOL_DEFINITIONS,
+    secretsForMasking: async () => [] as string[],
+    maskSecretText: async (text: string) => maskSecrets(text),
     invoke: options.invoke ?? jest.fn(async (name: string) => ({
       id: "run-1", tool: name, requestedBy: "Jadson", status: "done", input: {},
       output: withUntrustedNotice({ resultados: [{ titulo: "resultado externo" }] }, name),
@@ -69,13 +72,44 @@ describe("ChatController tool loop", () => {
     expect(JSON.parse(nextToolMessage.content).resultados).toEqual([{ titulo: "resultado externo" }]);
   });
 
+  it("mascara padrões de segredo na resposta final antes de enviá-la ao cliente", async () => {
+    const { controller } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: "A chave é sk-1234567890abcdefghijkl" } }] }])] });
+    const response = await complete(controller);
+    const body = new TextDecoder().decode(response.writes[0]);
+    expect(body).toContain("[REDACTED]");
+    expect(body).not.toContain("sk-1234567890abcdefghijkl");
+  });
+
+  it("mascara segredo dividido entre pedaços SSE e envia [DONE] uma única vez", async () => {
+    const secret = "sk-1234567890abcdefghijkl";
+    const pieces = secret.match(/.{1,4}/g) ?? [];
+    const { controller } = setup({ streams: [sseResponse(pieces.map((piece) => ({ choices: [{ delta: { content: piece } }] })))] });
+    const response = await complete(controller);
+    const body = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(body).not.toContain("sk-1234567890");
+    expect(body).toContain("[REDACTED]");
+    expect(body.match(/\[DONE\]/g)).toHaveLength(1);
+    expect(body.endsWith("data: [DONE]\n\n")).toBe(true);
+  });
+
+  it("envia a resposta longa em vários pedaços, sem esperar o fim do modelo", async () => {
+    const long = Array.from({ length: 120 }, (_, index) => `palavra${index} `).join("");
+    const pieces = long.match(/.{1,40}/g) ?? [];
+    const { controller } = setup({ streams: [sseResponse(pieces.map((piece) => ({ choices: [{ delta: { content: piece } }] })))] });
+    const response = await complete(controller);
+    const contentWrites = response.writes.filter((chunk) => !new TextDecoder().decode(chunk).startsWith("data: [DONE]"));
+    expect(contentWrites.length).toBeGreaterThan(1);
+  });
+
   it("recusa claramente depois de quatro ciclos de ferramentas", async () => {
     const repeated = Array.from({ length: 5 }, (_, index) => sseResponse([toolCall("busca.web", {}, `call-${index}`)]));
     const { controller, inputs, tools } = setup({ streams: repeated });
     const response = await complete(controller);
     expect(inputs).toHaveLength(5);
     expect(tools.invoke).toHaveBeenCalledTimes(4);
-    expect(new TextDecoder().decode(response.writes.at(-1))).toContain("limite de 4 ciclos de ferramentas");
+    const body = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(body).toContain("limite de 4 ciclos de ferramentas");
+    expect(body.endsWith("data: [DONE]\n\n")).toBe(true);
   });
 
   it("mantém ferramenta sensível pendente e não a oferece ao modelo", async () => {

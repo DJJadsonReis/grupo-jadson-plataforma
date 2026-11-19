@@ -1,5 +1,6 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
 import { createClient, RedisClientType } from "redis";
+import { maskSecrets } from "../../common/secret-masking";
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
@@ -10,7 +11,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   constructor() {
     const url = process.env.REDIS_URL?.trim();
     this.client = url ? createClient({ url, socket: { connectTimeout: 1500, reconnectStrategy: false } }) : null;
-    this.client?.on("error", (error) => this.logger.warn(`Redis indisponível: ${error.message}`));
+    this.client?.on("error", (error) => this.logger.warn(`Redis indisponível: ${maskSecrets(error.message)}`));
   }
 
   async onModuleInit(): Promise<void> {
@@ -25,7 +26,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.log("Redis respondeu ao PING.");
     } catch (error) {
       this.ready = false;
-      this.logger.warn(`Redis não conectado: ${error instanceof Error ? error.message : "erro desconhecido"}`);
+      this.logger.warn(`Redis não conectado: ${maskSecrets(error instanceof Error ? error.message : "erro desconhecido")}`);
     }
   }
 

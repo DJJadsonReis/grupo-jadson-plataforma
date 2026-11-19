@@ -119,7 +119,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
           await this.tools.invoke(row.tool, {}, `rotina:${row.name}`);
         } catch (error) {
           status = "failed";
-          this.logger.warn(`Rotina ${row.name} falhou: ${error instanceof Error ? error.message : "erro"}`);
+          this.logger.warn(`Rotina ${row.name} falhou: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
         }
         // Falha soma à sequência; sucesso zera. Ao atingir o limite, a rotina é desligada.
         await this.database.getPool().query(
@@ -135,7 +135,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
         ran += 1;
       }
     } catch (error) {
-      this.logger.warn(`Agendador não conseguiu ler as rotinas: ${error instanceof Error ? error.message : "erro"}`);
+      this.logger.warn(`Agendador não conseguiu ler as rotinas: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
     } finally {
       this.running = false;
     }

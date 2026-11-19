@@ -12,24 +12,24 @@ import { AuditService } from "../audit/audit.service";
 import { MemoryService } from "../memory/memory.service";
 import { markUntrusted, UNTRUSTED_GUIDANCE, withUntrustedNotice } from "../tools/untrusted-content";
 import { ToolsService, ToolRun } from "../tools/tools.service";
+import { MaskedTextStream } from "../../common/masked-text-stream";
+import { maskSecrets } from "../../common/secret-masking";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
 
 interface ChatRequest { principal?: { id: string; name: string } }
 interface StreamedCompletion {
-  chunks: Uint8Array[];
   content: string;
   toolCalls: ProviderToolCall[];
   model?: string;
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
-async function readCompletion(response: globalThis.Response): Promise<StreamedCompletion> {
+async function readCompletion(response: globalThis.Response, stream: MaskedTextStream): Promise<StreamedCompletion> {
   if (!response.body) throw new Error("O modelo não retornou um fluxo de dados.");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
-  const chunks: Uint8Array[] = [];
   const calls = new Map<number, ProviderToolCall>();
   let pending = "", content = "", model: string | undefined;
   let usage: StreamedCompletion["usage"];
@@ -51,7 +51,10 @@ async function readCompletion(response: globalThis.Response): Promise<StreamedCo
         totalTokens: event.usage.total_tokens ?? 0,
       };
       const delta = event.choices?.[0]?.delta;
-      if (typeof delta?.content === "string") content += delta.content;
+      if (typeof delta?.content === "string") {
+        content += delta.content;
+        stream.push(delta.content);
+      }
       for (const part of delta?.tool_calls ?? []) {
         const call = calls.get(part.index) ?? { id: "", type: "function" as const, function: { name: "", arguments: "" } };
         if (part.id) call.id = part.id;
@@ -65,7 +68,6 @@ async function readCompletion(response: globalThis.Response): Promise<StreamedCo
     while (true) {
       const { value, done } = await reader.read();
       if (done) break;
-      chunks.push(value);
       pending += decoder.decode(value, { stream: true });
       const lines = pending.split("\n");
       pending = lines.pop() ?? "";
@@ -76,7 +78,7 @@ async function readCompletion(response: globalThis.Response): Promise<StreamedCo
   } finally {
     reader.releaseLock();
   }
-  return { chunks, content, toolCalls: [...calls.values()], ...(model ? { model } : {}), ...(usage ? { usage } : {}) };
+  return { content, toolCalls: [...calls.values()], ...(model ? { model } : {}), ...(usage ? { usage } : {}) };
 }
 
 function providerTools(definitions: ReturnType<ToolsService["catalog"]>): { tools: CompletionTool[]; names: Map<string, string>; risks: Map<string, "read" | "sensitive"> } {
@@ -109,10 +111,13 @@ function resultForModel(toolName: string, run: ToolRun): string {
   return markUntrusted(JSON.stringify(result ?? null), toolName);
 }
 
+/** Um pedaço de texto da resposta. O fim do fluxo (`[DONE]`) é escrito uma única vez, no final. */
 function sseTextChunk(text: string): Uint8Array {
-  const event = { id: `chatcmpl-${Date.now()}`, object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: text }, finish_reason: "stop" }] };
-  return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\ndata: [DONE]\n\n`);
+  const event = { id: `chatcmpl-${Date.now()}`, object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: text }, finish_reason: null }] };
+  return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
 }
+
+const SSE_DONE = new TextEncoder().encode("data: [DONE]\n\n");
 
 const ALLOWED_ROLES = new Set<ProviderMessageRole>(["system", "user", "assistant"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -170,7 +175,7 @@ export class ChatController {
       try {
         await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined);
         await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords });
-      } catch (error) { this.logger.warn(`Histórico não persistido: ${error instanceof Error ? error.message : "falha no banco"}`); }
+      } catch (error) { this.logger.warn(`Histórico não persistido: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
     }
 
     const availableTools = providerTools(this.toolsService.catalog());
@@ -187,9 +192,12 @@ export class ChatController {
     let reportedModel = effectiveModel ?? "", usageReport = null as { promptTokens: number; completionTokens: number; totalTokens: number } | null;
     try {
       let workingMessages = [...messages];
+      const secrets = await this.toolsService.secretsForMasking();
+      const mask = (text: string) => maskSecrets(text, secrets);
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
         const upstream = await this.providers.stream({ ...completion, messages: workingMessages }, abort.signal);
-        const round = await readCompletion(upstream);
+        const stream = new MaskedTextStream(mask, (piece) => { res.write(sseTextChunk(piece)); });
+        const round = await readCompletion(upstream, stream);
         if (round.model) reportedModel = round.model;
         if (round.usage) usageReport = {
           promptTokens: (usageReport?.promptTokens ?? 0) + round.usage.promptTokens,
@@ -197,13 +205,12 @@ export class ChatController {
           totalTokens: (usageReport?.totalTokens ?? 0) + round.usage.totalTokens,
         };
         if (!round.toolCalls.length) {
-          answer = round.content;
-          for (const chunk of round.chunks) if (!res.write(chunk)) await new Promise<void>((resolve) => {
-            const resume = () => { res.off("drain", resume); res.off("close", resume); resolve(); };
-            res.once("drain", resume); res.once("close", resume);
-          });
+          stream.flush();
+          answer = mask(round.content);
           break;
         }
+        // Rodada de ferramenta: o que ainda estava segurado no buffer não é resposta.
+        stream.discard();
         if (iteration >= MAX_TOOL_ITERATIONS) {
           answer = `Não foi possível concluir: o limite de ${MAX_TOOL_ITERATIONS} ciclos de ferramentas foi atingido.`;
           res.write(sseTextChunk(answer));
@@ -234,24 +241,28 @@ export class ChatController {
             const run = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", agentId, request.principal?.id);
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, run) });
           } catch (error) {
-            workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: error instanceof Error ? error.message : "Ferramenta recusada." }) });
+            const message = await this.toolsService.maskSecretText(error instanceof Error ? error.message : "Ferramenta recusada.");
+            workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message }) });
           }
         }
       }
       if (usageReport) {
         try {
           await this.usage.record({ conversationId, agentId, provider: "openai", model: reportedModel, ...usageReport });
-        } catch (error) { this.logger.warn(`Consumo não registrado: ${error instanceof Error ? error.message : "falha no banco"}`); }
+        } catch (error) { this.logger.warn(`Consumo não registrado: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
       // Trilha de auditoria: só metadados da chamada, nunca o texto das mensagens.
       try {
         await this.audit.record({ action: "chat.completion", subject: conversationId ?? null, details: { agentId: agentId ?? null, model: reportedModel, completed: !abort.signal.aborted } });
-      } catch (error) { this.logger.warn(`Auditoria não gravada: ${error instanceof Error ? error.message : "falha no banco"}`); }
+      } catch (error) { this.logger.warn(`Auditoria não gravada: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       if (conversationId && answer) {
         try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}); }
-        catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${error instanceof Error ? error.message : "falha no banco"}`); }
+        catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
-      if (!abort.signal.aborted) res.end();
+      if (!abort.signal.aborted) {
+        res.write(SSE_DONE);
+        res.end();
+      }
     } finally { /* each provider stream reader is released after its response is consumed */ }
   }
 

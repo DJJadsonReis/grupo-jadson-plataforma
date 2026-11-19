@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { maskSecrets } from "../../common/secret-masking";
 import { Pool } from "pg";
 import { migrationId, up } from "./migrations/001-initial-schema";
 import { migrationId as agentLinkMigrationId, up as addConversationAgentLink } from "./migrations/002-conversation-agent-link";
@@ -71,7 +72,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (!this.vectorReady) this.logger.warn("pgvector não está disponível; recursos vetoriais permanecem desativados.");
     } catch (error) {
       this.ready = false;
-      this.logger.error(`PostgreSQL indisponível: ${error instanceof Error ? error.message : "erro desconhecido"}`);
+      this.logger.error(`PostgreSQL indisponível: ${maskSecrets(error instanceof Error ? error.message : "erro desconhecido")}`);
     }
   }
 
