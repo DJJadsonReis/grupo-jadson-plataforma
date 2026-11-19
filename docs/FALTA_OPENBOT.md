@@ -38,7 +38,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `server/src/channels/attachment-parts.ts` | Parcial: só PDF (`documents`, `pdf-parse`) | M | Média |
 | Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Falta | G | Baixa |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | P | Baixa |
-| Ditado por voz (entrada) | `server/src/dictation/`, `shared/dictation.ts`, `shared/on-device-speech.ts` | Falta | M | Média |
+| Ditado por voz (entrada) | `server/src/dictation/`, `shared/dictation.ts`, `shared/on-device-speech.ts` | Parcial: Web Speech API com processamento local obrigatório; depende de suporte do WebView e pacote pt-BR instalado | M | Média |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Parcial: `speechSynthesis` em `desktop/src/App.tsx` | P | Baixa |
 | Tour inicial e dicas | `app/src/routes/_authed/_app/start.$startId.tsx`; `shared/starter-tour.ts` | Falta | P | Baixa |
 
@@ -154,7 +154,7 @@ Ordem de prioridade. Todos podem ser feitos sem serviço pago.
 7. **Mascaramento de segredos em saídas e logs.** Evita que uma chave apareça na conversa ou no log. Custo baixo, ganho de segurança alto. Referência: `agent-computer/src/secret-masking.ts`. Esforço P.
 8. **Preferências do usuário e memória com opt-out.** Dá controle sobre o que é lembrado, e cada pessoa decide. Referência: `server/src/user-preferences.ts`, `memory/`. Esforço P a M.
 9. **Compartilhar bot com pessoas e times.** É o que transforma o app de uso individual em uso de equipe. Referência: `server/src/team-bots/`, `server/src/people/`. Esforço M.
-10. **Ditado por voz (entrada).** Ajuda quem digita pouco e amplia o acesso. Pode usar a fala do próprio sistema, sem custo. Referência: `server/src/dictation/`, `shared/on-device-speech.ts`. Esforço M.
+10. **Ditado por voz (entrada).** Parcialmente implementado: o campo de mensagem mostra o microfone, estado de escuta e erros. Só inicia reconhecimento Web Speech quando o WebView confirma processamento local; não usa fallback remoto nem envia áudio ao backend. Se necessário, o clique prepara/baixa o pacote local pt-BR; depois a pessoa clica de novo para iniciar a captura. Requer suporte `processLocally` e pacote disponível no dispositivo. Referência: `server/src/dictation/`, `shared/on-device-speech.ts`. Esforço M.
 
 **Registro histórico do item 1 (2026-11-19):** a primeira alteração introduziu o envelope `untrusted_data`; naquele momento o loop ainda não existia e os testes não haviam sido executados. O loop e a guidance foram implementados e validados depois, conforme a seção “Implementação do loop” abaixo; o estado inicial deste registro foi superado.
 
@@ -243,3 +243,9 @@ A tela Welcome agora consulta o health público e mostra o estado do backend, Po
 **Pendente:** o Tauri não instala nem inicia PostgreSQL ou o backend. A tela orienta iniciar o banco (`docker compose up -d postgres`, quando Docker Compose estiver disponível), iniciar/reiniciar o backend (`pnpm dev:backend`) e então verificar novamente. A instalação do banco, o gerenciamento automático do serviço e a configuração de provedores de IA continuam fora deste item.
 
 **Validação observada:** backend focado `jest --runInBand src/modules/bootstrap/desktop-setup.spec.ts src/modules/queue/queue.service.spec.ts` → exit 0, 2 suítes e 7 testes; o Jest completo → exit 0, 36 suítes passaram, 5 ignoradas; 164 testes passaram, 9 ignorados. Backend `tsc --noEmit` → exit 0. Desktop `tsc --noEmit` → exit 0; Vitest completo → exit 0, 5 arquivos e 21 testes. O `cargo check` não foi validado nesta rodada: exit 1 porque o Cargo local está em modo offline e o índice/cache não contém `tauri-plugin-opener`, dependência já declarada antes desta tarefa; nenhum pacote foi baixado. `cargo fmt --check` também não rodou, pois `rustfmt` não está instalado. Nenhum serviço externo foi chamado.
+
+## Andamento do ditado por voz (2026-11-19)
+
+Plano aplicado após leitura do código existente e de `OpenBot/shared/on-device-speech.ts`, `shared/dictation.ts` e dos controles de ditado do composer: manter a Web Speech API no campo atual, exigir `processLocally`, consultar disponibilidade do pt-BR e preparar o pacote local apenas após clique. A primeira ação prepara/desmascara o idioma; a pessoa inicia a gravação com um segundo clique. Não há fallback para reconhecimento remoto, envio de áudio ao backend ou transcrição em serviço externo. Quando a API, o modo local, o idioma ou o microfone falham, o composer mostra um erro acessível.
+
+**Validação observada:** em `apps/desktop`, `pnpm exec tsc --noEmit` → exit 0; `pnpm exec vitest run` → exit 0, 6 arquivos e 25 testes. A suíte verifica ausência da API, exigência de processamento local, disponibilidade/instalação do pacote e mensagens de erro. Backend `tsc --noEmit` → exit 0; Jest completo → exit 0, 36 suítes passaram, 5 ignoradas; 164 testes passaram, 9 ignorados. `git diff --check` → exit 0. A captura de microfone não foi exercitada em um WebView/dispositivo real; nenhum serviço de fala ou provedor foi chamado.

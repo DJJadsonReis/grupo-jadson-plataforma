@@ -1,11 +1,12 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { Welcome } from "./Welcome";
+import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -1207,18 +1208,87 @@ function ReadAloudButton({ text }: { text: string }) {
   );
 }
 
-/** Ditado por voz: usa o reconhecimento de voz do navegador (gratuito). Some quando o sistema não oferece. */
-type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> & { length: number } }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null };
+/** Ditado: só inicia quando o WebView garante processamento local do áudio. */
 function DictateButton({ onText }: { onText: (text: string) => void }) {
+  const Recognition = getSpeechRecognitionConstructor(window as SpeechRecognitionWindow);
+  const onDeviceSupported = supportsOnDeviceSpeech(Recognition);
   const [listening, setListening] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [readyNotice, setReadyNotice] = useState<string | null>(null);
+  const [languageStatus, setLanguageStatus] = useState<OnDeviceSpeechStatus>(onDeviceSupported ? "checking" : "unsupported");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike });
-  const Recognition = Ctor.SpeechRecognition ?? Ctor.webkitSpeechRecognition;
-  if (!Recognition) return null;
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!onDeviceSupported) {
+      setLanguageStatus("unsupported");
+      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
+      return () => { active = false; };
+    }
+    void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+      if (!active) return;
+      setLanguageStatus(status);
+      if (status === "unavailable") setError("O reconhecimento local em português não está disponível neste computador.");
+    });
+    return () => { active = false; };
+  }, [Recognition, onDeviceSupported]);
 
   function toggle() {
     if (listening) { recognitionRef.current?.stop(); return; }
-    const recognition = new Recognition!();
+    setError(null);
+    setReadyNotice(null);
+    if (!Recognition || !onDeviceSupported || languageStatus === "unsupported") {
+      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
+      return;
+    }
+    if (languageStatus === "unavailable") {
+      setError("O reconhecimento local em português não está disponível neste computador. Nenhum áudio foi enviado.");
+      return;
+    }
+    if (languageStatus === "checking") {
+      setError("Verificando o pacote local de português. Tente novamente em instantes.");
+      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+        if (mountedRef.current) setLanguageStatus(status);
+      });
+      return;
+    }
+    if (languageStatus === "downloading") {
+      setError("O pacote local de português ainda está sendo preparado. Verifique novamente em instantes.");
+      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+        if (mountedRef.current) setLanguageStatus(status);
+      });
+      return;
+    }
+    if (languageStatus === "downloadable") {
+      setPreparing(true);
+      // install() is called directly from this click; it prepares only the local language pack.
+      void installOnDeviceSpeech(Recognition, "pt-BR").then((ready) => {
+        if (!mountedRef.current) return;
+        setPreparing(false);
+        if (ready) {
+          setLanguageStatus("available");
+          setReadyNotice("Pacote local de português pronto. Clique no microfone novamente para começar a ditar.");
+        } else {
+          setError("Não foi possível preparar o pacote local de português. Nenhum áudio foi enviado.");
+        }
+      });
+      return;
+    }
+    const recognition = new Recognition();
+    if (!requireOnDeviceRecognition(recognition)) {
+      setError("Este WebView não garante reconhecimento no dispositivo. O ditado foi desativado para manter seu áudio local.");
+      return;
+    }
     recognition.lang = "pt-BR";
     recognition.continuous = false;
     recognition.interimResults = false;
@@ -1226,17 +1296,32 @@ function DictateButton({ onText }: { onText: (text: string) => void }) {
       const text = Array.from(event.results).map((result) => result[0]?.transcript ?? "").join(" ").trim();
       if (text) onText(text);
     };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      setError(speechRecognitionErrorMessage(event.error));
+    };
     recognitionRef.current = recognition;
     setListening(true);
-    recognition.start();
+    try { recognition.start(); }
+    catch {
+      setListening(false);
+      recognitionRef.current = null;
+      setError("O ditado local não pôde iniciar. Verifique o microfone e tente novamente.");
+    }
   }
 
   return (
-    <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "")} onClick={toggle} title={listening ? "Parar ditado" : "Ditar mensagem"} aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening}>
-      <Mic size={16} />
-    </button>
+    <>
+      <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "") + (!onDeviceSupported ? " is-unavailable" : "")} onClick={toggle} disabled={preparing} title={listening ? "Parar ditado" : languageStatus === "checking" ? "Verificando reconhecimento local" : languageStatus === "downloadable" ? "Preparar pacote local de português" : languageStatus === "unsupported" || languageStatus === "unavailable" ? "Ditado local indisponível; clique para ver o motivo" : "Ditar mensagem localmente"} aria-label={listening ? "Parar ditado" : preparing ? "Preparando pacote local" : languageStatus === "checking" ? "Verificando pacote local" : "Ditar mensagem localmente"} aria-pressed={listening || preparing}>
+        {preparing ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{(listening || preparing) && <span>{preparing ? "Preparando…" : "Escutando…"}</span>}
+      </button>
+      {error && <small className="speech-dictation-error" role="alert">{error}</small>}
+      {readyNotice && <small className="speech-dictation-ready" role="status">{readyNotice}</small>}
+    </>
   );
 }
 
@@ -1303,7 +1388,7 @@ function ChatPage({
   onEditAgent: (agent: Agent) => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
-  setDraft: (value: string) => void; setFiles: (value: File[]) => void;
+  setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
@@ -1605,7 +1690,7 @@ function ChatPage({
                 <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
                   <Paperclip size={16} />
                 </button>
-                <DictateButton onText={(text) => setDraft(draft ? `${draft} ${text}` : text)} />
+                <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
                   <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
