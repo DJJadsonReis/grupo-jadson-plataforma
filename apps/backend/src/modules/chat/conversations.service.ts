@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
@@ -11,47 +11,50 @@ export interface StoredConversation { id: string; title: string; agentId?: strin
 export class ConversationsService {
   constructor(private readonly database: DatabaseService) {}
 
-  async list(): Promise<StoredConversation[]> {
+  async list(ownerId = "sistema"): Promise<StoredConversation[]> {
     const pool = this.database.getPool();
     const result = await pool.query(`SELECT c.id,c.title,c.agent_id AS "agentId",c.group_id AS "groupId",c.created_at AS "createdAt",c.updated_at AS "updatedAt",
       COALESCE(json_agg(json_build_object('id',m.id,'role',m.role,'content',m.content,'createdAt',m.created_at,'agentId',m.agent_id,'attachments',m.attachments,'mentions',m.mentions) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL),'[]') AS messages
-      FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id GROUP BY c.id ORDER BY c.updated_at DESC`);
+      FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id WHERE c.owner_id=$1 GROUP BY c.id ORDER BY c.updated_at DESC`, [ownerId]);
     return result.rows as StoredConversation[];
   }
 
   /** Apaga a conversa de vez; mensagens e passagens de bastão vão junto (ON DELETE CASCADE). */
-  async remove(id: string): Promise<boolean> {
-    const result = await this.database.getPool().query("DELETE FROM conversations WHERE id=$1", [id]);
+  async remove(id: string, ownerId = "sistema"): Promise<boolean> {
+    const result = await this.database.getPool().query("DELETE FROM conversations WHERE id=$1 AND owner_id=$2", [id, ownerId]);
     return (result.rowCount ?? 0) > 0;
   }
 
-  async create(id: string, title: string, agentId?: string, groupId?: string): Promise<{ id: string; title: string; agentId?: string | null }> {
+  async create(id: string, title: string, agentId?: string, groupId?: string, ownerId = "sistema"): Promise<{ id: string; title: string; agentId?: string | null }> {
     const result = await this.database.getPool().query(
-      "INSERT INTO conversations(id,title,agent_id,group_id,conversation_type) VALUES($1,$2,$3,$4,$5) ON CONFLICT(id) DO UPDATE SET updated_at=now(), agent_id=COALESCE(EXCLUDED.agent_id,conversations.agent_id), group_id=COALESCE(EXCLUDED.group_id,conversations.group_id) RETURNING id,title,agent_id AS \"agentId\"",
-      [id || randomUUID(), title.slice(0, 120) || "Nova conversa", agentId ?? null, groupId ?? null, groupId ? "group" : "individual"],
+      `INSERT INTO conversations(id,title,agent_id,group_id,conversation_type,owner_id) VALUES($1,$2,$3,$4,$5,$6)
+       ON CONFLICT(id) DO UPDATE SET updated_at=now(),agent_id=COALESCE(EXCLUDED.agent_id,conversations.agent_id),group_id=COALESCE(EXCLUDED.group_id,conversations.group_id)
+       WHERE conversations.owner_id=EXCLUDED.owner_id RETURNING id,title,agent_id AS "agentId"`,
+      [id || randomUUID(), title.slice(0, 120) || "Nova conversa", agentId ?? null, groupId ?? null, groupId ? "group" : "individual", ownerId],
     );
+    if (!result.rows[0]) throw new ConflictException("Este identificador de conversa pertence a outro principal.");
     return result.rows[0] as { id: string; title: string; agentId?: string | null };
   }
 
-  async setTitleForFirstResponse(conversationId: string, title: string): Promise<boolean> {
+  async setTitleForFirstResponse(conversationId: string, title: string, ownerId = "sistema"): Promise<boolean> {
     const clean = title.trim().slice(0, 80);
     if (!clean) return false;
     const result = await this.database.getPool().query(
       `UPDATE conversations SET title = $2, updated_at = now()
-       WHERE id = $1 AND NOT EXISTS (
+       WHERE id = $1 AND owner_id=$3 AND NOT EXISTS (
          SELECT 1 FROM messages WHERE conversation_id = $1 AND role = 'assistant'
        )`,
-      [conversationId, clean],
+      [conversationId, clean, ownerId],
     );
     return (result.rowCount ?? 0) > 0;
   }
 
-  async addMessage(conversationId: string, role: StoredRole, content: string, options: { agentId?: string; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[] } = {}): Promise<StoredMessage> {
+  async addMessage(conversationId: string, role: StoredRole, content: string, options: { agentId?: string; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[] } = {}, ownerId = "sistema"): Promise<StoredMessage> {
     const pool = this.database.getPool();
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
-      const conversation = await client.query("SELECT id FROM conversations WHERE id=$1 FOR UPDATE", [conversationId]);
+      const conversation = await client.query("SELECT id FROM conversations WHERE id=$1 AND owner_id=$2 FOR UPDATE", [conversationId, ownerId]);
       if (!conversation.rowCount) throw new NotFoundException("Conversa não encontrada.");
       const id = randomUUID();
       const result = await client.query(

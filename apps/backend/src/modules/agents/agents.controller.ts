@@ -20,15 +20,16 @@ export class AgentsController {
         : { ...agent, permission: access };
     });
   }
-  @Post() create(@Body() body: unknown, @Req() request: PrincipalRequest) {
-    return this.agents.create(this.parse(body, true) as AgentInput, this.principal(request).id);
+  @Post() async create(@Body() body: unknown, @Req() request: PrincipalRequest) {
+    const agent = await this.agents.create(this.parse(body, true) as AgentInput, this.principal(request).id);
+    return { ...agent, permission: "owner" as const };
   }
   @Patch(":id") async update(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
     this.assertId(id);
     await this.permissions.assertCanEdit(id, this.principal(request));
     const result = await this.agents.update(id, this.parse(body, false));
     if (!result) throw new NotFoundException("Agente não encontrado.");
-    return result;
+    return { ...result, permission: await this.permissions.access(id, this.principal(request)) };
   }
   @Delete(":id") async remove(@Param("id") id: string, @Req() request: PrincipalRequest) {
     this.assertId(id);

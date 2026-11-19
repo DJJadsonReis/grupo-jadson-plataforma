@@ -72,6 +72,11 @@ export class AgentPermissionsService {
     return result.rows as Array<{ id: string; name: string }>;
   }
 
+  async listPeople(): Promise<Array<{ id: string; name: string }>> {
+    const result = await this.database.getPool().query("SELECT id,name FROM users WHERE active=true ORDER BY lower(name)");
+    return result.rows as Array<{ id: string; name: string }>;
+  }
+
   async listTeamMembers(teamId: string, principal: Principal): Promise<Array<{ id: string; name: string; role: string }>> {
     this.assertGlobalAdmin(principal);
     const result = await this.database.getPool().query(

@@ -186,8 +186,9 @@ export class ChatController {
     res.on("close", () => abort.abort());
     if (conversationId) {
       try {
-        await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined);
-        await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords });
+        const conversationOwner = request.principal?.id ?? "sistema";
+        await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined, conversationOwner);
+        await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
       } catch (error) { this.logger.warn(`Histórico não persistido: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
     }
 
@@ -273,9 +274,9 @@ export class ChatController {
       if (conversationId && answer) {
         try {
           const title = await generateConversationTitle((input) => this.providers.stream(input, abort.signal), effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
-          if (title) await this.conversations.setTitleForFirstResponse(conversationId, title);
+          if (title) await this.conversations.setTitleForFirstResponse(conversationId, title, request.principal?.id ?? "sistema");
         } catch { /* the current user-message title is the fallback */ }
-        try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}); }
+        try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema"); }
         catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
       if (!abort.signal.aborted) {

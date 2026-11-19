@@ -11,6 +11,9 @@ export class TeamsController {
   @Get()
   list() { return this.permissions.listTeams(); }
 
+  @Get("directory/people")
+  listPeople() { return this.permissions.listPeople(); }
+
   @Post()
   create(@Body() body: unknown, @Req() request: PrincipalRequest) {
     if (!body || typeof body !== "object" || Array.isArray(body) || typeof (body as Record<string, unknown>).name !== "string") {
