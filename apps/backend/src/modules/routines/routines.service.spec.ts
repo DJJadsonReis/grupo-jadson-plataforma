@@ -87,6 +87,12 @@ describe("RoutinesService.create", () => {
 });
 
 describe("RoutinesService.tick", () => {
+  it("consulta disparos vencidos no PostgreSQL para retomar depois do boot", async () => {
+    const query = jest.fn(async () => ({ rows: [], rowCount: 0 }));
+    const service = new RoutinesService({ getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService, {} as ToolsService);
+    await service.tick(new Date("2026-11-19T12:00:00Z"));
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("next_run_at <= $1"), [new Date("2026-11-19T12:00:00Z")]);
+  });
   it("roda só as rotinas vencidas e registra o resultado", async () => {
     const queries: string[] = [];
     const pool = {

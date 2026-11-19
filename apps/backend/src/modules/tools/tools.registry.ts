@@ -21,6 +21,7 @@ export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "memoria.listar", description: "Lista as memórias salvas pela pessoa.", risk: "read" },
   { name: "memoria.apagar_tudo", description: "Apaga todas as memórias salvas. Exige aprovação.", risk: "sensitive" },
   { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
+  { name: "pagina.ler", description: "Lê o texto de uma página pública da web, sem chave de API. Endereços locais e privados são bloqueados.", risk: "read", parameters: { properties: { url: { type: "string", description: "URL pública HTTP ou HTTPS da página." } }, required: ["url"] } },
   { name: "busca.web", description: "Pesquisa na web com o Tavily. Precisa da chave TAVILY_API_KEY no .env.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
   { name: "agenda.listar_eventos", description: "Próximos eventos da Agenda Google da pessoa. Precisa de conexão Google.", risk: "read" },
   { name: "drive.listar_arquivos", description: "Arquivos recentes do Google Drive da pessoa. Precisa de conexão Google.", risk: "read" },

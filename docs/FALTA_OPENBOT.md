@@ -81,7 +81,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 
 | Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
 |---|---|---|---|---|
-| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts`, `sweep.ts`; `docs/routines.md` | Parcial: `routines/routines.service.ts` usa `setInterval`, não um agendador de verdade | M | Alta |
+| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts`, `sweep.ts`; `docs/routines.md` | Parcial: `next_run_at` persistido no PostgreSQL e varredura no boot; ainda usa polling e não tem claim distribuído | M | Alta |
 | Responsabilidades contínuas (o bot cuida de algo recorrente) | `server/src/responsibilities/` | Falta | G | Média |
 | Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | G | Baixa |
 | Notificações | `mobile/src/notifications.ts`; `server/src/delivery/` | Falta | M | Baixa |
@@ -92,8 +92,8 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 
 | Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
 |---|---|---|---|---|
-| Memória por pessoa (lembrar, listar, apagar) | `server/src/memory/` (`store`, `ingestion`, `tools`) | Parcial: `memory/memory.service.ts`; opt-out não confirmado | P | Média |
-| Preferências e instruções do usuário | `server/src/user-preferences.ts`, `user-instructions.ts` | Falta | P | Média |
+| Memória por pessoa (lembrar, listar, apagar) | `server/src/memory/` (`store`, `ingestion`, `tools`) | Parcial: `memory/memory.service.ts`, escopo autenticado e opt-out respeitado; preferências simples em tabela | P | Média |
+| Preferências e instruções do usuário | `server/src/user-preferences.ts`, `user-instructions.ts` | Parcial: opt-out individual da memória; instruções/preferências gerais ainda faltam | P | Média |
 | Habilidades reutilizáveis (skills) | `server/src/plugins/route-groups/skills.ts`; `app/.../skills` | Falta | M | Média |
 | Aprendizado automático compartilhado (Learning) | `server/src/learning/`; `docs/automatic-learning.md` | Falta (depende do serviço Intelligence; plano gratuito a verificar) | G | Baixa |
 
@@ -102,7 +102,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 | Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
 |---|---|---|---|---|
 | Busca na web | `shared/research.ts`; `docs/web-research.md` | Parcial: `tools/web-search.ts` (Wikipédia sem chave; Tavily com chave) | P | Média |
-| Leitura do conteúdo de uma página | `shared/research.ts` | Falta | M | Alta |
+| Leitura do conteúdo de uma página | `shared/research.ts` | Parcial: ferramenta `pagina.ler`, texto envelopado e limites/bloqueios; conexão fixa o IP validado (pinnedFetch, sem nova resolução DNS; anti DNS rebinding) | M | Alta |
 
 ### Modelos e custos
 
@@ -189,3 +189,17 @@ Ordem de prioridade. Todos podem ser feitos sem serviço pago.
 
 **Streaming com mascaramento (2026-11-19):** a resposta final volta a ser exibida durante a geração. `apps/backend/src/common/masked-text-stream.ts` segura uma janela de 512 caracteres e libera o texto só até o último espaço, mascarado; um segredo nunca é cortado entre pedaços. Rodada com chamada de ferramenta descarta o buffer. `[DONE]` é escrito uma única vez, no fim. Limite conhecido: valor de segredo conhecido que contenha espaço pode ser cortado; nenhum padrão de provedor tem espaço, exceto `Bearer`, tratado. Texto anterior a uma chamada de ferramenta na mesma rodada pode já ter sido exibido, mascarado.
 Validação: jest completo em apps/backend com 29 suítes e 126 testes, exit 0; `tsc --noEmit`, exit 0.
+
+**Andamento do item 5 (2026-11-19):** ferramenta pública `pagina.ler` adicionada ao registro e executada por `pinnedFetch` (conexão ao IP validado), sem chave. Aceita HTTP/HTTPS sem credenciais na URL; bloqueia hostnames locais (`localhost`, `.localhost`, `.local`), IPs IPv4 privados/loopback/link-local/reservados e IPv6 locais, e recusa DNS com qualquer endereço privado. Redirecionamentos são manuais, limitados a três e revalidados. Só aceita HTML/XHTML/texto, corta tags de script/style/etc., lê no máximo 1.000.000 bytes em fluxo, limita texto extraído a 20.000 caracteres e usa timeout de 8 segundos. Texto retorna também em `untrusted_data`. **Corrigido:** a conexão usa o IP validado (`pinnedFetch`), sem nova resolução DNS. Teste de pinagem com `rebind.invalid` em `page-reader.spec.ts`. Não há chamada real à internet.; portanto não elimina DNS rebinding. Não foi feita chamada real à internet.
+
+**Validação do item 5 (2026-11-19):** `jest --runInBand src/modules/tools/page-reader.spec.ts` → exit 0, 1 suíte e 12 testes. Typecheck final → exit 0.
+
+**Andamento do item 4 (2026-11-19):** `routines.next_run_at` é persistido no PostgreSQL. O `setInterval` fixo foi substituído por um timer único calculado a partir do próximo disparo salvo; na inicialização vencidas são agendadas imediatamente, e mudanças/criação/execução rearmam o timer. **Parcial:** não há claim distribuído/transação de disparo, então múltiplas instâncias podem executar a mesma rotina; a fila atual pode ser em memória ou Redis, e rotinas não a usam.
+
+**Validação do item 4 (2026-11-19):** `jest --runInBand src/modules/routines/routines.service.spec.ts` → exit 0, 1 suíte e 12 testes; inclui consulta de vencidas e status de execução. Não simula reinicialização de processo nem concorrência entre instâncias. Typecheck final → exit 0.
+
+**Andamento do item 8 (2026-11-19):** uso existente de `memory_preferences` conectado ao principal autenticado na API de memória, nas consultas de contexto do chat e na listagem pela ferramenta. `remember()` agora recusa gravação quando opt-out estiver desligado. A configuração continua no escopo de cada pessoa e o texto da conversa do usuário não é modificado. **Pendente:** preferências gerais/instruções personalizadas ainda não existem; nenhuma UI nova foi incluída.
+
+**Validação do item 8 (2026-11-19):** `memory.service.spec.ts` cobre que memória desligada não grava e outra pessoa continua podendo gravar; `chat.controller.spec.ts` verifica que o contexto usa o ID autenticado. Os dois passaram no Jest completo. Typecheck final → exit 0.
+
+**Validação completa desta rodada (2026-11-19):** `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec jest --runInBand` → exit 0, 30 suítes e 141 testes. `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec tsc --noEmit` → exit 0. `git diff --check` → exit 0. Sem instalação de dependências; lockfile e manifests não foram alterados.

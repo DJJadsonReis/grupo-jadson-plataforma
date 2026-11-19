@@ -14,6 +14,7 @@ import { createNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
 import { withUntrustedNotice } from "./untrusted-content";
 import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
+import { readPage } from "./page-reader";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -177,8 +178,9 @@ export class ToolsService {
     if (this.mcp.find(name)) return this.mcp.call(name, input);
     if (name === "tempo.agora") return { agora: new Date().toISOString() };
     if (name === "busca.wikipedia") return { resultados: await searchWikipedia(String(input.consulta ?? input.query ?? "")) };
+    if (name === "pagina.ler") return readPage(String(input.url ?? ""));
     if (name === "busca.web") return { resultados: await searchTavily(String(input.consulta ?? input.query ?? ""), await this.integrations.secret("tavily")) };
-    if (name === "memoria.listar") return { itens: await this.memory.list() };
+    if (name === "memoria.listar") return { itens: await this.memory.list(typeof input.pessoaId === "string" ? input.pessoaId : "local") };
     if (name === "memoria.apagar_tudo") {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
       return { apagadas: removed.rowCount ?? 0 };

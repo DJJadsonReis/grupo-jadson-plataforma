@@ -30,6 +30,18 @@ describe("MemoryService", () => {
     expect(await service.contextLines()).toEqual([]);
   });
 
+  it("não grava memória depois do opt-out daquela pessoa", async () => {
+    const writes: string[] = [];
+    const service = new MemoryService(fakeDatabase((text, values) => {
+      if (text.includes("SELECT enabled")) return { rows: [{ enabled: values[0] === "pessoa-desligada" ? false : true }], rowCount: 1 };
+      writes.push(text);
+      return { rows: text.includes("INSERT INTO memories") ? [{ id: "new", content: "guardar isto", createdAt: "agora" }] : [], rowCount: 1 };
+    }));
+    await expect(service.remember("guardar isto", "pessoa-desligada")).rejects.toThrow("desativada");
+    expect(writes).toHaveLength(0);
+    await expect(service.remember("guardar isto", "outra-pessoa")).resolves.toBeDefined();
+  });
+
   it("esquecer uma memória inexistente responde 404", async () => {
     const service = new MemoryService(fakeDatabase(() => ({ rows: [], rowCount: 0 })));
     await expect(service.forget("nao-existe")).rejects.toBeInstanceOf(NotFoundException);

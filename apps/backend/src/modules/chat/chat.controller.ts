@@ -158,7 +158,7 @@ export class ChatController {
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
     if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
-    const memoryLines = await this.memory.contextLines().catch(() => []);
+    const memoryLines = await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
     const effectiveModel = model ?? (agent?.model || undefined);
     if (attachments.length) {

@@ -42,6 +42,7 @@ export class MemoryService {
   }
 
   async remember(content: string, owner = "local"): Promise<MemoryItem> {
+    if (!(await this.isEnabled(owner))) throw new BadRequestException({ code: "MEMORY_DISABLED", message: "A memória está desativada para esta pessoa." });
     const text = content.trim();
     if (!text) throw new BadRequestException({ code: "INVALID_MEMORY", message: "Escreva o que deve ser lembrado." });
     if (text.length > MAX_CONTENT) throw new BadRequestException({ code: "INVALID_MEMORY", message: `Limite de ${MAX_CONTENT} caracteres por memória.` });

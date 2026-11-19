@@ -46,12 +46,12 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   constructor(private readonly database: DatabaseService, private readonly tools: ToolsService) {}
 
   onModuleInit(): void {
-    this.timer = setInterval(() => void this.tick(), TICK_MS);
-    this.timer.unref();
+    // The database owns the next firing; overdue routines resume immediately after boot.
+    void this.scheduleNextTick();
   }
 
   onModuleDestroy(): void {
-    if (this.timer) clearInterval(this.timer);
+    if (this.timer) clearTimeout(this.timer);
   }
 
   async create(input: { name: string; tool: string; intervalMinutes: number }): Promise<Routine> {
@@ -68,6 +68,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
       `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at) VALUES ($1,$2,$3,$4,$5) RETURNING ${COLUMNS}`,
       [randomUUID(), name, tool.name, input.intervalMinutes, next],
     );
+    void this.scheduleNextTick();
     return result.rows[0] as Routine;
   }
 
@@ -93,12 +94,14 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
   async setEnabled(id: string, enabled: boolean): Promise<Routine> {
     if (enabled) await this.assertRoomForOneMore(id);
     const result = await this.database.getPool().query(`UPDATE routines SET enabled = $2 WHERE id = $1 RETURNING ${COLUMNS}`, [id, enabled]);
+    void this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
     return result.rows[0] as Routine;
   }
 
   async remove(id: string): Promise<void> {
     const result = await this.database.getPool().query(`DELETE FROM routines WHERE id = $1`, [id]);
+    void this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
   }
 
@@ -138,7 +141,29 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
       this.logger.warn(`Agendador não conseguiu ler as rotinas: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
     } finally {
       this.running = false;
+      void this.scheduleNextTick();
     }
     return ran;
+  }
+
+  /** Arm one timer from the earliest persisted firing; overdue work is scheduled now. */
+  private async scheduleNextTick(): Promise<void> {
+    if (this.timer) clearTimeout(this.timer);
+    this.timer = null;
+    if (typeof this.database.isReady !== "function") return;
+    if (!this.database.isReady()) { this.armTimer(TICK_MS); return; }
+    try {
+      const result = await this.database.getPool().query(`SELECT min(next_run_at) AS "nextRunAt" FROM routines WHERE enabled = true`);
+      const next = (result.rows[0] as { nextRunAt: Date | string | null } | undefined)?.nextRunAt;
+      if (next) this.armTimer(Math.max(0, new Date(next).getTime() - Date.now()));
+    } catch (error) {
+      this.logger.warn(`Agendador não conseguiu preparar o próximo disparo: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
+      this.armTimer(TICK_MS);
+    }
+  }
+
+  private armTimer(delay: number): void {
+    this.timer = setTimeout(() => void this.tick(), delay);
+    this.timer.unref();
   }
 }
