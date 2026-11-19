@@ -14,3 +14,22 @@ node tools/pnpm/node_modules/pnpm/bin/pnpm.cjs --filter @grupo-jadson/desktop ex
 ```
 
 O manifesto servido pelo endpoint deve seguir o formato do updater do Tauri e conter versão SemVer, URL HTTPS do instalador de atualização e assinatura gerada no build. A verificação e a instalação não foram testadas contra um serviço hospedado; o endpoint de exemplo não deve ser usado para publicar.
+
+## Gerar manifesto estático
+
+Depois de gerar os artefatos de atualização assinados com `tauri build`, use o instalador NSIS e o `.sig` adjacente para montar `latest.json`. O script lê somente os dois caminhos informados, não acessa chaves e não publica arquivos:
+
+```powershell
+node apps/desktop/scripts/gerar-manifesto-atualizacao.mjs `
+  --version 1.2.3 `
+  --base-url https://seu-host.example/desktop `
+  --artifact "apps/desktop/src-tauri/target/release/bundle/nsis/Grupo Jadson_1.2.3_x64-setup.exe" `
+  --notes "Correções e melhorias" `
+  --out latest.json
+```
+
+`--out` é opcional; sem ele, o JSON vai para stdout. Para cada instalador informado, o script espera a assinatura em `<caminho-do-instalador>.sig`. A URL combina a base informada com o nome do instalador codificado para URL. A chave estática usada é `windows-x86_64`.
+
+Escolhemos NSIS como artefato deste comando porque a configuração atual do app usa `windows.installMode: passive`, que o plugin Tauri updater 2.14.1 converte no argumento `/P` para NSIS (`tools/cargo/registry/src/index.crates.io-1949cf8c6b5b557f/tauri-plugin-updater-2.14.1/src/config.rs`, `WindowsUpdateInstallMode::nsis_args`). O código do plugin também reconhece MSI e NSIS (`src/updater.rs`); este fluxo documenta apenas NSIS.
+
+Ainda falta escolher e configurar a hospedagem pública HTTPS para o `latest.json` e para o instalador assinado, além de trocar o endpoint de exemplo no momento apropriado. O endpoint configurado continua em `https://updates.example.invalid/...`; `.invalid` não hospeda serviço. Este script apenas gera o manifesto local.
