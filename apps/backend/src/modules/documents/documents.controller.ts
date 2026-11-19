@@ -10,4 +10,10 @@ export class DocumentsController {
   extractPdf(@Body() body: { filename?: unknown; contentBase64?: unknown }) {
     return this.documents.extractPdf(body ?? {});
   }
+
+  /** Lê texto de um anexo DOCX ou XLSX enviado pelo desktop. */
+  @Post("office")
+  extractOffice(@Body() body: { filename?: unknown; contentBase64?: unknown }) {
+    return this.documents.extractOffice(body ?? {});
+  }
 }
