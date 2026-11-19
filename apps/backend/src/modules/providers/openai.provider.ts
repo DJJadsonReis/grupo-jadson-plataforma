@@ -59,6 +59,7 @@ export class OpenAiProvider implements LanguageModelProvider {
       headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
       body: JSON.stringify({
         model: input.model || model, messages: input.messages, stream: true,
+        ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}),
         stream_options: { include_usage: true },
         ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
         ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),

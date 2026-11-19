@@ -56,20 +56,18 @@ export function isMarkedUntrusted(content: string, source?: string): boolean {
 
 /**
  * Objeto cujos campos nomeados são de fora. Mantém o formato; o campo `untrusted` vem primeiro.
- * Se o objeto já tiver `untrusted` (já foi marcado), devolve como está.
+ * Um campo `untrusted` fornecido pela fonte não é aceito como prova de envelope.
  */
 export function withUntrustedNotice<T extends object>(
   value: T,
   source: string,
   fields: readonly string[] = Object.keys(value),
 ): { untrusted: string } & T {
-  if ("untrusted" in value) return value as { untrusted: string } & T;
   const safeSource = sanitizeSource(source);
-  const present = fields.filter((field) => field in value);
-  return {
-    untrusted: `${untrustedNotice(`${safeSource} content`)} Untrusted fields: ${present.length ? present.join(", ") : "all"}.`,
-    ...value,
-  };
+  const present = fields.filter((field) => field !== "untrusted" && field in value);
+  const notice = `${untrustedNotice(`${safeSource} content`)} Untrusted fields: ${present.length ? present.join(", ") : "all"}.`;
+  if ((value as { untrusted?: unknown }).untrusted === notice) return value as { untrusted: string } & T;
+  return Object.assign({ untrusted: notice }, value, { untrusted: notice }) as { untrusted: string } & T;
 }
 
 /**
