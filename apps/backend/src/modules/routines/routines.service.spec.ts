@@ -38,13 +38,13 @@ describe("limites de rotinas", () => {
       query: async (text: string) => (text.includes("count(*)") ? { rows: [{ n: 20 }], rowCount: 1 } : { rows: [], rowCount: 1 }),
     };
     const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, {} as ToolsService);
-    await expect(service.setEnabled("r1", true)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.setEnabled("r1", true, "dono")).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("desligar uma rotina não passa pelo teto", async () => {
     const pool = { query: async () => ({ rows: [{ id: "r1" }], rowCount: 1 }) };
     const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, {} as ToolsService);
-    await expect(service.setEnabled("r1", false)).resolves.toBeDefined();
+    await expect(service.setEnabled("r1", false, "dono")).resolves.toBeDefined();
   });
 
   it("envia ao banco o status de falha e o limite de 10 falhas seguidas", async () => {

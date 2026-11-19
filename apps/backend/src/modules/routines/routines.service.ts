@@ -56,7 +56,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  async create(input: { name: string; tool: string; intervalMinutes: number }): Promise<Routine> {
+  async create(input: { name: string; tool: string; intervalMinutes: number; owner?: string }): Promise<Routine> {
     const name = input.name.trim();
     if (!name || name.length > 80) throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Dê um nome de até 80 caracteres." });
     const tool = this.tools.catalog().find((item) => item.name === input.tool);
@@ -67,15 +67,16 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     const next = nextRunFrom(new Date(), input.intervalMinutes);
     await this.assertRoomForOneMore();
     const result = await this.database.getPool().query(
-      `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at) VALUES ($1,$2,$3,$4,$5) RETURNING ${COLUMNS}`,
-      [randomUUID(), name, tool.name, input.intervalMinutes, next],
+      `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at, owner) VALUES ($1,$2,$3,$4,$5,$6) RETURNING ${COLUMNS}`,
+      [randomUUID(), name, tool.name, input.intervalMinutes, next, input.owner ?? "sistema"],
     );
     await this.scheduleNextTick();
     return result.rows[0] as Routine;
   }
 
-  async list(): Promise<Routine[]> {
-    const result = await this.database.getPool().query(`SELECT ${COLUMNS} FROM routines ORDER BY created_at DESC LIMIT 100`);
+  /** Lista só as rotinas do dono informado. */
+  async list(owner: string): Promise<Routine[]> {
+    const result = await this.database.getPool().query(`SELECT ${COLUMNS} FROM routines WHERE owner = $1 ORDER BY created_at DESC LIMIT 100`, [owner]);
     return result.rows as Routine[];
   }
 
@@ -93,16 +94,22 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  async setEnabled(id: string, enabled: boolean): Promise<Routine> {
-    if (enabled) await this.assertRoomForOneMore(id);
-    const result = await this.database.getPool().query(`UPDATE routines SET enabled = $2 WHERE id = $1 RETURNING ${COLUMNS}`, [id, enabled]);
+  /** Liga ou desliga uma rotina do dono informado. Rotina de outro dono responde como não encontrada. */
+  async setEnabled(id: string, enabled: boolean, owner: string): Promise<Routine> {
+    if (enabled) {
+      const existing = await this.database.getPool().query(`SELECT 1 FROM routines WHERE id = $1 AND owner = $2`, [id, owner]);
+      if (existing.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
+      await this.assertRoomForOneMore(id);
+    }
+    const result = await this.database.getPool().query(`UPDATE routines SET enabled = $2 WHERE id = $1 AND owner = $3 RETURNING ${COLUMNS}`, [id, enabled, owner]);
     await this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
     return result.rows[0] as Routine;
   }
 
-  async remove(id: string): Promise<void> {
-    const result = await this.database.getPool().query(`DELETE FROM routines WHERE id = $1`, [id]);
+  /** Remove uma rotina do dono informado. Rotina de outro dono responde como não encontrada. */
+  async remove(id: string, owner: string): Promise<void> {
+    const result = await this.database.getPool().query(`DELETE FROM routines WHERE id = $1 AND owner = $2`, [id, owner]);
     await this.scheduleNextTick();
     if (result.rowCount === 0) throw new NotFoundException({ code: "NOT_FOUND", message: "Rotina não encontrada." });
   }
@@ -125,17 +132,17 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
          )
          UPDATE routines r SET claim_until = $2, claim_token = $3
          FROM due WHERE r.id = due.id
-         RETURNING r.id, r.name, r.tool, r.interval_minutes AS "intervalMinutes", r.claim_token AS "claimToken"`,
+         RETURNING r.id, r.name, r.tool, r.owner, r.interval_minutes AS "intervalMinutes", r.claim_token AS "claimToken"`,
         [now, leaseUntil, claimToken],
       );
-      for (const row of due.rows as { id: string; name: string; tool: string; intervalMinutes: number; claimToken: string }[]) {
+      for (const row of due.rows as { id: string; name: string; tool: string; owner: string; intervalMinutes: number; claimToken: string }[]) {
         let status = "done";
         try {
           await this.tools.invoke(row.tool, {}, `rotina:${row.name}`);
         } catch (error) {
           status = "failed";
           this.logger.warn(`Rotina ${row.name} falhou: ${await this.tools.maskSecretText(error instanceof Error ? error.message : "erro")}`);
-          try { await this.notifications?.create({ owner: "sistema", kind: "routine.failed", title: `Falha na rotina ${row.name}`.slice(0, 160), body: "Uma rotina falhou durante sua execução.", details: { routineId: row.id } }); } catch { /* notification storage must not alter the routine result */ }
+          try { await this.notifications?.create({ owner: row.owner || "sistema", kind: "routine.failed", title: `Falha na rotina ${row.name}`.slice(0, 160), body: "Uma rotina falhou durante sua execução.", details: { routineId: row.id } }); } catch { /* notification storage must not alter the routine result */ }
         }
         // Falha soma à sequência; sucesso zera. Ao atingir o limite, a rotina é desligada.
         await this.database.getPool().query(
