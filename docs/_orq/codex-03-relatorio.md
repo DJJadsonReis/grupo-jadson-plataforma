@@ -53,4 +53,4 @@ Contagem-base do backend antes das alterações: 38 suítes aprovadas, 170 teste
 
 ## Commit
 
-Hash: `2da64ba38339e16b1728bd9b8b6a0b50ec3100a2`. O commit foi criado com a identidade já registrada no último commit e no email local, passada somente ao comando para não alterar configuração persistente do repositório.
+Hash: `a791498`. O commit foi criado com a identidade já registrada no último commit e no email local, passada somente ao comando para não alterar configuração persistente do repositório.

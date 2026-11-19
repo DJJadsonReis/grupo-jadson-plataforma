@@ -17,14 +17,14 @@ function decodificar(texto: string): string {
 
 function elementos(xml: string, nome: string): string[] {
   const escaped = nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-  return [...xml.matchAll(new RegExp(`<${escaped}(?:\\s[^>]*)?>([\\s\\S]*?)<\\/${escaped}\\s*>`, "g"))].flatMap((m) => m[1] === undefined ? [] : [m[1]]);
+  return [...xml.matchAll(new RegExp(`<${escaped}(?:\\s[^>]*?)?(?:\\/>|>([\\s\\S]*?)<\\/${escaped}\\s*>)`, "g"))].map((m) => m[1] ?? "");
 }
 
 function elementosComAtributos(xml: string, nome: string): Array<{ atributos: string; conteudo: string }> {
   const escaped = nome.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   const encontrados: Array<{ atributos: string; conteudo: string }> = [];
-  const re = new RegExp(`<${escaped}\\b([^>]*)>([\\s\\S]*?)<\\/${escaped}\\s*>`, "g");
-  for (const m of xml.matchAll(re)) if (m[1] !== undefined && m[2] !== undefined) encontrados.push({ atributos: m[1], conteudo: m[2] });
+  const re = new RegExp(`<${escaped}\\b([^>]*?)(?:\\s*/>|>([\\s\\S]*?)<\\/${escaped}\\s*>)`, "g");
+  for (const m of xml.matchAll(re)) if (m[1] !== undefined) encontrados.push({ atributos: m[1], conteudo: m[2] ?? "" });
   return encontrados;
 }
 
