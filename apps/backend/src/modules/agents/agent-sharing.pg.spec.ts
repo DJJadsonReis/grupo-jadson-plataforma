@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 import { ForbiddenException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { AgentPermissionsService } from "./agent-permissions.service";
+import { AgentsService } from "./agents.service";
+import { AgentsController } from "./agents.controller";
 
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
@@ -72,5 +74,22 @@ describeWithPostgres("permissões de bots no PostgreSQL", () => {
     expect(await permissions.access(agentId, viewer)).toBe("none");
     await permissions.revoke(agentId, { userId: viewer.id }, owner);
     await database.getPool().query("UPDATE users SET active=true WHERE id=$1", [viewer.id]);
+  });
+
+  it("filters the API list and hides profile instructions from a user share", async () => {
+    const otherAgentId = randomUUID();
+    const pool = database.getPool();
+    await pool.query("INSERT INTO agents(id,name,instructions,owner_id) VALUES($1,$2,$3,$4)", [otherAgentId, `api-${otherAgentId}`, "private instructions", owner.id]);
+    try {
+      const permissions = service();
+      await permissions.grant(otherAgentId, { userId: viewer.id }, "user", owner);
+      const controller = new AgentsController(new AgentsService(database), permissions);
+      const result = await controller.list({ principal: viewer });
+      const shared = result.find((agent) => agent.id === otherAgentId);
+      expect(shared).toMatchObject({ permission: "user", instructions: "", toolsAllowed: [], generationConfig: {} });
+      expect(result.some((agent) => agent.id === agentId)).toBe(false);
+    } finally {
+      await pool.query("DELETE FROM agents WHERE id=$1", [otherAgentId]);
+    }
   });
 });

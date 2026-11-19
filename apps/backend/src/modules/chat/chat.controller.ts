@@ -17,11 +17,13 @@ import { maskSecrets } from "../../common/secret-masking";
 import { generateConversationTitle } from "./conversation-title";
 import { UserPreferencesService } from "../preferences/user-preferences.service";
 import { NotificationsService } from "../notifications/notifications.service";
+import { AgentPermissionsService } from "../agents/agent-permissions.service";
+import { Principal } from "../auth/users.service";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
 
-interface ChatRequest { principal?: { id: string; name: string } }
+interface ChatRequest { principal?: Principal }
 interface StreamedCompletion {
   content: string;
   toolCalls: ProviderToolCall[];
@@ -128,7 +130,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -147,10 +149,12 @@ export class ChatController {
     if (groupId) {
       const group = await this.groups.get(groupId);
       if (!group || group.archived) throw new BadRequestException("O grupo não foi encontrado ou está arquivado.");
+      for (const id of group.agentIds) await this.agentPermissions.assertCanUse(id, request.principal ?? { id: "sistema", name: "Administrador", role: "admin" });
       const members = await Promise.all(group.agentIds.map((id) => this.agents.get(id)));
       const routed = resolveGroupRecipient(group, members.filter((item): item is NonNullable<typeof item> => item !== null), messageText, agentId);
       agentId = routed.agentId; mentionRecords = routed.mentions;
     }
+    if (agentId) await this.agentPermissions.assertCanUse(agentId, request.principal ?? { id: "sistema", name: "Administrador", role: "admin" });
     const agent = agentId ? await this.agents.get(agentId) : null;
     if (agentId && !agent) throw new BadRequestException("O agente associado não foi encontrado.");
     if (agent && !agent.enabled) throw new BadRequestException("O agente está inativo.");

@@ -1,21 +1,65 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req } from "@nestjs/common";
 import { AgentInput, AgentsService } from "./agents.service";
+import { AgentPermissionsService, ShareRole } from "./agent-permissions.service";
+import { Principal } from "../auth/users.service";
+
+interface PrincipalRequest { principal?: Principal }
 
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly agents: AgentsService) {}
-  @Get() list() { return this.agents.list(); }
-  @Post() create(@Body() body: unknown) { return this.agents.create(this.parse(body, true) as AgentInput); }
-  @Patch(":id") async update(@Param("id") id: string, @Body() body: unknown) {
+  constructor(private readonly agents: AgentsService, private readonly permissions: AgentPermissionsService) {}
+  @Get() async list(@Req() request: PrincipalRequest) {
+    const principal = this.principal(request);
+    const accesses = await this.permissions.listAccessible(principal);
+    const accessById = new Map(accesses.map((item) => [item.id, item.access]));
+    const records = (await this.agents.list()).filter((agent) => accessById.has(agent.id));
+    return records.map((agent) => {
+      const access = accessById.get(agent.id)!;
+      return access === "user"
+        ? { ...agent, instructions: "", toolsAllowed: [], generationConfig: {}, permission: access }
+        : { ...agent, permission: access };
+    });
+  }
+  @Post() create(@Body() body: unknown, @Req() request: PrincipalRequest) {
+    return this.agents.create(this.parse(body, true) as AgentInput, this.principal(request).id);
+  }
+  @Patch(":id") async update(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
     this.assertId(id);
+    await this.permissions.assertCanEdit(id, this.principal(request));
     const result = await this.agents.update(id, this.parse(body, false));
     if (!result) throw new NotFoundException("Agente não encontrado.");
     return result;
   }
-  @Delete(":id") async remove(@Param("id") id: string) {
+  @Delete(":id") async remove(@Param("id") id: string, @Req() request: PrincipalRequest) {
     this.assertId(id);
+    await this.permissions.assertCanDelete(id, this.principal(request));
     if (!await this.agents.remove(id)) throw new NotFoundException("Agente não encontrado.");
     return { deleted: true };
+  }
+
+  @Get(":id/shares") listShares(@Param("id") id: string, @Req() request: PrincipalRequest) {
+    this.assertId(id);
+    return this.permissions.listShares(id, this.principal(request));
+  }
+
+  @Put(":id/shares") async grant(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
+    this.assertId(id);
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new BadRequestException("Compartilhamento inválido.");
+    const value = body as Record<string, unknown>;
+    const userId = value.userId, teamId = value.teamId, role = value.role;
+    if (Boolean(userId) === Boolean(teamId) || (userId !== undefined && (typeof userId !== "string" || !this.isUuid(userId))) || (teamId !== undefined && (typeof teamId !== "string" || !this.isUuid(teamId)))) {
+      throw new BadRequestException("Informe um UUID de pessoa ou de time.");
+    }
+    if (role !== "editor" && role !== "user") throw new BadRequestException("Papel deve ser editor ou user.");
+    await this.permissions.grant(id, { ...(typeof userId === "string" ? { userId } : {}), ...(typeof teamId === "string" ? { teamId } : {}) }, role as ShareRole, this.principal(request));
+    return { saved: true };
+  }
+
+  @Delete(":id/shares/:kind/:targetId") async revoke(@Param("id") id: string, @Param("kind") kind: string, @Param("targetId") targetId: string, @Req() request: PrincipalRequest) {
+    this.assertId(id); this.assertId(targetId);
+    if (kind !== "people" && kind !== "teams") throw new BadRequestException("Destino de compartilhamento inválido.");
+    await this.permissions.revoke(id, kind === "people" ? { userId: targetId } : { teamId: targetId }, this.principal(request));
+    return { revoked: true };
   }
 
   private parse(body: unknown, creating: boolean): Partial<AgentInput> {
@@ -53,6 +97,10 @@ export class AgentsController {
     return result as Partial<AgentInput>;
   }
   private assertId(id: string) {
-    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id)) throw new BadRequestException("Identificador inválido.");
+    if (!this.isUuid(id)) throw new BadRequestException("Identificador inválido.");
+  }
+  private isUuid(id: string) { return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id); }
+  private principal(request: PrincipalRequest): Principal {
+    return request.principal ?? { id: "sistema", name: "Administrador", role: "admin" };
   }
 }
