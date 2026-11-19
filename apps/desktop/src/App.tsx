@@ -3,12 +3,14 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEven
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
+import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
 type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings";
@@ -2089,6 +2091,76 @@ function UsageSettings() {
 }
 
 /** Configurações em abas laterais: cada aba mostra só o seu assunto. */
+function UpdateSettings() {
+  const [state, setState] = useState<"checking" | "current" | "available" | "error" | "installing">("checking");
+  const [notice, setNotice] = useState<UpdateNotice | null>(null);
+  const noticeRef = useRef<UpdateNotice | null>(null);
+  const [installedVersion, setInstalledVersion] = useState("0.1.0");
+  const [message, setMessage] = useState<string | null>(null);
+
+  const verify = async () => {
+    setState("checking");
+    setMessage(null);
+    try {
+      const result = await checkForDesktopUpdate();
+      const next = result.status === "available" ? result.notice : null;
+      if (noticeRef.current) void noticeRef.current.close().catch(() => undefined);
+      noticeRef.current = next;
+      setNotice(next);
+      setState(result.status === "unsupported" ? "error" : result.status);
+      if (result.status === "unsupported") setMessage("A verificação de atualização só está disponível no aplicativo desktop.");
+    } catch {
+      setState("error");
+      setMessage("Não foi possível consultar atualizações. Confira o endpoint configurado e tente novamente.");
+    }
+  };
+
+  useEffect(() => {
+    void getVersion().then(setInstalledVersion).catch(() => undefined);
+    void verify();
+    return () => {
+      if (noticeRef.current) void noticeRef.current.close().catch(() => undefined);
+      noticeRef.current = null;
+    };
+  }, []);
+
+  const install = async () => {
+    if (!notice) return;
+    setState("installing");
+    setMessage("Baixando e instalando atualização assinada…");
+    try {
+      await notice.install();
+      setMessage("A instalação foi concluída. Reinicie o aplicativo para usar a nova versão.");
+      setState("current");
+    } catch {
+      setMessage("Não foi possível instalar a atualização. Tente novamente mais tarde.");
+      setState("available");
+    }
+  };
+
+  return (
+    <article className="settings-box">
+      <h3>Atualizações</h3>
+      <p className="version-line">
+        Versão instalada: {installedVersion}
+        <span className="beta-badge" title="Esta versão ainda está em teste">Versão beta</span>
+      </p>
+      {state === "checking" && <p role="status">Verificando atualizações…</p>}
+      {state === "current" && !message && <p role="status">O aplicativo está atualizado.</p>}
+      {state === "available" && notice && (
+        <div className="security-notice" role="status">
+          <div><strong>Nova versão disponível: {notice.version}</strong>{notice.notes && <p>{notice.notes}</p>}</div>
+          <button type="button" className="primary-button" onClick={() => void install()}>Instalar atualização</button>
+        </div>
+      )}
+      {message && <p role={state === "error" ? "alert" : "status"}>{message}</p>}
+      <button type="button" className="icon-btn-close" disabled={state === "checking" || state === "installing"} onClick={() => void verify()}>
+        {state === "checking" ? "Verificando…" : "Verificar novamente"}
+      </button>
+    </article>
+  );
+}
+
 function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
   return (
@@ -2143,13 +2215,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
           {tab === "uso" && <UsageSettings />}
           {tab === "atualizacoes" && (
             <>
-              <article className="settings-box">
-                <h3>Atualizações</h3>
-                <p className="version-line">
-                  Versão instalada: 0.1.0
-                  <span className="beta-badge" title="Esta versão ainda está em teste">Versão beta</span>
-                </p>
-              </article>
+              <UpdateSettings />
               <article className="settings-box credits-box">
                 <h3>Créditos</h3>
                 <p>Desenvolvido por <strong>DJ Jadson Reis</strong>.</p>
