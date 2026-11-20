@@ -54,7 +54,7 @@ describe("ModelProvidersService", () => {
     const { service, rows } = setup();
     const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
     expect(created.models).toEqual([expect.objectContaining({ id: "model-falso", label: "Modelo falso", availability: "disponivel", checkedAt: expect.any(Date) })]);
-    expect(await service.selectable()).toEqual([{ providerId: created.id, providerName: "OpenAI falso", models: [{ id: "model-falso", label: "Modelo falso" }] }]);
+    expect(await service.selectable()).toEqual([{ providerId: created.id, providerName: "OpenAI falso", models: [{ id: "model-falso", label: "Modelo falso", supportsEffort: false }] }]);
     await expect(service.validateAgentTarget(created.id, "model-falso")).resolves.toBeUndefined();
     expect(rows[0]?.models).toEqual([{ id: "model-falso", label: "Modelo falso" }]);
   });

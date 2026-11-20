@@ -23,6 +23,19 @@ export class ConversationsController {
     return this.conversations.setOperationMode(id, principal.id, value.mode, principal.role, principal.name, value.confirmation);
   }
 
+  @Get(":id/reasoning-effort") reasoningEffort(@Param("id") id: string, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    return this.conversations.reasoningEffort(id, request.principal?.id ?? "sistema");
+  }
+
+  @Put(":id/reasoning-effort") setReasoningEffort(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    if (!body || typeof body !== "object" || Array.isArray(body) || !("effort" in body)) throw new BadRequestException("Nível de esforço inválido.");
+    const effort = (body as { effort: unknown }).effort;
+    if (effort !== null && effort !== "baixo" && effort !== "medio" && effort !== "alto") throw new BadRequestException("Nível de esforço inválido.");
+    return this.conversations.setReasoningEffort(id, request.principal?.id ?? "sistema", effort);
+  }
+
   @Post() create(@Body() body: unknown, @Req() request: PrincipalRequest) {
     if (!body || typeof body !== "object") throw new BadRequestException("Corpo de conversa inválido.");
     const value = body as { id?: unknown; title?: unknown; agentId?: unknown };

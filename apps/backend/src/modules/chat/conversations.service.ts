@@ -3,11 +3,12 @@ import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { AuditService } from "../audit/audit.service";
 import { isOperationMode, OperationMode } from "../tools/operation-modes";
+import { ReasoningEffort } from "./model-effort";
 
 export type StoredRole = "system" | "user" | "assistant";
 export interface StoredAttachment { id: string; name: string; type: string; size: number; dataUrl: string; }
 export interface StoredMessage { id: string; role: StoredRole; content: string; createdAt: string; agentId?: string | null; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[]; error?: string; }
-export interface StoredConversation { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: StoredMessage[]; createdAt: string; updatedAt: string; }
+export interface StoredConversation { id: string; title: string; agentId?: string | null; groupId?: string | null; reasoningEffort?: ReasoningEffort | null; messages: StoredMessage[]; createdAt: string; updatedAt: string; }
 export interface OperationModeState { mode: OperationMode; inherited: boolean; }
 
 @Injectable()
@@ -16,10 +17,23 @@ export class ConversationsService {
 
   async list(ownerId = "sistema"): Promise<StoredConversation[]> {
     const pool = this.database.getPool();
-    const result = await pool.query(`SELECT c.id,c.title,c.agent_id AS "agentId",c.group_id AS "groupId",c.operation_mode AS "operationMode",c.created_at AS "createdAt",c.updated_at AS "updatedAt",
+    const result = await pool.query(`SELECT c.id,c.title,c.agent_id AS "agentId",c.group_id AS "groupId",c.operation_mode AS "operationMode",c.reasoning_effort AS "reasoningEffort",c.created_at AS "createdAt",c.updated_at AS "updatedAt",
       COALESCE(json_agg(json_build_object('id',m.id,'role',m.role,'content',m.content,'createdAt',m.created_at,'agentId',m.agent_id,'attachments',m.attachments,'mentions',m.mentions) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL),'[]') AS messages
       FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id WHERE c.owner_id=$1 GROUP BY c.id ORDER BY c.updated_at DESC`, [ownerId]);
     return result.rows as StoredConversation[];
+  }
+
+  async reasoningEffort(id: string, ownerId: string): Promise<{ effort: ReasoningEffort | null }> {
+    const result = await this.database.getPool().query("SELECT reasoning_effort AS effort FROM conversations WHERE id=$1 AND owner_id=$2", [id, ownerId]);
+    if (!result.rows[0]) throw new NotFoundException("Conversa não encontrada.");
+    return { effort: result.rows[0].effort as ReasoningEffort | null };
+  }
+
+  async setReasoningEffort(id: string, ownerId: string, effort: unknown): Promise<{ effort: ReasoningEffort | null }> {
+    if (effort !== null && effort !== "baixo" && effort !== "medio" && effort !== "alto") throw new ConflictException("Nível de esforço inválido.");
+    const result = await this.database.getPool().query("UPDATE conversations SET reasoning_effort=$3,updated_at=now() WHERE id=$1 AND owner_id=$2 RETURNING id", [id, ownerId, effort]);
+    if (!result.rowCount) throw new NotFoundException("Conversa não encontrada.");
+    return { effort };
   }
 
   async operationMode(id: string, ownerId: string): Promise<OperationModeState> {

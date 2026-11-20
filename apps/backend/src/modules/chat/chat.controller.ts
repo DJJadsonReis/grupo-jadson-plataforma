@@ -32,6 +32,7 @@ import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoi
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
+import { ReasoningEffort, supportsEffort } from "./model-effort";
 
 const MAX_TOOL_ITERATIONS = 4;
 export const MODEL_FIRST_RESPONSE_TIMEOUT_MS = 60_000;
@@ -246,6 +247,11 @@ export class ChatController {
     if (conversationId) {
       try {
         await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined, conversationOwner);
+        const rawEffort = body && typeof body === "object" && "reasoningEffort" in body ? (body as { reasoningEffort: unknown }).reasoningEffort : undefined;
+        if (rawEffort !== undefined) {
+          if (rawEffort !== null && rawEffort !== "baixo" && rawEffort !== "medio" && rawEffort !== "alto") throw new BadRequestException("Nível de esforço inválido.");
+          if (typeof this.conversations.setReasoningEffort === "function") await this.conversations.setReasoningEffort(conversationId, conversationOwner, rawEffort);
+        }
         if (!alreadyPersisted) {
           const initialMode = validatedRequestedMode ?? agent?.defaultOperationMode ?? "automatico";
           if (initialMode === "ignorar_permissoes") throw new BadRequestException("Ative Ignorar permissões pelo seletor com confirmação de administrador.");
@@ -254,6 +260,9 @@ export class ChatController {
         await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
       } catch (error) { throw error; }
     }
+    const storedEffort = conversationId && typeof this.conversations.reasoningEffort === "function"
+      ? (await this.conversations.reasoningEffort(conversationId, conversationOwner).catch(() => ({ effort: null }))).effort
+      : null;
 
     const toolCatalog = this.toolsService.catalog();
     const modeVisibleTools = await Promise.all(toolCatalog.map(async (tool) => {
@@ -352,6 +361,9 @@ export class ChatController {
               provider: target.providerId === "anthropic" ? "anthropic" as const : "openai" as const,
               ...(UUID.test(target.providerId) ? { providerId: target.providerId } : {}),
               model: target.model,
+              ...(storedEffort && (UUID.test(target.providerId)
+                ? await this.providers.modelSupportsEffort(target.providerId, target.model).catch(() => false)
+                : supportsEffort(target.providerId === "anthropic" ? "anthropic" : "openai", target.model)) ? { reasoningEffort: storedEffort as ReasoningEffort } : {}),
               tools: availableTools.tools,
               messages: workingMessages,
             };

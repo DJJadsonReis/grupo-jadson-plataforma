@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -25,6 +25,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Disponibilidade de modelo (tarefa 79):** `apps/backend/src/modules/providers/model-providers.service.ts` (`checkModels`, `assertAvailable`) e `apps/backend/src/modules/providers/model-providers.service.spec.ts`.
 - **Escalonamento para pessoa / fila humana (tarefa 80):** `apps/backend/src/modules/human-support/human-support.service.ts` (`claim`, `resolve`) e `apps/backend/src/modules/human-support/human-support.service.spec.ts`.
 - **Token único app-backend (tarefa 81, commit `83d89d1`):** implementado no código. A reprodução no PC está pendente (ação do dono).
+- **Esforço por conversa (tarefa 91):** valores baixo/médio/alto persistidos por conversa, suporte explícito por modelo no backend, parâmetros por provedor, seletor desktop condicionado a `supportsEffort` e fluxo de chat coberto. Evidências: `docs/MODELO_E_ESFORCO_POR_CHAT.md`, `apps/backend/src/modules/chat/model-effort.ts`, `apps/backend/src/modules/database/migrations/044-conversation-effort.ts`, `apps/backend/src/modules/chat/effort.e2e.spec.ts` e `apps/desktop/src/lib/conversation-effort.test.ts`.
 
 ### Parcial
 
@@ -36,7 +37,6 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 Decisão 29, na ordem obrigatória:
 
 1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
-2. **Esforço por conversa** (Decisão 26) — INTERNO.
 3. **Troca de IA por conversa salva no servidor** (Decisão 26) — INTERNO.
 4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.
 5. **MCP server do Grupo Jadson** (Decisão 24) — INTERNO.
@@ -164,6 +164,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
 |---|---|---|---|---|---|---|
 | Provedores de modelo | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (chaves múltiplas, descoberta de modelos) e `apps/desktop/src/App.tsx` (cadastro/teste) | — | — | — |
+| Esforço de raciocínio por conversa | Decisão 26, item 2 | Feito | `apps/backend/src/modules/chat/model-effort.ts`, `apps/backend/src/modules/database/migrations/044-conversation-effort.ts`, `apps/backend/src/modules/chat/effort.e2e.spec.ts`, `apps/desktop/src/lib/conversation-effort.ts` | — | — | — |
 | Anthropic | `shared/model-providers.json` | Feito | `apps/backend/src/modules/providers/anthropic.provider.ts` (Messages API, tool_use, SSE) | API real não testada | — | — |
 | Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (`checkModels`, `assertAvailable`), `apps/backend/src/modules/providers/model-providers.service.spec.ts` | — | — | — |
 | Medição de uso e custo | `server/src/model-billing.ts` | Feito | `apps/backend/src/modules/database/migrations/043-model-prices.ts`, `apps/backend/src/modules/chat/model-prices.ts`, `apps/backend/src/modules/chat/usage.service.ts`, `apps/backend/src/modules/chat/usage.controller.ts`, `apps/desktop/src/lib/usage-prices.ts`, `apps/desktop/src/App.tsx` | Nenhum modelo tem preço até o admin cadastrar; o cadastro é feito pela própria tela de uso. | — | — |
@@ -189,8 +190,8 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 
 ## Resumo da tabela
 
-- **Total:** 66 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a linha autorizada.
-- **Feito:** 41; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1.
+- **Total:** 67 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a linha autorizada.
+- **Feito:** 42; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1 (demais itens autorizados seguem listados na fila; esforço por conversa concluído na tarefa 91).
 - A fila autorizada está no topo deste documento; itens EXTERNO/PESADO que permanecem na tabela são apenas referência.
 ## Histórico anterior à auditoria de 2026-11-20
 

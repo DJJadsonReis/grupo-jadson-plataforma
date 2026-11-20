@@ -36,6 +36,7 @@ import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
+import { ConversationEffortApi, CONVERSATION_EFFORT_OPTIONS, effortLabel, shouldShowEffort, type ConversationEffort } from "./lib/conversation-effort";
 import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -597,7 +598,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null }[];
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null; reasoningEffort?: ConversationEffort | null }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
         serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
@@ -610,6 +611,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               ...saved,
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
               ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
+              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {}),
               title: item.title || saved.title,
               messages: saved.messages.length >= messages.length ? saved.messages : messages,
               updatedAt: Math.max(saved.updatedAt, Date.parse(item.updatedAt) || 0)
@@ -619,7 +621,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               messages,
               updatedAt: Date.parse(item.updatedAt) || Date.now(),
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
-              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {})
+              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
+              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {})
             };
           });
           const remoteIds = new Set(remote.map((item) => item.id));
@@ -716,7 +719,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -788,7 +791,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
           messages: [...prior, userMessage],
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(modelProviderId ? { modelProviderId } : {}),
-          ...(operationMode ? { operationMode } : {})
+          ...(operationMode ? { operationMode } : {}),
+          ...(reasoningEffort !== undefined ? { reasoningEffort } : {})
         }),
       });
       if (!response.ok) {
@@ -1173,6 +1177,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
             apiFetch={apiFetch}
             apiUrl={API_URL}
             persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
+            persistLocalReasoningEffort={(id, effort) => setConversations((items) => items.map((item) => item.id === id ? { ...item, reasoningEffort: effort } : item))}
+            isPersistedConversation={(id) => serverConversationIdsRef.current.has(id)}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
             onEditAgent={setAgentEditor}
@@ -1580,31 +1586,37 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, focusMode, setFocusMode, onOpenAutomations, onEditAgent
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, persistLocalReasoningEffort, isPersistedConversation, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string; supportsEffort?: boolean }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   isAdmin: boolean;
   apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
   apiUrl: string;
   persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
+  persistLocalReasoningEffort: (id: string, effort: ConversationEffort | null) => void;
+  isPersistedConversation: (id: string) => boolean;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [modelSelection, setModelSelection] = useState("");
   const [operationMode, setOperationMode] = useState<DesktopOperationMode>(conversation?.operationMode ?? "automatico");
+  const [reasoningEffort, setReasoningEffort] = useState<ConversationEffort | null>(conversation?.reasoningEffort ?? null);
+  const [effortError, setEffortError] = useState<string | null>(null);
   const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false);
   const [ignoreConfirmation, setIgnoreConfirmation] = useState("");
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const modelOptions = groupSelectableProviders(selectableProviders);
   const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
   const model = selectedModelOption?.model ?? "";
+  const effortSupported = shouldShowEffort(selectedModelOption?.supportsEffort);
+  const effortTimer = useRef<number | undefined>(undefined);
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1689,6 +1701,25 @@ function ChatPage({
       persistLocalOperationMode(conversation.id, state.mode);
     }).catch(() => undefined);
   }, [conversation?.id, conversation?.operationMode, conversation?.agentId, agents, agentId]);
+
+  useEffect(() => {
+    setReasoningEffort(conversation?.reasoningEffort ?? null);
+    if (!conversation || conversation.reasoningEffort !== undefined || !isPersistedConversation(conversation.id)) return;
+    void new ConversationEffortApi(apiFetch, apiUrl).get(conversation.id).then((effort) => {
+      setReasoningEffort(effort);
+      persistLocalReasoningEffort(conversation.id, effort);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.reasoningEffort]);
+
+  async function changeReasoningEffort(value: ConversationEffort | null) {
+    setReasoningEffort(value);
+    setEffortError(null);
+    if (conversation && isPersistedConversation(conversation.id)) {
+      try { await new ConversationEffortApi(apiFetch, apiUrl).set(conversation.id, value); }
+      catch { setEffortError("Não foi possível salvar o esforço."); window.clearTimeout(effortTimer.current); effortTimer.current = window.setTimeout(() => setEffortError(null), 4000); return; }
+    }
+    if (conversation) persistLocalReasoningEffort(conversation.id, value);
+  }
 
   async function changeOperationMode(mode: DesktopOperationMode, confirmation?: string) {
     if (conversation && isServerConversationId(conversation.id)) {
@@ -1894,7 +1925,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode);
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode, effortSupported ? reasoningEffort : undefined);
               setPdfDocs([]);
             }}
           >
@@ -1961,6 +1992,11 @@ function ChatPage({
                     {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{item.label}</option>)}</optgroup>)}
                   </select>
                 </label>
+                {effortSupported && <label className="gx-pill" title="Esforço de raciocínio do modelo">
+                  <select className="gx-pill-select" aria-label="Esforço de raciocínio" value={reasoningEffort ?? ""} onChange={(event) => void changeReasoningEffort((event.target.value || null) as ConversationEffort | null)}>
+                    <option value="">Padrão</option>{CONVERSATION_EFFORT_OPTIONS.map((item) => <option key={item.value} value={item.value}>{effortLabel(item.value)}</option>)}
+                  </select>
+                </label>}
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
                   {currentGroup?.mode === "mention" ? <span className="gx-pill-select">Resposta por @menção</span> : (
@@ -1982,6 +2018,7 @@ function ChatPage({
                 </button>
               )}
             </div>
+            {effortError && <small className="gx-muted" role="status">{effortError}</small>}
           </form>
           {ignoreDialogOpen && (
             <div className="delete-confirm-backdrop" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>

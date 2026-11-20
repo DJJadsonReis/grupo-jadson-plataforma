@@ -13,7 +13,7 @@ describe("model providers pure helpers", () => {
     expect(validateProviderDraft({ ...valid, kind: "custom", baseUrl: "http://127.0.0.1:9000/v1", allowLocal: true })).toBeNull();
   });
   it("groups models under provider names and ignores empty providers", () => {
-    expect(groupSelectableProviders([{ providerId: "p1", providerName: "Falso", models: [{ id: "m1", label: "Modelo 1" }] }, { providerId: "p2", providerName: "Vazio", models: [] }])).toEqual([{ value: "p1:m1", label: "Falso — Modelo 1", providerId: "p1", model: "m1" }]);
+    expect(groupSelectableProviders([{ providerId: "p1", providerName: "Falso", models: [{ id: "m1", label: "Modelo 1" }] }, { providerId: "p2", providerName: "Vazio", models: [] }])).toEqual([{ value: "p1:m1", label: "Falso — Modelo 1", providerId: "p1", model: "m1", supportsEffort: false }]);
   });
   it("shows previous configuration only when its saved key exists", () => {
     expect(hasLegacyProviderKey([{ id: "legacy", hasKey: true }])).toBe(true);

@@ -100,7 +100,25 @@ async function completePersistedConversation(controller: ChatController, convers
   return response;
 }
 
+async function completePersistedConversationWithModel(controller: ChatController, conversationId: string, model: string) {
+  const response = new FakeResponse();
+  await controller.complete({ conversationId, model, messages: [{ role: "user", content: "pesquise" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+  return response;
+}
+
 describe("ChatController tool loop", () => {
+  it("applies stored effort only when the selected model supports it", async () => {
+    const { controller, inputs } = setup();
+    const conversations = (controller as any).conversations;
+    conversations.isPersisted.mockResolvedValue(true);
+    conversations.reasoningEffort = jest.fn().mockResolvedValue({ effort: "alto" });
+    await completePersistedConversationWithModel(controller, "123e4567-e89b-42d3-a456-426614174000", "o3");
+    expect(inputs[0]).toMatchObject({ model: "o3", reasoningEffort: "alto" });
+    inputs.length = 0;
+    await completePersistedConversationWithModel(controller, "123e4567-e89b-42d3-a456-426614174000", "gpt-4.1");
+    expect(inputs[0]).toMatchObject({ model: "gpt-4.1" });
+    expect(inputs[0]).not.toHaveProperty("reasoningEffort");
+  });
   it("tenta a reserva após 429, envia o modelo respondido e registra auditoria sem dados crus", async () => {
     const mainProvider = "123e4567-e89b-42d3-a456-426614174020";
     const reserveProvider = "123e4567-e89b-42d3-a456-426614174021";

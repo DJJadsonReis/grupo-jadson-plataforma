@@ -1,5 +1,6 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { CompletionInput, LanguageModelProvider, ProviderMessage } from "./provider.types";
+import { anthropicThinking, supportsEffort } from "../chat/model-effort";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const DEFAULT_MODEL = "claude-3-5-haiku-latest";
@@ -14,9 +15,12 @@ export function translateAnthropicRequest(input: CompletionInput, defaultModel =
     }
     return { role: message.role as "user" | "assistant", content: translateContent(message) };
   });
+  const maxTokens = input.generationConfig?.maxTokens ?? 1024;
+  const effort = input.reasoningEffort && supportsEffort("anthropic", input.model || defaultModel) ? anthropicThinking(input.reasoningEffort, maxTokens) : null;
   return {
     model: input.model || defaultModel,
-    max_tokens: input.generationConfig?.maxTokens ?? 1024,
+    max_tokens: effort?.maxTokens ?? maxTokens,
+    ...(effort ? { thinking: { type: "enabled" as const, budget_tokens: effort.budgetTokens } } : {}),
     ...(system ? { system } : {}),
     messages,
     stream: true,

@@ -7,6 +7,7 @@ import { modelsForProvider, ManagedProviderKind, SelectableModel } from "./model
 import { validateAgentEndpoint } from "../agents/agent-endpoint";
 import { isProviderRedirect, resolveProviderDestination, toProviderResponse } from "./provider-destination";
 import { pinnedFetch } from "../tools/page-reader";
+import { supportsEffort } from "../chat/model-effort";
 
 export interface ModelProviderRow { id: string; kind: ManagedProviderKind; name: string; baseUrl: string | null; secretCiphertext: string; models: SelectableModel[]; enabled: boolean; createdAt: Date; updatedAt: Date }
 export type ModelAvailabilityStatus = "disponivel" | "indisponivel" | "nao_verificado";
@@ -58,7 +59,7 @@ export class ModelProvidersService {
   }
   async selectable() {
     const result = await this.pool().query(`SELECT id,kind,name,models_json AS models FROM model_providers WHERE enabled=true AND secret_ciphertext<>'' ORDER BY created_at,id`);
-    return (result.rows as { id: string; kind: ManagedProviderKind; name: string; models: SelectableModel[] }[]).map((row) => ({ providerId: row.id, providerName: row.name, models: Array.isArray(row.models) && row.models.length ? row.models : modelsForProvider(row.kind) })).filter((row) => row.models.length > 0);
+    return (result.rows as { id: string; kind: ManagedProviderKind; name: string; models: SelectableModel[] }[]).map((row) => ({ providerId: row.id, providerName: row.name, models: (Array.isArray(row.models) && row.models.length ? row.models : modelsForProvider(row.kind)).map((model) => ({ ...model, supportsEffort: supportsEffort(row.kind, model.id) })) })).filter((row) => row.models.length > 0);
   }
   private validateBase(kind: ManagedProviderKind, raw: unknown, allowLocal: unknown): string | null {
     if (kind !== "custom") {
@@ -133,6 +134,7 @@ export class ModelProvidersService {
     if (!row.enabled || !row.secretCiphertext) throw new BadRequestException({ code: "PROVIDER_UNAVAILABLE", message: "O provedor selecionado está indisponível." });
     return { kind: row.kind, baseUrl: row.baseUrl, apiKey: this.box.decrypt(row.secretCiphertext) };
   }
+  async kindForChat(id: string): Promise<ManagedProviderKind> { return (await this.find(id)).kind; }
   async validateAgentTarget(id: string, model: string): Promise<void> {
     let row: ModelProviderRow;
     try { row = await this.find(id); } catch { throw new BadRequestException("O provedor informado não existe."); }

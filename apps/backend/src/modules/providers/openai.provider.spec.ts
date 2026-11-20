@@ -52,6 +52,18 @@ describe("OpenAiProvider", () => {
     }
   });
 
+  it("envia reasoning_effort apenas para modelos OpenAI explicitamente compatíveis", async () => {
+    const fetcher = jest.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ id: "o3" }))).mockResolvedValueOnce(new Response("data: [DONE]\n\n"));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "sk-falso-de-teste" }));
+      await provider.stream({ model: "o3", reasoningEffort: "alto", messages: [{ role: "user", content: "oi" }] });
+      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).toMatchObject({ reasoning_effort: "high" });
+      fetcher.mockReset().mockResolvedValueOnce(new Response(JSON.stringify({ id: "gpt-4.1" }))).mockResolvedValueOnce(new Response("data: [DONE]\n\n"));
+      await provider.stream({ model: "gpt-4.1", reasoningEffort: "alto", messages: [{ role: "user", content: "oi" }] });
+      expect(JSON.parse(String(fetcher.mock.calls[1]?.[1]?.body))).not.toHaveProperty("reasoning_effort");
+    } finally { fetcher.mockRestore(); }
+  });
+
   it("recusa modelo ausente na lista do provider antes do POST de chat", async () => {
     const fetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [] })));
     try {

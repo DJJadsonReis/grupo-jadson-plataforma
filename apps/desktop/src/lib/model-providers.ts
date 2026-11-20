@@ -1,8 +1,8 @@
 export type ProviderKind = "openai" | "anthropic" | "gemini" | "xai" | "custom";
 export interface ProviderDraft { kind: ProviderKind; name: string; baseUrl: string; apiKey: string; allowLocal: boolean }
-export interface SelectableModel { id: string; label: string }
+export interface SelectableModel { id: string; label: string; supportsEffort?: boolean }
 export interface SelectableProvider { providerId: string; providerName: string; models: SelectableModel[] }
-export interface ProviderOption { value: string; label: string; providerId: string; model: string }
+export interface ProviderOption { value: string; label: string; providerId: string; model: string; supportsEffort: boolean }
 export const DEFAULT_BASE_URL: Partial<Record<ProviderKind, string>> = {
   openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1", gemini: "https://generativelanguage.googleapis.com/v1beta/openai", xai: "https://api.x.ai/v1",
 };
@@ -32,7 +32,7 @@ export function groupSelectableProviders(data: unknown): ProviderOption[] {
     const providerName = provider.providerName;
     return provider.models.flatMap((model) => {
       if (!model || typeof model.id !== "string" || typeof model.label !== "string") return [];
-      return [{ value: `${providerId}:${model.id}`, label: `${providerName} — ${model.label}`, providerId, model: model.id }];
+      return [{ value: `${providerId}:${model.id}`, label: `${providerName} — ${model.label}`, providerId, model: model.id, supportsEffort: model.supportsEffort === true }];
     });
   });
 }
