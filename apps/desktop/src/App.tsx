@@ -34,7 +34,7 @@ import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
-import { requestWithTokenRefresh } from "./lib/api-token";
+import { reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -114,9 +114,16 @@ let rejectedRequest: { input: string; init: RequestInit } | null = null;
 async function reconnectAndRetry(): Promise<void> {
   const failed = rejectedRequest;
   if (!failed) return;
-  await localSystemToken(true);
   rejectedRequest = null;
-  await apiFetch(failed.input, failed.init);
+  await reconnectAndRetryRequest(
+    () => apiFetch(failed.input, failed.init),
+    () => localSystemToken(true),
+    clearSession,
+  );
+}
+
+function clearSession(): void {
+  try { window.localStorage.removeItem(SESSION_KEY); } catch { /* segue com o token local do sistema nesta janela */ }
 }
 
 const SIGN_IN_MESSAGES: Record<string, string> = {

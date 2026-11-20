@@ -107,9 +107,11 @@ describe("Whisper real model integration", () => {
 });
 
 describe("Dictation API authentication", () => {
-  it("requires a bearer token and accepts one for local status", async () => {
+  it("rejects a stale desktop token, then accepts the synchronized token across status, download, and transcription", async () => {
     const previousToken = process.env.API_TOKEN;
-    process.env.API_TOKEN = "TOKEN-FALSO-DE-TESTE";
+    const backendToken = "b".repeat(64);
+    const appToken = "a".repeat(64);
+    process.env.API_TOKEN = backendToken;
     const model = new FakeModel();
     const module = await Test.createTestingModule({ controllers: [DictationController], providers: [{ provide: DictationService, useValue: new DictationService(model) }] }).compile();
     const app = module.createNestApplication();
@@ -119,15 +121,16 @@ describe("Dictation API authentication", () => {
       await app.listen(0, "127.0.0.1");
       const address = app.getHttpServer().address() as { port: number };
       const base = `http://127.0.0.1:${address.port}/api/v1/dictation`;
-      const headers = { Authorization: "Bearer TOKEN-FALSO-DE-TESTE", "Content-Type": "application/json" };
+      const staleHeaders = { Authorization: `Bearer ${appToken}`, "Content-Type": "application/json" };
+      const headers = { Authorization: `Bearer ${backendToken}`, "Content-Type": "application/json" };
       const statusUrl = `${base}/status`;
-      const unauthenticated = await fetch(statusUrl);
-      expect(unauthenticated.status).toBe(401);
-      await expect(unauthenticated.json()).resolves.toMatchObject({ code: "UNAUTHORIZED" });
+      const stale = await fetch(statusUrl, { headers: staleHeaders });
+      expect(stale.status).toBe(401);
+      await expect(stale.json()).resolves.toMatchObject({ code: "UNAUTHORIZED" });
       const status = await fetch(statusUrl, { headers });
       expect(status.status).toBe(200);
       await expect(status.json()).resolves.toMatchObject({ state: "missing", sizeMb: MODEL_SIZE_MB });
-      const refusedMidSession = await fetch(`${base}/model/download`, { method: "POST", headers: { "Content-Type": "application/json" } });
+      const refusedMidSession = await fetch(`${base}/model/download`, { method: "POST", headers: staleHeaders });
       expect(refusedMidSession.status).toBe(401);
       await expect(refusedMidSession.json()).resolves.toMatchObject({ code: "UNAUTHORIZED" });
       const download = await fetch(`${base}/model/download`, { method: "POST", headers });
