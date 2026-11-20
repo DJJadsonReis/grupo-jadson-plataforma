@@ -14,6 +14,7 @@ import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
+import { TeamRoomsPage } from "./components/team/TeamRoomsPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
@@ -30,7 +31,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -239,6 +240,7 @@ export default function App() {
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
+  { id: "team-rooms", label: "Equipe", icon: MessageSquare },
   { id: "tasks", label: "Tarefas", icon: ListTodo },
   { id: "dashboard", label: "Início", icon: Gauge },
   { id: "agents", label: "Galeria de Agentes", icon: Bot },
@@ -828,7 +830,7 @@ function Workspace({ edition }: { edition: Edition }) {
 
         {/* NAVEGAÇÃO PRINCIPAL */}
         <nav className="nav-primary" aria-label="Navegação principal">
-          {NAV.slice(0, 3).map(({ id, label, icon: Icon }) => (
+          {NAV.filter(({ id }) => id !== "team-rooms" || canShowSharing(edition)).slice(0, 4).map(({ id, label, icon: Icon }) => (
             <button
               className={`nav-item ${page === id || (id === "conversations" && page === "chat") ? "active" : ""}`}
               key={id}
@@ -1048,6 +1050,7 @@ function Workspace({ edition }: { edition: Edition }) {
         )}
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
+        {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}

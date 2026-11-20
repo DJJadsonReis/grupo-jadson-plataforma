@@ -7,12 +7,13 @@ import { Principal, UsersService } from "./users.service";
 
 type Flags = { isPublic?: boolean; adminOnly?: boolean };
 
-function contextWith(authorization: string | undefined, flags: Flags = {}, method = "GET") {
+function contextWith(authorization: string | undefined, flags: Flags = {}, method = "GET", url?: string) {
   const reflector = {
     getAllAndOverride: (key: string) => (key === IS_PUBLIC_ROUTE ? Boolean(flags.isPublic) : key === ADMIN_ONLY_ROUTE ? Boolean(flags.adminOnly) : false),
   } as unknown as Reflector;
-  const request: { method: string; headers: Record<string, string | undefined>; principal?: Principal } = {
+  const request: { method: string; url?: string; headers: Record<string, string | undefined>; principal?: Principal } = {
     method,
+    ...(url ? { url } : {}),
     headers: authorization === undefined ? {} : { authorization },
   };
   const ctx = {
@@ -70,6 +71,14 @@ describe("ApiTokenGuard", () => {
     expect(await new ApiTokenGuard(read.reflector, usersReturning(viewer)).canActivate(read.ctx)).toBe(true);
     const write = contextWith("Bearer pessoal", {}, "POST");
     await expect(new ApiTokenGuard(write.reflector, usersReturning(viewer)).canActivate(write.ctx)).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it("permite que leitor escreva somente nas rotas do chat interno", async () => {
+    const viewer: Principal = { id: "1", name: "Leitora", role: "viewer" };
+    const roomWrite = contextWith("Bearer pessoal", {}, "POST", "/api/v1/team-rooms/123/messages");
+    expect(await new ApiTokenGuard(roomWrite.reflector, usersReturning(viewer)).canActivate(roomWrite.ctx)).toBe(true);
+    const otherWrite = contextWith("Bearer pessoal", {}, "POST", "/api/v1/tasks");
+    await expect(new ApiTokenGuard(otherWrite.reflector, usersReturning(viewer)).canActivate(otherWrite.ctx)).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("rota só de administrador recusa operador", async () => {
