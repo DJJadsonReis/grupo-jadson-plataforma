@@ -8,31 +8,10 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
 
+use grupo_core::{parse_callback, parse_reg_build, setup_config::merge_setup_config};
+
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
-
-/// Lê o caminho da requisição (`/cb?session=...`) e devolve a sessão ou o erro informado.
-fn parse_callback(target: &str) -> Option<Result<String, String>> {
-    let (path, query) = target.split_once('?').unwrap_or((target, ""));
-    if path != "/cb" {
-        return None;
-    }
-    let mut session = None;
-    let mut error = None;
-    for pair in query.split('&') {
-        if let Some((key, value)) = pair.split_once('=') {
-            match key {
-                "session" if !value.is_empty() => session = Some(value.to_string()),
-                "error" => error = Some(value.to_string()),
-                _ => {}
-            }
-        }
-    }
-    Some(match session {
-        Some(value) => Ok(value),
-        None => Err(error.unwrap_or_else(|| "falhou".to_string())),
-    })
-}
 
 /// Abre um servidor só no próprio computador, numa porta livre, e devolve a porta.
 /// Espera uma única requisição `/cb` por até 5 minutos.
@@ -127,14 +106,6 @@ fn open_external(url: String) -> Result<(), String> {
     Ok(())
 }
 
-fn parse_reg_build(output: &str) -> Option<u32> {
-    output.lines().find_map(|line| {
-        let mut columns = line.split_whitespace();
-        if columns.next()? != "CurrentBuild" { return None; }
-        columns.nth(1)?.parse::<u32>().ok()
-    })
-}
-
 #[tauri::command]
 fn get_windows_build() -> Result<String, String> {
     #[cfg(target_os = "windows")]
@@ -180,21 +151,6 @@ fn read_setup_config() -> Result<serde_json::Value, String> {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
         Err(_) => Err("não foi possível ler a configuração local".to_string()),
     }
-}
-
-fn merge_setup_config(
-    existing: serde_json::Value,
-    updates: &[(&str, serde_json::Value)],
-) -> Result<serde_json::Value, String> {
-    let mut config = existing
-        .as_object()
-        .cloned()
-        .map(serde_json::Value::Object)
-        .ok_or_else(|| "configuração local inválida".to_string())?;
-    for (key, value) in updates {
-        config[key] = value.clone();
-    }
-    Ok(config)
 }
 
 fn save_services_consent() -> Result<(), String> {
@@ -335,51 +291,6 @@ fn get_first_run_api_token() -> Result<String, String> {
         .filter(|token| token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()))
         .map(str::to_string)
         .ok_or_else(|| "token local inválido".to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{merge_setup_config, parse_reg_build};
-    use serde_json::{json, Value};
-
-    #[test]
-    fn consent_merge_preserves_database_url_and_api_token() {
-        let merged = merge_setup_config(
-            json!({"databaseUrl":"postgres://x/db","apiToken":"abc"}),
-            &[("servicesConsent", Value::Bool(true))],
-        ).unwrap();
-        assert_eq!(merged, json!({"databaseUrl":"postgres://x/db","apiToken":"abc","servicesConsent":true}));
-    }
-
-    #[test]
-    fn consent_merge_creates_missing_config() {
-        assert_eq!(merge_setup_config(json!({}), &[("servicesConsent", Value::Bool(true))]).unwrap(), json!({"servicesConsent":true}));
-    }
-
-    #[test]
-    fn saving_database_url_and_token_preserves_consent() {
-        let merged = merge_setup_config(
-            json!({"servicesConsent":true,"other":"kept"}),
-            &[("databaseUrl", json!("postgres://x/db")), ("apiToken", json!("abc"))],
-        ).unwrap();
-        assert_eq!(merged, json!({"servicesConsent":true,"other":"kept","databaseUrl":"postgres://x/db","apiToken":"abc"}));
-    }
-
-    #[test]
-    fn consent_merge_rejects_non_object_config_like_existing_behavior() {
-        assert!(merge_setup_config(json!(null), &[("servicesConsent", Value::Bool(true))]).is_err());
-    }
-
-    #[test]
-    fn parses_reg_query_build() {
-        assert_eq!(parse_reg_build("\nHKEY_LOCAL_MACHINE\\...\n    CurrentBuild    REG_SZ    26200\n"), Some(26200));
-    }
-
-    #[test]
-    fn rejects_missing_or_invalid_reg_query_build() {
-        assert_eq!(parse_reg_build(""), None);
-        assert_eq!(parse_reg_build("CurrentBuild REG_SZ abc"), None);
-    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]

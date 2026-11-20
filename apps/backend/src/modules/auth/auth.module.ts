@@ -6,11 +6,12 @@ import { AuthController } from "./auth.controller";
 import { OidcService } from "./oidc.service";
 import { UsersController } from "./users.controller";
 import { UsersService } from "./users.service";
+import { PersonalEditionGuard } from "../../common/personal-edition.guard";
 
 @Module({
   imports: [DatabaseModule],
   controllers: [UsersController, AuthController],
-  providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, UsersService, OidcService],
+  providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, PersonalEditionGuard, UsersService, OidcService],
   exports: [UsersService],
 })
 export class AuthModule {}

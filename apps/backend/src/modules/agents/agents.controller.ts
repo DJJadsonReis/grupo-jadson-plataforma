@@ -1,7 +1,9 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common";
 import { AgentInput, AgentsService } from "./agents.service";
 import { AgentPermissionsService, ShareRole } from "./agent-permissions.service";
 import { Principal } from "../auth/users.service";
+import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
+import { validateAgentEndpoint } from "./agent-endpoint";
 
 interface PrincipalRequest { principal?: Principal }
 
@@ -16,7 +18,7 @@ export class AgentsController {
     return records.map((agent) => {
       const access = accessById.get(agent.id)!;
       return access === "user"
-        ? { ...agent, instructions: "", toolsAllowed: [], generationConfig: {}, permission: access }
+        ? { ...agent, instructions: "", toolsAllowed: [], generationConfig: {}, endpointUrl: null, hasEndpointToken: false, permission: access }
         : { ...agent, permission: access };
     });
   }
@@ -38,11 +40,15 @@ export class AgentsController {
     return { deleted: true };
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Get(":id/shares") listShares(@Param("id") id: string, @Req() request: PrincipalRequest) {
     this.assertId(id);
     return this.permissions.listShares(id, this.principal(request));
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Put(":id/shares") async grant(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
     this.assertId(id);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new BadRequestException("Compartilhamento inválido.");
@@ -56,6 +62,8 @@ export class AgentsController {
     return { saved: true };
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Delete(":id/shares/:kind/:targetId") async revoke(@Param("id") id: string, @Param("kind") kind: string, @Param("targetId") targetId: string, @Req() request: PrincipalRequest) {
     this.assertId(id); this.assertId(targetId);
     if (kind !== "people" && kind !== "teams") throw new BadRequestException("Destino de compartilhamento inválido.");
@@ -77,6 +85,20 @@ export class AgentsController {
       const max = field === "instructions" ? 20_000 : field === "avatar" ? 2_000_000 : 300;
       if (fieldValue !== undefined && (typeof fieldValue !== "string" || fieldValue.length > max)) throw new BadRequestException(`Campo ${field} inválido.`);
       result[field] = fieldValue ?? (field === "provider" ? "openai" : "");
+    }
+    if (value.providerKind !== undefined || creating) {
+      if (value.providerKind !== undefined && value.providerKind !== "model" && value.providerKind !== "endpoint") throw new BadRequestException("Tipo de agente inválido.");
+      result.providerKind = value.providerKind ?? "model";
+    }
+    if (value.providerKind === "endpoint" || (!creating && value.endpointUrl !== undefined)) {
+      result.endpointUrl = validateAgentEndpoint(value.endpointUrl);
+    } else if (!creating && value.providerKind === "model") {
+      result.endpointUrl = null;
+      result.endpointToken = "";
+    } else if (value.endpointUrl !== undefined) throw new BadRequestException("URL de endpoint só pode ser usada por agente endpoint.");
+    if (value.endpointToken !== undefined) {
+      if (typeof value.endpointToken !== "string" || value.endpointToken.length > 2000) throw new BadRequestException("Token do endpoint inválido.");
+      result.endpointToken = value.endpointToken;
     }
     if (result.provider && result.provider !== "openai") throw new BadRequestException("Este backend atualmente oferece somente o provider OpenAI.");
     if (creating && !(result.name as string).trim()) throw new BadRequestException("Nome do agente é obrigatório.");

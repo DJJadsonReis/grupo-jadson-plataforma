@@ -12,7 +12,7 @@ export const PAGE_READ_TIMEOUT_MS = 8_000;
 type Lookup = (hostname: string) => Promise<string[]>;
 type FetchResponse = { ok: boolean; status: number; headers: { get(name: string): string | null }; body?: ReadableStream<Uint8Array> | null; text(): Promise<string> };
 /** `address` é o IP já validado: a conexão usa esse IP, sem resolver o nome de novo (evita DNS rebinding). */
-type FetchInit = { signal: AbortSignal; redirect: "manual"; headers: Record<string, string>; address: string };
+type FetchInit = { signal: AbortSignal; redirect: "manual"; headers: Record<string, string>; address: string; method?: string; body?: string };
 type Fetcher = (url: string, init: FetchInit) => Promise<FetchResponse>;
 
 /**
@@ -29,7 +29,7 @@ export function pinnedFetch(url: string, init: FetchInit): Promise<FetchResponse
     else callback(null, init.address, family);
   };
   return new Promise((resolve, reject) => {
-    const req = send(target, { method: "GET", headers: init.headers, signal: init.signal, lookup: pinned as never }, (res) => {
+    const req = send(target, { method: init.method ?? "GET", headers: init.headers, signal: init.signal, lookup: pinned as never }, (res) => {
       const status = res.statusCode ?? 0;
       const headers = {
         get: (name: string) => {
@@ -50,7 +50,7 @@ export function pinnedFetch(url: string, init: FetchInit): Promise<FetchResponse
       });
     });
     req.on("error", reject);
-    req.end();
+    req.end(init.body);
   });
 }
 

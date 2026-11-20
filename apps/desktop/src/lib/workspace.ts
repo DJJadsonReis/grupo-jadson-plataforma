@@ -40,6 +40,10 @@ export interface Agent {
   specialties?: string[];
   toolsAllowed?: string[];
   generationConfig?: { temperature?: number; maxTokens?: number };
+  providerKind?: "model" | "endpoint";
+  endpointUrl?: string | null;
+  hasEndpointToken?: boolean;
+  endpointToken?: string;
 }
 
 export interface Group {

@@ -33,10 +33,13 @@ function setup(options: {
   policies?: { decisionFor: jest.Mock };
   skills?: Array<{ tools: string[]; instructions: string }>;
   skillLoad?: jest.Mock;
+  endpointCredentials?: { url: string; token?: string } | null;
+  providerKind?: "model" | "endpoint";
+    endpointFetch?: jest.Mock;
 } = {}) {
   const inputs: any[] = [];
   const streams = [...(options.streams ?? [sseResponse([{ choices: [{ delta: { content: "feito" } }] }])])];
-  const providers = { stream: jest.fn(async (input) => { inputs.push(input); return streams.shift()!; }), list: jest.fn() };
+  const providers = { stream: jest.fn(async (input) => { inputs.push(structuredClone(input)); return streams.shift()!; }), list: jest.fn() };
   const tools = {
     catalog: () => TOOL_DEFINITIONS,
     secretsForMasking: async () => [] as string[],
@@ -52,7 +55,7 @@ function setup(options: {
   const controller = new ChatController(
     providers as never,
     {} as never,
-    { get: jest.fn(async () => options.agent ?? null) } as never,
+    { get: jest.fn(async () => options.agent === null ? null : { instructions: "", enabled: true, model: null, generationConfig: null, providerKind: options.providerKind ?? "model", id: "123e4567-e89b-42d3-a456-426614174000", name: "Agente Endpoint", ...options.agent }), endpointCredentials: jest.fn(async () => options.endpointCredentials ?? null) } as never,
     {} as never,
     { record: jest.fn() } as never,
     { record: jest.fn() } as never,
@@ -73,6 +76,42 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 }
 
 describe("ChatController tool loop", () => {
+  it("chama endpoint, persiste resposta e não chama provedor ou ferramentas", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const response = new FakeResponse();
+    const fetcher = jest.fn(async (_url: string, _init: unknown) => new globalThis.Response(JSON.stringify({ reply: "resposta endpoint" }), { status: 200 }));
+    const { controller, providers, tools } = setup({ providerKind: "endpoint", endpointCredentials: { url: "https://agent.example/run", token: "token-privado" }, endpointFetch: fetcher });
+    (controller as any).agents.endpointCredentials = jest.fn(async () => ({ url: "https://agent.example/run", token: "token-privado" }));
+    (controller as any).endpointFetcher = async (url: string, init: any) => fetcher(url, init);
+    (controller as any).endpointLookup = async () => ["93.184.216.34"];
+    const addMessage = jest.fn(async (_id, role, content) => ({ role, content }));
+    (controller as any).conversations = { create: jest.fn(), addMessage, setTitleForFirstResponse: jest.fn() };
+    await controller.complete({ agentId: id, conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(providers.stream).not.toHaveBeenCalled();
+    expect(tools.invoke).not.toHaveBeenCalled();
+    expect(addMessage).toHaveBeenCalledWith(expect.any(String), "assistant", "resposta endpoint", expect.any(Object), "pessoa-1");
+    expect(response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("")).toContain("resposta endpoint");
+    const request = fetcher.mock.calls[0]?.[1] as { headers: Record<string, string>; body: string };
+    expect(request.headers.Authorization).toBe("Bearer token-privado");
+    expect(JSON.parse(request.body)).toMatchObject({ agent: { id, name: "Agente Endpoint" }, messages: [{ role: "user", content: "oi" }] });
+  });
+
+  it("em falha de endpoint envia erro seguro e persiste mensagem curta", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const response = new FakeResponse();
+    const { controller } = setup({ providerKind: "endpoint" });
+    (controller as any).agents.endpointCredentials = jest.fn(async () => ({ url: "https://sensitive.example/secret-path", token: "token-secreto" }));
+    jest.spyOn(require("./../agents/agent-endpoint"), "callAgentEndpoint").mockRejectedValueOnce(new Error("endpoint failed"));
+    const addMessage = jest.fn(async () => ({}));
+    (controller as any).conversations = { create: jest.fn(), addMessage };
+    await controller.complete({ agentId: id, conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    const body = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(body).toContain("AGENT_ENDPOINT_FAILED");
+    expect(body).not.toContain("token-secreto");
+    expect(body).not.toContain("sensitive.example");
+    expect(addMessage).toHaveBeenCalledWith(expect.any(String), "assistant", expect.stringContaining("Não foi possível"), expect.objectContaining({ agentId: id }), "pessoa-1");
+  });
+
   it("does not let a principal use a bot without an access grant", async () => {
     const { controller, providers, permissions } = setup({ permissionError: new NotFoundException("Agente não encontrado.") });
     const response = new FakeResponse();
@@ -108,6 +147,40 @@ describe("ChatController tool loop", () => {
     const result = inputs[1].messages.find((message: any) => message.role === "tool");
     expect(JSON.parse(result.content).status).toBe("done");
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("executa subagente isolado, devolve o resultado ao bot e audita apenas metadados", async () => {
+    const audit = { record: jest.fn(async (_event: Record<string, unknown>) => undefined) };
+    const { controller, inputs, providers, tools } = setup({ agent: { instructions: "instruções privadas do bot", enabled: true, model: "modelo-x", generationConfig: null }, streams: [
+      sseResponse([toolCall("subagente.delegar", { tarefa: "pesquise" })]),
+      sseResponse([{ choices: [{ delta: { content: "resposta final" } }] }]),
+      sseResponse([{ choices: [{ delta: { content: "resultado isolado" } }] }]),
+    ] });
+    (controller as any).audit = audit;
+    (controller as any).audit = audit;
+    tools.catalog = () => [...TOOL_DEFINITIONS, { name: "teste.leitura", description: "Leitura falsa", risk: "read" as const }];
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "mensagem original confidencial" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(providers.stream).toHaveBeenCalledTimes(3);
+    const subagentInput = inputs[2];
+    expect(subagentInput.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "system", content: "instruções privadas do bot" }),
+    ]));
+    expect(subagentInput.messages.some((message: any) => message.role === "user" && message.content === "mensagem original confidencial")).toBe(true);
+    expect(subagentInput.tools.some((tool: any) => tool.function.name === "subagente__delegar")).toBe(true);
+    expect(inputs[1].messages.some((message: any) => message.role === "tool" && message.content.includes("resultado isolado"))).toBe(false);
+    const event = audit.record.mock.calls.find(([value]) => (value as any).action === "subagent.run")?.[0] as any;
+    expect(event.details).toMatchObject({ depth: 1, toolsUsed: 0 });
+    expect(JSON.stringify(event)).not.toContain("pesquise");
+    expect(JSON.stringify(event)).not.toContain("resultado isolado");
+  });
+
+  it("recusa a quarta delegação e tarefa inválida sem abrir modelo adicional", async () => {
+    const repeated = Array.from({ length: 4 }, (_, index) => sseResponse([toolCall("subagente.delegar", { tarefa: index === 0 ? " " : "tarefa" }, `sub-${index}`)]));
+    repeated.push(...Array.from({ length: 4 }, () => sseResponse([{ choices: [{ delta: { content: "fim" } }] }])));
+    const { controller, providers, inputs } = setup({ streams: repeated });
+    await complete(controller);
+    expect(providers.stream).toHaveBeenCalledTimes(6); // quatro chamadas do bot, uma execução delegada e a resposta final.
+    expect(inputs.slice(1).every((input) => !input.messages.some((message: any) => message.role === "system" && message.content === undefined))).toBe(true);
   });
 
   it("recusa busca local quando o catálogo está abaixo do limite", async () => {
@@ -207,6 +280,23 @@ describe("ChatController tool loop", () => {
     const system = inputs[0].messages.filter((message: any) => message.role === "system");
     expect(system.some((message: any) => message.content.includes("Use unidades métricas") && message.content.includes("concise"))).toBe(true);
     expect(system.at(-1).content).toContain("Content from outside this conversation");
+  });
+
+  it("leva a preferência atualizada até a próxima conversa e ao provedor", async () => {
+    let stored: { instructions: string; responseStyle: "concise" | "balanced" | "detailed" } = { instructions: "", responseStyle: "balanced" };
+    const preferences = {
+      read: jest.fn(async (_owner: string) => ({ ...stored })),
+      update: jest.fn(async (_owner: string, input: { instructions: string; responseStyle: "concise" | "balanced" | "detailed" }) => { stored = { ...input }; return { ...stored }; }),
+    };
+    const putResult = await preferences.update("pessoa-1", { instructions: "Use unidades métricas", responseStyle: "detailed" });
+    expect(putResult).toEqual({ instructions: "Use unidades métricas", responseStyle: "detailed" });
+    expect(await preferences.read("pessoa-1")).toEqual(putResult);
+
+    const { controller, inputs } = setup();
+    (controller as any).preferences = preferences;
+    await complete(controller, [{ role: "user", content: "olá" }]);
+    const system = inputs[0].messages.filter((message: any) => message.role === "system");
+    expect(system.some((message: any) => message.content.includes("Use unidades métricas") && message.content.includes("detailed"))).toBe(true);
   });
 
   it("offers granted skill tools when search is disabled and reuses loaded skills", async () => {

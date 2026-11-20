@@ -1,7 +1,11 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { buildGroupRequest, readGroupMentions } from "./lib/groups";
+import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPreference, shouldAutoRead } from "./lib/read-aloud";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
+import { agentPayload } from "./lib/agent-endpoint";
+import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
@@ -9,6 +13,9 @@ import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
+import { McpServersPanel } from "./components/mcp/McpServersPanel";
+import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
+import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
@@ -20,7 +27,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -72,7 +79,7 @@ function localSystemToken(): Promise<string> {
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = readSession() ?? (await localSystemToken());
+  const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken());
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 }
@@ -135,6 +142,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (token: string) => void }) {
 
 /** Decide se mostra a entrada. Sem provedores configurados, o app segue como antes. */
 const SIGN_IN_REQUIRED_KEY = "grupo-jadson.signin-required.v1";
+let currentEdition: Edition = "equipe";
 
 /** Lembra, neste computador, se a entrada com conta já foi exigida. Permite decidir na abertura, sem esperar a rede. */
 function readSignInRequired(): boolean {
@@ -158,6 +166,8 @@ function writeSignInRequired(required: boolean): void {
  * Sem provedores configurados, ou com o backend fora do ar, o app segue como antes.
  */
 export default function App() {
+  const [edition, setEdition] = useState<Edition>("equipe");
+  const [editionLoaded, setEditionLoaded] = useState(false);
   const [session, setSession] = useState<string | null>(() => readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
   const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
@@ -165,24 +175,53 @@ export default function App() {
   });
 
   useEffect(() => {
-    fetch(`${API_URL}/auth/providers`)
+    let active = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3000);
+    fetch(`${API_URL}/edition`, { signal: controller.signal })
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("edition"))))
+      .then((body: unknown) => parseEditionResponse(body))
+      .catch(() => "equipe" as const)
+      .then((selectedEdition) => {
+        if (!active) return;
+        currentEdition = selectedEdition;
+        setEdition(selectedEdition);
+        setEditionLoaded(true);
+        if (selectedEdition === "pessoal") {
+          setSession(null);
+          setNeedsLogin(false);
+          return;
+        }
+        fetch(`${API_URL}/auth/providers`)
       .then((r) => (r.ok ? r.json() : null))
       .then((list: unknown[] | null) => {
-        if (!list) return;
+        if (!active || !list) return;
         const required = list.length > 0;
         writeSignInRequired(required);
-        setNeedsLogin(required && !readSession());
+        setNeedsLogin(needsSignIn(selectedEdition, list.length, Boolean(readSession())));
       })
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
-  }, [session]);
+      })
+      .finally(() => window.clearTimeout(timeout));
+    return () => { active = false; };
+  }, []);
 
-  if (!firstRunComplete) {
+  const initialScreen = startupScreen({
+    firstRunComplete,
+    editionLoaded,
+    needsLogin,
+    edition,
+    hasSession: Boolean(session),
+  });
+
+  if (initialScreen === "welcome") {
     return <Welcome apiUrl={API_URL} onComplete={() => {
       try { window.localStorage.setItem(FIRST_RUN_COMPLETE_KEY, "1"); } catch { /* verifica de novo na próxima abertura */ }
       setFirstRunComplete(true);
     }} />;
   }
-  if (needsLogin) {
+  if (initialScreen === "loading") return <div role="status">Carregando…</div>;
+  if (initialScreen === "login") {
     return (
       <LoginScreen
         onSignedIn={(token) => {
@@ -193,7 +232,7 @@ export default function App() {
       />
     );
   }
-  return <Workspace />;
+  return <Workspace edition={edition} />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -215,6 +254,7 @@ const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "models", label: "Modelos e provedores", icon: BrainCircuit },
   { id: "activity", label: "Atividades", icon: ShieldCheck },
   { id: "monitoring", label: "Monitoramento", icon: Activity },
+  { id: "status", label: "Status", icon: CircleHelp },
   { id: "settings", label: "Configurações", icon: Settings },
 ];
 
@@ -250,7 +290,7 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-function Workspace() {
+function Workspace({ edition }: { edition: Edition }) {
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -352,9 +392,41 @@ function Workspace() {
   const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
+  const [autoReadEnabled, setAutoReadEnabled] = useState(() => loadAutoReadPreference(localStorage));
+  const autoReadEnabledRef = useRef(autoReadEnabled);
+  const autoReadSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const lastSpokenIdRef = useRef<string | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const active = useMemo(() => conversations.find((c) => c.id === activeConversation) ?? (pendingConversation && pendingConversation.id === activeConversation ? pendingConversation : null), [conversations, activeConversation, pendingConversation]);
+
+  useEffect(() => {
+    autoReadEnabledRef.current = autoReadEnabled;
+    saveAutoReadPreference(localStorage, autoReadEnabled);
+  }, [autoReadEnabled]);
+
+  useEffect(() => {
+    if (autoReadSupported) window.speechSynthesis.cancel();
+    lastSpokenIdRef.current = null;
+  }, [activeConversation, autoReadSupported]);
+
+  function speakAutomatically(id: string, content: string) {
+    const text = cleanForSpeech(content);
+    if (!text || !autoReadSupported || !shouldAutoRead({ enabled: autoReadEnabledRef.current, supported: autoReadSupported,
+      message: { role: "assistant", streaming: false, id }, lastSpokenId: lastSpokenIdRef.current,
+      // Resposta gerada neste envio; respostas do histórico não passam por esta função.
+      loadedFromHistory: false })) return;
+    const synthesis = window.speechSynthesis;
+    synthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "pt-BR";
+    const voices = synthesis.getVoices();
+    const voiceIndex = choosePtBrVoice(voices);
+    const voice = voiceIndex === null ? undefined : voices[voiceIndex];
+    if (voice) utterance.voice = voice;
+    lastSpokenIdRef.current = id;
+    synthesis.speak(utterance);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -511,6 +583,7 @@ function Workspace() {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
+    if (autoReadSupported) window.speechSynthesis.cancel();
     let conversationId = activeConversation;
     if (pendingConversation && pendingConversation.id === activeConversation) {
       setConversations((items) => [{ ...pendingConversation, title: (title || "Nova conversa").slice(0, 48) }, ...items]);
@@ -523,18 +596,31 @@ function Workspace() {
       setConversations((items) => [conversation, ...items]);
     }
     const id = conversationId;
-    const userMessage: ChatMessage = { role: "user", content: content || "Analise a imagem anexada." };
     const current = conversations.find((item) => item.id === id) ?? (pendingConversation && pendingConversation.id === id ? pendingConversation : undefined);
+    const currentGroup = groups.find((item) => item.id === current?.groupId);
+    const groupRequest = currentGroup ? buildGroupRequest(currentGroup, content, currentGroup.mode === "manual" ? agent?.id : undefined) : null;
+    if (currentGroup && !groupRequest) {
+      setError(currentGroup.mode === "manual" ? "Escolha um participante ativo deste grupo." : "Digite uma mensagem antes de enviar.");
+      return;
+    }
+    const routedMention = currentGroup?.mode === "mention"
+      ? readGroupMentions(content, agents.filter((item) => item.enabled && currentGroup.agentIds.includes(item.id)))[0]
+      : undefined;
+    const responseAgent = currentGroup?.mode === "mention" ? agents.find((item) => item.id === routedMention?.agentId) : agent;
+    const userMessage: ChatMessage = {
+      role: "user", content: content || "Analise a imagem anexada.",
+      ...(currentGroup && routedMention ? { mentions: [routedMention] } : {}),
+    };
     // Mensagens de erro são só para a tela: não voltam ao modelo.
     const prior = (current?.messages ?? []).filter((message) => !message.error);
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
-      ...(agent ? { agentId: agent.id } : {}),
+      ...(responseAgent ? { agentId: responseAgent.id } : {}),
       title: item.messages.length ? item.title : (title || "Imagem enviada").slice(0, 48),
       messages: [...item.messages, userMessage],
       updatedAt: Date.now()
     } : item));
-    setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(agent?.id ?? null);
+    setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(responseAgent?.id ?? null);
     const controller = new AbortController(); abortRef.current = controller;
     try {
       const attachments = await Promise.all(selectedFiles.map(async (file) => ({
@@ -553,7 +639,7 @@ function Workspace() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: id,
-          ...(agent ? { agentId: agent.id } : {}),
+          ...(currentGroup?.mode === "manual" && groupRequest?.agentId ? { agentId: groupRequest.agentId } : !currentGroup && agent ? { agentId: agent.id } : {}),
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
           messages: [...prior, userMessage],
@@ -566,18 +652,22 @@ function Workspace() {
       }
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
-      const decoder = new TextDecoder(); let answer = ""; let pending = "";
-      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(agent ? { agentId: agent.id } : {}) }] } : item));
+      const decoder = new TextDecoder(); let answer = ""; let pending = ""; let eventName = ""; let streamError: string | null = null;
+      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(responseAgent ? { agentId: responseAgent.id } : {}) }] } : item));
+      const responseMessageId = `${id}:${Date.now()}:${Math.random()}`;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split("\n"); pending = lines.pop() ?? "";
         for (const line of lines) {
+          if (line.startsWith("event:")) { eventName = line.slice(6).trim(); continue; }
+          if (!line.trim()) { eventName = ""; continue; }
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim(); if (payload === "[DONE]") continue;
           try {
             const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[]; content?: string };
+            if (eventName === "error") { streamError = "O endpoint do agente não respondeu. Verifique a configuração do bot."; continue; }
             answer += parsed.choices?.[0]?.delta?.content ?? parsed.content ?? "";
             setConversations((items) => items.map((item) => item.id === id ? {
               ...item,
@@ -587,7 +677,9 @@ function Workspace() {
           } catch { /* ignore incomplete frames */ }
         }
       }
+      if (streamError) throw new Error(streamError);
       if (!answer) throw new Error("O provedor encerrou a resposta sem conteúdo.");
+      speakAutomatically(responseMessageId, answer);
     } catch (cause) {
       const aborted = cause instanceof DOMException && cause.name === "AbortError";
       const reason = cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.";
@@ -596,7 +688,7 @@ function Workspace() {
         ...item,
         messages: [
           ...item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0),
-          ...(aborted ? [] : [{ role: "assistant" as const, content: "", error: reason, ...(agent ? { agentId: agent.id } : {}) }]),
+          ...(aborted ? [] : [{ role: "assistant" as const, content: "", error: reason, ...(responseAgent ? { agentId: responseAgent.id } : {}) }]),
         ],
       } : item));
     } finally { setBusy(false); setActiveAgentId(null); abortRef.current = null; }
@@ -609,7 +701,11 @@ function Workspace() {
       const response = await apiFetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
         method: exists ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(agent),
+        body: JSON.stringify(agentPayload(agent, {
+          providerKind: (agent as Agent & { providerKind?: "model" | "endpoint" }).providerKind ?? "model",
+          endpointUrl: agent.endpointUrl ?? "",
+          endpointToken: (agent as Agent & { endpointToken?: string }).endpointToken ?? "",
+        })),
       });
       if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
       const saved = await response.json() as Agent;
@@ -750,7 +846,7 @@ function Workspace() {
               <span className="section-label">CONVERSAS</span>
             </div>
             <div className="history-list">
-              {groups
+          {edition === "equipe" && groups
                 .filter((group) => group.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
                 .map((group) => {
                   const last = conversations.filter((c) => c.groupId === group.id && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -837,6 +933,11 @@ function Workspace() {
 
         {/* NAVEGAÇÃO SECUNDÁRIA INFERIOR */}
 
+        <nav className="nav-primary" aria-label="Status do sistema">
+          <button className={`nav-item ${page === "status" ? "active" : ""}`} onClick={() => changePage("status")} title={railCollapsed ? "Status" : undefined} aria-current={page === "status" ? "page" : undefined}>
+            <CircleHelp size={17} /><span>Status</span>
+          </button>
+        </nav>
         {accountOpen && (
           <div className="account-menu" role="menu">
             <button role="menuitem" className="account-menu-item" onClick={() => { setAccountOpen(false); changePage("activity"); }}>Atividades</button>
@@ -887,8 +988,11 @@ function Workspace() {
         {page === "chat" && (
           <ChatPage
             conversation={active}
+            autoReadEnabled={autoReadEnabled}
+            autoReadSupported={autoReadSupported}
+            onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
             agents={agents}
-            groups={groups}
+            groups={edition === "equipe" ? groups : []}
             draft={draft}
             busy={busy}
             activeAgentId={activeAgentId}
@@ -921,6 +1025,7 @@ function Workspace() {
         )}
         {page === "agent-detail" && viewedAgent && (
           <AgentDetailPage
+            edition={edition}
             agent={viewedAgent}
             conversations={conversations}
             persistence={agentPersistence}
@@ -938,12 +1043,12 @@ function Workspace() {
             onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
           />
         )}
-        {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
+        {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={!readSession()} />}
+        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
-        {page === "settings" && <SettingsPage providers={providers} />}
+        {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
             health={health}
@@ -953,8 +1058,9 @@ function Workspace() {
             providerCount={configuredProviders}
           />
         )}
+        {page === "status" && <StatusPanel apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "activity" && <ActivityPage />}
-        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities"] as PageId[]).includes(page) && (
+        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities", "status"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
       </main>
@@ -1202,7 +1308,9 @@ function ReadAloudButton({ text }: { text: string }) {
 
   function toggle() {
     if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
-    const utterance = new SpeechSynthesisUtterance(text.replace(/[*#_`>]/g, " "));
+    const cleaned = cleanForSpeech(text);
+    if (!cleaned) return;
+    const utterance = new SpeechSynthesisUtterance(cleaned);
     utterance.lang = "pt-BR";
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = () => setSpeaking(false);
@@ -1391,11 +1499,12 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
+  autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
@@ -1498,6 +1607,9 @@ function ChatPage({
           {currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}
         </h1>
         <div className="gx-header-actions">
+          {autoReadSupported && <button type="button" className="read-aloud-btn" onClick={onToggleAutoRead} aria-pressed={autoReadEnabled}>
+            {`Leitura automática: ${autoReadEnabled ? "ligada" : "desligada"}`}
+          </button>}
           {conversation && conversation.messages.length > 0 && (
             <button
               type="button"
@@ -1662,7 +1774,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
               setPdfDocs([]);
             }}
           >
@@ -1705,14 +1817,15 @@ function ChatPage({
                   <Sparkles size={13} />
                   <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
                 </label>
-                <label className="gx-pill" title="Agente que responde">
+                <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
-                  <select className="gx-pill-select" aria-label="Perfil associado" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
-                    <option value="">Sem perfil</option>
-                    {availableAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>{agent.name}</option>
-                    ))}
-                  </select>
+                  {currentGroup?.mode === "mention" ? <span className="gx-pill-select">Resposta por @menção</span> : (
+                    <select className="gx-pill-select" aria-label={currentGroup?.mode === "manual" ? "Participante do grupo" : "Perfil associado"} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                      {currentGroup?.mode === "manual" && <option value="" disabled>Escolha o participante</option>}
+                      {!currentGroup && <option value="">Sem perfil</option>}
+                      {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                    </select>
+                  )}
                 </label>
               </div>
               {busy ? (
@@ -1985,15 +2098,16 @@ function AgentsPage({
    PERFIL DETALHADO DO AGENTE
    ========================================================================= */
 function AgentDetailPage({
-  agent, conversations, persistence, onBack, onEdit, onChat, onOpenConversation
+  agent, conversations, persistence, edition, onBack, onEdit, onChat, onOpenConversation
 }: {
   agent: Agent; conversations: Conversation[]; persistence: "checking" | "connected" | "local" | "error";
+  edition: Edition;
   onBack: () => void; onEdit: () => void; onChat: () => void;
   onOpenConversation: (id: string) => void;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
   const canEdit = canEditAgent(agent);
-  const canShare = canShareAgent(agent);
+  const canShare = canShowSharing(edition) && canShareAgent(agent);
   const history = conversations.filter((conversation) => conversation.agentId === agent.id);
   const persistenceLabel = persistence === "connected" ? "Sincronização Ativa" : "Armazenado Localmente";
 
@@ -2217,12 +2331,13 @@ function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | n
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "uso" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "uso" | "atualizacoes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
   { id: "permissoes", label: "Permissões", icon: ShieldKeyholeBoldIcon },
   { id: "cofre", label: "Cofre", icon: LockBoldIcon },
+  { id: "mcp", label: "Servidores MCP", icon: SettingsBoldIcon },
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
 ];
@@ -2349,7 +2464,7 @@ function UpdateSettings() {
   );
 }
 
-function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
+function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | null; edition: Edition }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
   return (
     <div className="page-content settings-page">
@@ -2378,7 +2493,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
                   <button type="button" className="icon-btn-close" onClick={signOutThisComputer}>Sair</button>
                 </div>
               </article>
-              <MemorySettings />
+              <MemorySettings apiFetch={apiFetch} apiUrl={API_URL} />
             </>
           )}
           {tab === "computador" && (
@@ -2387,7 +2502,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
               <p>Os agentes só leem e alteram arquivos dentro da pasta de trabalho do projeto (<code>workspace</code>). Qualquer escrita pede a sua aprovação antes.</p>
             </article>
           )}
-          {tab === "permissoes" && <AccessSettings />}
+          {tab === "permissoes" && <AccessSettings edition={edition} />}
           {tab === "cofre" && (
             <>
               <article className="settings-box">
@@ -2401,6 +2516,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
             </>
           )}
           {tab === "uso" && <UsageSettings />}
+          {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "atualizacoes" && (
             <>
               <UpdateSettings />
@@ -2618,7 +2734,7 @@ function NotionSettings() {
   return (
     <article className="settings-box">
       <h3>Notion</h3>
-      <p>Permite que os agentes pesquisem e criem páginas no seu Notion, depois da sua aprovação. Compartilhe as páginas com a integração no próprio Notion.</p>
+      <p>Permite buscar e ler páginas, criar páginas e anexar texto ao seu Notion. A criação e o anexo exigem sua aprovação. Compartilhe as páginas com a integração no próprio Notion.</p>
       {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
       <div className="workspace-fact">
         <span>Status</span>
@@ -2777,7 +2893,7 @@ type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "vie
 const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
 
 /** Pessoas e papéis. O token de cada pessoa aparece uma única vez, ao criar ou trocar. */
-function AccessSettings() {
+function AccessSettings({ edition }: { edition: Edition }) {
   const [people, setPeople] = useState<PersonEntry[]>([]);
   const [name, setName] = useState("");
   const [role, setRole] = useState<PersonEntry["role"]>("operator");
@@ -2876,7 +2992,7 @@ function AccessSettings() {
           </span>
         </div>
       ))}
-      <TeamManagementSettings />
+      {canShowSharing(edition) && <TeamManagementSettings />}
     </article>
   );
 }
@@ -2985,7 +3101,7 @@ function TeamManagementSettings() {
 type MemoryEntry = { id: string; content: string; createdAt: string };
 
 /** Memória: o que a pessoa pediu para lembrar. Desligada, nada disso vai para o modelo. */
-function MemorySettings() {
+function MemorySettings({ apiFetch, apiUrl }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string }) {
   const [enabled, setEnabled] = useState(true);
   const [items, setItems] = useState<MemoryEntry[]>([]);
   const [draft, setDraft] = useState("");
@@ -3027,6 +3143,7 @@ function MemorySettings() {
     <article className="settings-box">
       <h3>Memória</h3>
       <p>O que você pedir para lembrar entra como contexto nas conversas. Você pode desligar a memória ou apagar cada item.</p>
+      <PreferencesPanel apiFetch={apiFetch} apiUrl={apiUrl} />
       {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
       <div className="workspace-fact">
         <span>Memória {enabled ? "ligada" : "desligada"}</span>
@@ -3385,6 +3502,7 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
    MODAIS & HELPERS
    ========================================================================= */
 function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const endpoint = (agent as Agent & { providerKind?: string }).providerKind === "endpoint";
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <form className="bot-create-dialog" onSubmit={onSubmit}>
@@ -3410,6 +3528,12 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
               <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
+              <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
+              {endpoint && <>
+                <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
+                <label><span>Token (opcional)</span><input type="password" autoComplete="new-password" value={(agent as Agent & { endpointToken?: string }).endpointToken ?? ""} onChange={(event) => onChange({ ...agent, endpointToken: event.target.value })} placeholder={agent.hasEndpointToken ? "Já salvo" : ""} /></label>
+                <p role="note">Este bot não usa ferramentas nem a memória do modelo; a resposta vem do seu endpoint.</p>
+              </>}
               <label>
                 <span>Especialidade / Descrição Curta</span>
                 <input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Ex.: Especialista em refatoração e arquitetura" />
@@ -3418,12 +3542,12 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
                 <span>Instruções de Sistema (Prompt Base)</span>
                 <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
               </label>
-              <label>
+              {!endpoint && <label>
                 <span>Modelo Específico (Opcional)</span>
                 <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
-              </label>
-              <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
-              <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+              </label>}
+              {!endpoint && <><label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+              <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label></>}
             </div>
           </details>
         </div>
