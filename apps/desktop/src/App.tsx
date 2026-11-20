@@ -22,6 +22,7 @@ import { ConnectionSharesPanel } from "./components/connections/ConnectionShares
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
+import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
@@ -335,6 +336,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [redisHealth, setRedisHealth] = useState<Health>("checking");
   const [configuredProviders, setConfiguredProviders] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
+  const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
@@ -454,10 +456,12 @@ function Workspace({ edition }: { edition: Edition }) {
         setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
         setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
       })
-      .then(() => apiFetch(`${API_URL}/providers`, { signal: controller.signal }))
+      .then(() => apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal }))
       .then(async (response) => {
         if (!response.ok) throw new Error();
-        const status = await response.json() as ProviderStatus[];
+        const catalogue = groupCatalogue(await response.json());
+        setModelCatalogue(catalogue);
+        const status = catalogue.map(({ id, name, configured }) => ({ id, name, configured }));
         setProviders(status);
         setConfiguredProviders(status.filter((provider) => provider.configured).length);
       })
@@ -1005,6 +1009,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "chat" && (
           <ChatPage
             conversation={active}
+            modelCatalogue={modelCatalogue ?? []}
             autoReadEnabled={autoReadEnabled}
             autoReadSupported={autoReadSupported}
             onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
@@ -1065,7 +1070,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
-        {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
+        {page === "models" && <ModelsPage catalogue={modelCatalogue} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
@@ -1517,13 +1522,13 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files, autoReadEnabled, autoReadSupported, onToggleAutoRead,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
@@ -1532,6 +1537,7 @@ function ChatPage({
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [model, setModel] = useState("");
+  const suggestedModels = modelCatalogue.flatMap((provider) => provider.models);
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1835,7 +1841,8 @@ function ChatPage({
                 <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
+                  <input className="gx-pill-input" aria-label="ID do modelo" list="model-suggestions" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
+                  <datalist id="model-suggestions">{suggestedModels.map((item) => <option key={`${item.provider}:${item.id}`} value={item.id}>{item.label}</option>)}</datalist>
                 </label>
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
@@ -2320,7 +2327,7 @@ function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversat
   );
 }
 
-function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | null; onOpenChat: () => void }) {
+function ModelsPage({ catalogue, onOpenChat }: { catalogue: CatalogueProvider[] | null; onOpenChat: () => void }) {
   return (
     <div className="page-content">
       <div className="page-header-row">
@@ -2332,17 +2339,17 @@ function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | n
         <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
       </div>
       <div className="provider-grid">
-        {providers === null ? (
+        {catalogue === null ? (
           <EmptyState title="Modo Local Ativo" text="O aplicativo opera em modo local isolado enquanto o backend não está ativo." />
         ) : (
-          providers.map((p) => (
+          catalogue.map((p) => (
             <article className="provider-card-box" key={p.id}>
               <div className="provider-card-top">
                 <BrainCircuit size={22} className="text-gold" />
-                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Pendente"}</span>
+                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Sem chave"}</span>
               </div>
               <h2>{p.name}</h2>
-              <p>{p.configured ? "Chave de acesso detectada no ambiente seguro." : "Configure sua chave no arquivo de ambiente do backend para habilitar este provedor."}</p>
+              <p>{p.models.length ? p.models.map((model) => <span key={model.id} style={{ display: "block" }}>{model.label} ({model.id}){p.defaultModel === model.id ? " · Padrão" : ""}</span>) : "Os modelos deste endpoint dependem da configuração do provedor."}</p>
             </article>
           ))
         )}
