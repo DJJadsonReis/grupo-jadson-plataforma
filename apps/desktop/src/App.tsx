@@ -21,6 +21,7 @@ import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { McpAccessPanel } from "./components/mcp/McpAccessPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
+import { AuditRetentionSettingsForRole } from "./components/audit/AuditRetentionSettings";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
@@ -1232,7 +1233,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={isAdmin} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={managedProviders} legacyExists={hasLegacyProviderKey(managedProviders)} onModelsTested={(providerId, providerName, models) => setSelectableProviders((current) => [...current.filter((provider) => provider.providerId !== providerId), { providerId, providerName, models }])} onRefresh={async () => { const client = new ModelProvidersApi(apiFetch, API_URL); const [items, selectable] = await Promise.all([client.list(), client.selectable()]); setManagedProviders(items); setSelectableProviders(selectable); }} onOpenChat={() => changePage("chat")} />}
-        {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
+        {page === "settings" && <SettingsPage providers={providers} edition={edition} isAdmin={isAdmin} />}
         {page === "monitoring" && (
           <MonitoringPage
             health={health}
@@ -2619,7 +2620,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "auditoria" | "atualizacoes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
@@ -2628,6 +2629,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
   { id: "mcp", label: "Servidores MCP", icon: SettingsBoldIcon },
   { id: "mcp-access", label: "Acesso MCP", icon: SettingsBoldIcon },
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
+  { id: "auditoria", label: "Retenção de auditoria", icon: ShieldKeyholeBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
 ];
 
@@ -2839,7 +2841,7 @@ function UpdateSettings() {
   );
 }
 
-function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | null; edition: Edition }) {
+function SettingsPage({ providers, edition, isAdmin }: { providers: ProviderStatus[] | null; edition: Edition; isAdmin: boolean }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
   const [identityProviders, setIdentityProviders] = useState<IdentityProvider[] | null>(null);
 
@@ -2864,7 +2866,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
       </div>
       <div className="settings-tabs-layout">
         <nav className="settings-tabs" aria-label="Seções de configurações">
-          {SETTINGS_TABS.map(({ id, label, icon: Icon }) => (
+          {SETTINGS_TABS.filter(({ id }) => id !== "auditoria" || isAdmin).map(({ id, label, icon: Icon }) => (
             <button type="button" key={id} className={`settings-tab ${tab === id ? "active" : ""}`} aria-current={tab === id ? "page" : undefined} onClick={() => setTab(id)}>
               <Icon size={16} />
               <span>{label}</span>
@@ -2907,6 +2909,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
             </>
           )}
           {tab === "uso" && <UsageSettings />}
+          {tab === "auditoria" && <AuditRetentionSettingsForRole isAdmin={isAdmin} apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp-access" && <McpAccessPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "atualizacoes" && (

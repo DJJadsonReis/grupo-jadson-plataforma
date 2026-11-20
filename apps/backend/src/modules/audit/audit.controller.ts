@@ -1,12 +1,46 @@
-import { BadRequestException, Body, Controller, Get, Param, Post, Query, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, Post, Put, Query, Req } from "@nestjs/common";
 import { ApprovalStatus, ApprovalsService } from "./approvals.service";
 import { AuditService } from "./audit.service";
+import { AdminOnly } from "../auth/roles";
+
+type PrincipalRequest = { principal?: { id: string; name: string; role: string } };
 
 const STATUSES: ApprovalStatus[] = ["pending", "approved", "rejected"];
 
 @Controller("audit")
 export class AuditController {
   constructor(private readonly audit: AuditService) {}
+
+  @Get("retention")
+  @AdminOnly()
+  async retention(@Req() request: PrincipalRequest) {
+    this.requireAdmin(request);
+    return this.audit.getRetentionSettings();
+  }
+
+  @Put("retention")
+  @AdminOnly()
+  async setRetention(@Body() body: { retentionDays?: unknown }, @Req() request: PrincipalRequest) {
+    const principal = this.requireAdmin(request);
+    if (!(body.retentionDays === null || (typeof body.retentionDays === "number" && Number.isInteger(body.retentionDays) && body.retentionDays >= 1 && body.retentionDays <= 3650))) {
+      throw new BadRequestException({ code: "INVALID_RETENTION_DAYS", message: "Informe um número inteiro entre 1 e 3650 ou null para desligar a retenção." });
+    }
+    return this.audit.setRetentionDays(body.retentionDays as number | null, principal.name);
+  }
+
+  @Post("retention/sweep")
+  @AdminOnly()
+  async sweepNow(@Req() request: PrincipalRequest) {
+    const principal = this.requireAdmin(request);
+    return this.audit.sweepConfiguredNow(principal.name);
+  }
+
+  private requireAdmin(request: PrincipalRequest) {
+    if (request.principal?.role !== "admin") {
+      throw new ForbiddenException({ code: "FORBIDDEN", message: "Somente administradores podem acessar a retenção da auditoria." });
+    }
+    return request.principal;
+  }
 
   @Get()
   list(@Query("limit") limit?: string) {
