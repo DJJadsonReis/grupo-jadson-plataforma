@@ -1,4 +1,4 @@
-﻿# Relatório da tarefa 108
+# Relatório da tarefa 108
 
 ## O que foi feito
 
@@ -49,4 +49,3 @@ Novos tokens: `--gj-danger-surface` (com valor claro correspondente). Foram acre
 - `ChatPage`, `RichComponent.tsx`, `AgentAvatar.tsx`, backend, web-admin e mensagens de erro vindas do backend permaneceram sem revisão conforme a especificação.
 - Capturas visuais das telas internas ficaram pendentes porque o backend local não estava disponível e a autenticação não foi contornada.
 - Permanecem intocados e fora do commit: alteração local de `apps/desktop/src-tauri/build.rs` e `apps/desktop/src-tauri/crates/grupo-core/Cargo.lock`, além dos arquivos locais de orquestração não pertencentes à tarefa.
-
