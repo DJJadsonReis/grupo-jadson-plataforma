@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { maskSecrets } from "../../common/secret-masking";
 import { Pool } from "pg";
 import { migrationId, up } from "./migrations/001-initial-schema";
@@ -46,7 +47,7 @@ import { migrationId as operationModesMigrationId, up as addOperationModes } fro
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(DatabaseService.name);
+  private readonly logger = new MaskedLogger(DatabaseService.name);
   private readonly pool: Pool | null;
   private ready = false;
   private vectorReady = false;

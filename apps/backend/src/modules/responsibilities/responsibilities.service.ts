@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { AgentsService } from "../agents/agents.service";
@@ -65,7 +66,7 @@ export function validateResponsibilityInput(input: ResponsibilityInput): { name:
 
 @Injectable()
 export class ResponsibilitiesService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(ResponsibilitiesService.name);
+  private readonly logger = new MaskedLogger(ResponsibilitiesService.name);
   private timer: NodeJS.Timeout | null = null;
 
   constructor(

@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Get, Logger, Optional, Post, Req, Res } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Get, Optional, Post, Req, Res } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { Response } from "express";
 import { randomUUID } from "node:crypto";
 import { AgentsService } from "../agents/agents.service";
@@ -147,7 +148,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   static firstResponseTimeoutMs = MODEL_FIRST_RESPONSE_TIMEOUT_MS;
-  private readonly logger = new Logger(ChatController.name);
+  private readonly logger = new MaskedLogger(ChatController.name);
   private endpointFetcher?: Parameters<typeof callAgentEndpoint>[0]["fetcher"];
   private endpointLookup?: Parameters<typeof callAgentEndpoint>[0]["lookupHost"];
   constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService, @Optional() private readonly database?: DatabaseService) {}

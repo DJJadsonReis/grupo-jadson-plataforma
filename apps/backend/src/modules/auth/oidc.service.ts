@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, UnauthorizedException } from "@nestjs/common";
+import { BadRequestException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { createHash, randomBytes } from "node:crypto";
 import { createRemoteJWKSet, jwtVerify, JWTPayload } from "jose";
 import { maskSecrets } from "../../common/secret-masking";
@@ -70,7 +71,7 @@ export function pkcePair(): { verifier: string; challenge: string } {
 /** Login com Google, Microsoft ou Okta (OpenID Connect com PKCE). */
 @Injectable()
 export class OidcService {
-  private readonly logger = new Logger(OidcService.name);
+  private readonly logger = new MaskedLogger(OidcService.name);
   private readonly discoveryCache = new Map<string, Promise<Record<string, string>>>();
   private readonly jwksCache = new Map<string, ReturnType<typeof createRemoteJWKSet>>();
 

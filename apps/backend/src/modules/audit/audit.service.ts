@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
@@ -14,7 +15,7 @@ export interface AuditEvent {
 /** Grava e lista eventos de auditoria. Nunca grava conteúdo de mensagens, apenas metadados. */
 @Injectable()
 export class AuditService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(AuditService.name);
+  private readonly logger = new MaskedLogger(AuditService.name);
   private timer: NodeJS.Timeout | null = null;
   constructor(private readonly database: DatabaseService) {}
 

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
@@ -92,7 +93,7 @@ const SERVER_ID = /^[a-z][a-z0-9_-]{0,31}$/;
 
 @Injectable()
 export class McpService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(McpService.name);
+  private readonly logger = new MaskedLogger(McpService.name);
   private readonly servers = new Map<string, ConnectedServer>();
   private tools: McpToolInfo[] = [];
   private readonly box = new SecretBox();

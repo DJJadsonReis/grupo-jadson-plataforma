@@ -1,10 +1,11 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { Injectable, OnModuleDestroy, OnModuleInit } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { createClient, RedisClientType } from "redis";
 import { maskSecrets } from "../../common/secret-masking";
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RedisService.name);
+  private readonly logger = new MaskedLogger(RedisService.name);
   private readonly client: RedisClientType | null;
   private ready = false;
 

@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable, Logger, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException, OnModuleDestroy, OnModuleInit, Optional } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { ToolsService } from "../tools/tools.service";
@@ -54,7 +55,7 @@ const COLUMNS = `id, name, tool, interval_minutes AS "intervalMinutes", enabled,
  */
 @Injectable()
 export class RoutinesService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RoutinesService.name);
+  private readonly logger = new MaskedLogger(RoutinesService.name);
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
