@@ -8,6 +8,7 @@ describe("notificationKindLabel", () => {
     ["tool_limit.reached", "Limite de ferramentas atingido"],
     ["responsibility.result", "Resultado de responsabilidade"],
     ["responsibility.disabled", "Responsabilidade desativada"],
+    ["human_support.requested", "Atendimento humano solicitado"],
   ])("traduz %s", (kind, label) => expect(notificationKindLabel(kind)).toBe(label));
   it("usa rótulo genérico para tipo desconhecido", () => expect(notificationKindLabel("outro")).toBe("Notificação"));
 });

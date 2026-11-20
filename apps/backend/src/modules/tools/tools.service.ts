@@ -200,7 +200,25 @@ export class ToolsService {
     if (name === "atendimento.humano") {
       const motivo = String(input.motivo ?? "").trim().slice(0, 1000);
       if (!motivo) return { erro: true, mensagem: "Descreva o motivo do atendimento humano." };
-      await this.audit.record({ actor: typeof input.pessoaId === "string" ? input.pessoaId : "sistema", action: "human_support.requested", subject: typeof input.conversaId === "string" ? input.conversaId : null, details: { motivo } });
+      const requestedBy = typeof input.pessoaId === "string" ? input.pessoaId : "sistema";
+      const conversationId = typeof input.conversaId === "string" ? input.conversaId : null;
+      await this.audit.record({ actor: requestedBy, action: "human_support.requested", subject: conversationId, details: { motivo } });
+      if (this.notifications) {
+        const body = (await this.maskSecretText(motivo)).slice(0, 300);
+        let adminIds: string[] = [];
+        try {
+          const admins = await this.database.getPool().query("SELECT id FROM users WHERE role='admin' AND active=true");
+          adminIds = admins.rows.map((row: { id: string }) => row.id);
+        } catch { /* instalação pessoal sem tabela users */ }
+        const recipients = adminIds.length ? adminIds : ["sistema"];
+        await Promise.all(recipients.map((owner) => this.notifications!.create({
+          owner,
+          kind: "human_support.requested",
+          title: "Atendimento humano solicitado",
+          body,
+          details: { conversationId, requestedBy },
+        }).catch(() => undefined)));
+      }
       return { registrada: true, mensagem: "Pedido de atendimento humano registrado internamente." };
     }
     if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);

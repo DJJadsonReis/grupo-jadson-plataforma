@@ -12,6 +12,7 @@ const KIND_LABELS: Record<string, string> = {
   "tool_limit.reached": "Limite de ferramentas atingido",
   "responsibility.result": "Resultado de responsabilidade",
   "responsibility.disabled": "Responsabilidade desativada",
+  "human_support.requested": "Atendimento humano solicitado",
 };
 
 export function notificationKindLabel(kind: string): string {
