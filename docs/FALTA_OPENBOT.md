@@ -17,14 +17,57 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Fora da lista por decisão do dono** (`docs/_orq/decisoes.md`, decisões 9 e 11): assinatura de código e de instaladores do Windows, e telemetria transparente. Não são pendências.
 - **Prioridade:** não foi reavaliada nesta revisão. A lista de 10 da seção de histórico abaixo é anterior a esta auditoria.
 
-## Atualizado em 2026-11-20 (tarefa 75)
+## Atualizado em 2026-11-20 (tarefa 83)
 
-Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
+### Feito
 
-- **P:** Escalonamento para pessoa; retenção e limpeza da auditoria; mascaramento de segredos em saídas e logs; checagem de disponibilidade e rejeição de modelo; medição de uso e custo.
-- **M:** Handoff e subagentes entre bots; trazer agente próprio (AG-UI ou endpoint); tarefas e fila de trabalho; painel administrativo; tela de status e encerramento.
-- **G:** Gráficos interativos e galeria de componentes; check-ins proativos.
+- **Exclusão definitiva de conversa (tarefas 76–78):** servidor remove conversa e mensagens em `apps/backend/src/modules/chat/conversations.service.ts` (`remove`), expõe a rota em `apps/backend/src/modules/chat/conversations.controller.ts` e cobre a exclusão em `apps/backend/src/modules/chat/conversations.pg.spec.ts`. No desktop, `apps/desktop/src/lib/conversation-list.ts` (`planConversationDeletion`) e `apps/desktop/src/App.tsx` atualizam a lista e o histórico local.
+- **Disponibilidade de modelo (tarefa 79):** `apps/backend/src/modules/providers/model-providers.service.ts` (`checkModels`, `assertAvailable`) e `apps/backend/src/modules/providers/model-providers.service.spec.ts`.
+- **Escalonamento para pessoa / fila humana (tarefa 80):** `apps/backend/src/modules/human-support/human-support.service.ts` (`claim`, `resolve`) e `apps/backend/src/modules/human-support/human-support.service.spec.ts`.
+- **Token único app-backend (tarefa 81, commit `83d89d1`):** implementado no código. A reprodução no PC está pendente (ação do dono).
+
+### Parcial
+
+- **Ditado por voz (entrada):** o código agora propaga a causa da falha. Nesta sessão, a configuração `setup.json` estava ausente, então não foi possível reproduzir as chamadas autenticadas no exe do dono; essa reprodução está pendente (ação do dono). Evidências: `apps/backend/src/modules/dictation/dictation.service.ts`, `apps/desktop/src/lib/dictation-session.ts` e `apps/desktop/src/lib/dictation-api.ts`.
+- **Mascaramento de segredos em saídas e logs:** permanece Parcial; mascarar segredos nos logs é o item 8 da fila.
+- **Medição de uso e custo:** permanece Parcial; medir uso e custo é o item 9 da fila.
+
+### Fila autorizada
+
+Decisão 29, na ordem obrigatória:
+
+1. **Modos de operação por conversa/agente** (Decisão 27) — INTERNO.
+2. **Esforço por conversa** (Decisão 26) — INTERNO.
+3. **Troca de IA por conversa salva no servidor** (Decisão 26) — INTERNO.
+4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.
+5. **MCP server do Grupo Jadson** (Decisão 24) — INTERNO.
+6. **Design no estilo Grok com revisão de textos** (Decisões 23 e 23b), mantendo a marca do Grupo Jadson — INTERNO.
+
+Depois dos itens 1–6, Decisão 30:
+
+7. **Limpeza da auditoria (retenção)** — INTERNO, P.
+8. **Mascarar segredos nos logs** — INTERNO, P, Parcial.
+9. **Medir uso e custo** — INTERNO, P, Parcial.
+10. **Handoff geral entre bots** — INTERNO, M.
+11. **Agente próprio por endpoint (AG-UI)** — INTERNO, M.
+12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
+13. **Painel administrativo completo** — INTERNO, M.
+14. **Tela de status e encerramento ordenado** — INTERNO, P.
+15. **Gráficos interativos e galeria de componentes** — INTERNO, G.
+16. **Check-ins proativos** — INTERNO, G.
+
+Nenhum item EXTERNO/PESADO está nesta fila.
+
+### Mapeado, sem autorização para implementar
+
+- **Modo de chamada por voz no controlador** — INTERNO, tamanho M. Partes: serviço de voz comum (M); sessão de chamada (P); transcrição contínua com fim de fala (G); resposta em streaming (M); síntese por provedor configurado (M); interrupção falando por cima (G); telas desktop e web-admin (M).
 ## Tabela
+
+### Mapeamento futuro
+
+| Funcionalidade | Refer?ncia | Status | Evid?ncia | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Modo de chamada por voz no controlador | Decisões 21 e 22 | Mapeado, não autorizado para implementar | Mapeamento no topo deste documento | Serviço comum, sessão, transcrição contínua com fim de fala, resposta em streaming, síntese por provedor, interrupção e telas desktop/web-admin | INTERNO | M |
 
 ### Bots e agentes
 
@@ -33,7 +76,7 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 | Bots com perfil durável (criar, editar, ligar/desligar) | `server/src/agents/profile-store.ts` | Feito | `apps/backend/src/modules/agents/agents.service.ts` (CRUD persistido) | — | — | — |
 | Grupos com vários bots numa conversa | `server/src/channels/group.ts` | Feito | `apps/backend/src/modules/agents/groups.service.ts`, `apps/desktop/src/lib/groups.ts` | — | — | — |
 | Handoff e subagentes entre bots | `server/src/agents/handoff*.ts`, `subagent.ts` | Parcial | `apps/backend/src/modules/chat/subagents.service.ts` (até 3 subagentes por turno) | Handoff geral entre bots além da ferramenta de subagente | INTERNO | M |
-| Escalonamento para pessoa | `server/src/agents/escalation.ts` | Parcial | `apps/backend/src/modules/tools/tools.registry.ts`, `apps/backend/src/modules/tools/tools.service.ts`: aprovação e registro interno | Aviso a um atendente real (fila ou tela) | INTERNO | P |
+| Escalonamento para pessoa | `server/src/agents/escalation.ts` | Feito | `apps/backend/src/modules/human-support/human-support.service.ts` (`claim`, `resolve`), `apps/backend/src/modules/human-support/human-support.service.spec.ts` | — | — | — |
 | Trazer agente próprio (AG-UI ou endpoint) | `server/src/agents/endpoint.ts`, `registry.ts` | Parcial | `apps/backend/src/modules/agents/agent-endpoint.ts` (endpoint HTTPS; 30 s; 64 KB) | Protocolo AG-UI e registro de endpoints | INTERNO | M |
 | Compartilhar bot com pessoas e times | `server/src/team-bots/`, `server/src/people/` | Feito | `apps/backend/src/modules/agents/agent-permissions.service.ts`, `apps/desktop/src/lib/agent-access.ts` | — | — | — |
 | Alcance do bot (onde a pessoa pode falar com ele) | `reachability.tsx`, `bots.$agentId.reach.tsx` | Falta | Não encontrado | Canais de entrega fora do app, que ainda não existem | EXTERNO/PESADO | G |
@@ -45,11 +88,12 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 | Respostas em streaming | `server/src/channels/socket.ts`, `events.ts` | Feito | `apps/backend/src/modules/chat/chat.controller.ts` (SSE), `apps/backend/src/common/masked-text-stream.ts` | — | — | — |
 | Título de conversa gerado automaticamente | `server/src/channels/titler.ts` | Feito | `apps/backend/src/modules/chat/conversation-title.ts` (após a 1ª resposta, máx. 48 tokens) | — | — | — |
 | Prévia de conversa sem markdown | `server/src/channels/summary.ts` | Feito | `apps/desktop/src/lib/preview.ts` | — | — | — |
+| Exclusão definitiva de conversa | `server/src/channels/conversations.ts` | Feito | `apps/backend/src/modules/chat/conversations.service.ts` (`remove`), `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversations.pg.spec.ts`; `apps/desktop/src/lib/conversation-list.ts` (`planConversationDeletion`) e `apps/desktop/src/App.tsx` | — | — | — |
 | Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito | `apps/backend/src/modules/chat/image-attachments.ts` (limite de 5 MB por mensagem) | — | — | — |
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `attachment-parts.ts` | Feito | `apps/backend/src/modules/documents/office-text.ts`, `apps/backend/src/modules/documents/office-zip.ts` (DOCX e XLSX) | — | — | — |
 | Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Parcial | `apps/desktop/src/components/RichComponent.tsx` (cartão, tabela, barras) | Gráficos interativos e galeria de componentes | INTERNO | G |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | Não encontrado | Geração local ou serviço externo de geração de imagem | EXTERNO/PESADO | M |
-| Ditado por voz (entrada) | `server/src/dictation/`, `shared/on-device-speech.ts` | Feito | `apps/backend/src/modules/dictation/transcriber.ts` (Whisper local pt; modelo sob demanda), `apps/desktop/src/lib/dictation-session.ts` (parciais e controles) | Teste em WebView e dispositivo real ainda não realizado | EXTERNO/PESADO | P |
+| Ditado por voz (entrada) | `server/src/dictation/`, `shared/on-device-speech.ts` | Parcial | `apps/backend/src/modules/dictation/transcriber.ts` (Whisper local pt; modelo sob demanda), `apps/desktop/src/lib/dictation-session.ts` (parciais e controles) | Reprodução autenticada no exe com token do app (ação do dono) | INTERNO | P |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Feito | `apps/desktop/src/lib/read-aloud.ts`, `apps/desktop/src/App.tsx` (speechSynthesis) | Depende de voz pt-BR instalada no WebView | — | — |
 | Tour inicial e dicas | `start.$startId.tsx`, `shared/starter-tour.ts` | Feito | `apps/desktop/src/lib/starter-tour.ts` | — | — | — |
 
@@ -84,7 +128,7 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 |---|---|---|---|---|---|---|
 | Servidores MCP | `server/src/plugins/mcp.ts` | Feito | `apps/backend/src/modules/mcp/mcp.service.ts` (stdio, Streamable HTTP e SSE); `apps/desktop/src/components/mcp/McpServersPanel.tsx` | Nenhuma lacuna interna conhecida | — | — |
 | Catálogo de conectores (Composio, Arcade) | `server/src/plugins/composio.ts`, `arcade.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
-| Google Agenda e Drive | `server/src/plugins/google-drive-rest.ts` | Feito | `apps/backend/src/modules/google/google.service.ts` e `apps/backend/src/modules/tools/tools.registry.ts` (agenda e criar Google Doc mediante aprovação) | — | — | — |
+| Google Agenda e Drive | `server/src/plugins/google-drive-rest.ts` | Feito | `apps/backend/src/modules/google/google.service.ts` e `apps/backend/src/modules/tools/tools.registry.ts` (agenda e criação de Google Doc com aprovação) | — | — | — |
 | Notion | `docs/plugins/notion.md` | Feito | `apps/backend/src/modules/tools/notion.ts` (buscar, ler, criar página e anexar texto) | — | — | — |
 | Compartilhar conexões entre pessoas | `server/src/plugins/shared-accounts.ts` | Feito | `apps/backend/src/modules/connection-shares/connection-shares.service.ts`, `apps/desktop/src/components/connections/ConnectionSharesPanel.tsx` | — | — | — |
 | Cofre de credenciais | `server/src/credentials.ts` | Feito | `apps/backend/src/modules/integrations/secret-box.ts`, `apps/backend/src/modules/integrations/integrations.service.ts` | — | — | — |
@@ -97,7 +141,7 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 | Responsabilidades contínuas | `server/src/responsibilities/` | Feito | `apps/backend/src/modules/responsibilities/responsibilities.service.ts`, `apps/desktop/src/components/responsibilities/ResponsibilitiesPage.tsx` | — | — | — |
 | Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | Não encontrado | Mensagens iniciadas pelo bot dentro do app | INTERNO | G |
 | Notificações | `server/src/delivery/` | Feito | `apps/backend/src/modules/notifications/notifications.service.ts`, `apps/desktop/src/components/notifications/NotificationsPanel.tsx` | Entrega ao celular não existe (app móvel CORTADO) | — | — |
-| Tarefas e fila de trabalho | `server/src/tasks/`, `server/src/work/` | Parcial | `apps/backend/src/modules/tasks/tasks.service.ts`, `apps/desktop/src/components/tasks/TasksPage.tsx` | Fila de trabalho integrada (`work/`) | INTERNO | M |
+| Tarefas e fila de trabalho | `server/src/tasks/`, `server/src/work/` | Autorizado / na fila (Decisão 30) | `apps/backend/src/modules/tasks/tasks.service.ts`, `apps/desktop/src/components/tasks/TasksPage.tsx` | Fila de trabalho integrada (`work/`) | INTERNO | M |
 | Aplicativo móvel | `mobile/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 
 ### Memória, preferências e aprendizado
@@ -123,7 +167,7 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 |---|---|---|---|---|---|---|
 | Provedores de modelo | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (chaves múltiplas, descoberta de modelos) e `apps/desktop/src/App.tsx` (cadastro/teste) | — | — | — |
 | Anthropic | `shared/model-providers.json` | Feito | `apps/backend/src/modules/providers/anthropic.provider.ts` (Messages API, tool_use, SSE) | API real não testada | — | — |
-| Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts` | Parcial | `apps/backend/src/modules/providers/providers.service.ts` (consulta disponibilidade OpenAI/Anthropic) | Endpoints compatíveis e Gemini sem checagem | INTERNO | P |
+| Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (`checkModels`, `assertAvailable`), `apps/backend/src/modules/providers/model-providers.service.spec.ts` | — | — | — |
 | Medição de uso e custo | `server/src/model-billing.ts` | Parcial | `apps/backend/src/modules/chat/usage.service.ts`, `apps/desktop/src/App.tsx` (relatórios por pessoa/agente/conversa) | Cobertura de preços ainda é parcial; itens sem preço ficam sem custo calculado | INTERNO | P |
 | Entrar com Google ou xAI (OAuth do provedor) | `server/src/provider-oauth.ts` | Falta | Não encontrado | OAuth dos provedores; contas e apps externos | EXTERNO/PESADO | G |
 
@@ -147,9 +191,9 @@ Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
 
 ## Resumo da tabela
 
-- **Total:** 64 itens, incluindo telemetria transparente e busca web paga como CORTADO.
-- **Feito:** 38; **Parcial:** 12; **Falta:** 4; **CORTADO:** 10.
-- A fila ativa de itens INTERNOS está no topo deste documento; itens EXTERNO/PESADO permanecem na tabela para referência.
+- **Total:** 66 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a linha autorizada.
+- **Feito:** 40; **Parcial:** 10; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1.
+- A fila autorizada está no topo deste documento; itens EXTERNO/PESADO que permanecem na tabela são apenas referência.
 ## Histórico anterior à auditoria de 2026-11-20
 
 As seções abaixo são o registro de rodadas anteriores, mantido como histórico. Onde conflitarem com a tabela acima, vale a tabela.
@@ -183,7 +227,7 @@ Ordem de prioridade. Todos podem ser feitos sem serviço pago.
 
 **Andamento do item 7 (2026-11-19):** implementado mascarador próprio em `apps/backend/src/common/secret-masking.ts`, com marcador `[REDACTED]` e mínimo de 8 caracteres para valores conhecidos/padrões. Lê sem escrita e mantém em memória somente durante a sanitização valores de `tavily`, `notion` e `modelo_chave` das integrações, além de variáveis de ambiente com nomes de chave/token/segredo/senha/URLs de conexão. Aplicado a valores e erros de ferramentas antes de persistir/devolver, ao texto final do modelo antes de enviar/persistir, aos erros enviados de volta ao modelo e aos logs que interpolam erros em chat, rotinas, banco, Redis, MCP e OIDC. Falhas de conexão do provider retornam mensagem genérica. A entrada escrita pelo usuário não é alterada.
 
-**Validação do item 7 (2026-11-19):** `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec jest --runInBand` → exit 0, 28 suítes e 119 testes passando. `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec tsc --noEmit` → exit 0. Os testes focados passaram antes: 4 suítes, 20 testes. Padrões cobertos incluem `sk-`, Tavily (`tvly-`), Notion (`secret_`, `ntn_`), Bearer, JWT, Google API key, GitHub/Slack token, credenciais em URL e parâmetros comuns de token/chave. Formatos proprietários sem valor conhecido não são reconhecidos; tokens codificados/transformados e valores conhecidos menores que 8 caracteres ficam fora do mascaramento deliberadamente. Nenhum teste usou credencial externa real.
+**Validação do item 7 (2026-11-19):** `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec jest --runInBand` → exit 0, 28 suítes e 119 testes passando. `cd apps/backend && node ../../tools/pnpm/node_modules/pnpm/bin/pnpm.cjs exec tsc --noEmit` → exit 0. Os testes focados passaram antes: 4 suítes, 20 testes. Padrões cobertos incluem tokens de provedores, Bearer, JWT, chaves de API, tokens GitHub/Slack, credenciais em URL e parâmetros comuns de token/chave. Formatos proprietários sem valor conhecido não são reconhecidos; tokens codificados/transformados e valores conhecidos menores que 8 caracteres ficam fora do mascaramento deliberadamente. Nenhum teste usou credencial externa real.
 
 ## Licenças e cuidados
 
@@ -227,7 +271,7 @@ Validação: jest completo em apps/backend com 29 suítes e 126 testes, exit 0; 
 
 **Item 4 — preferências gerais:** nova tabela por principal autenticado com instruções de até 3000 caracteres e estilo `concise|balanced|detailed`; rotas GET/PUT não aceitam escolher outro owner. Preferências entram no prompt antes da guidance de segurança. Migração `017-user-preferences` aplicada e registrada no PostgreSQL de teste (validação de 2026-11-19); nenhuma chamada de serviço externo.
 
-**Item 5 — escalonamento humano:** Feito na tarefa 80. A aprovação cria pedido persistente com motivo mascarado; o administrador sempre atende e pode liberar atendentes por pessoa. Fila interna notifica atendentes, permite assumir uma única vez com atualização condicional e resolver pelo responsável ou admin, notificando quem pediu. API protegida, tela Atendimento com contagem e ações, auditoria e testes unitários. Sem envio externo. PostgreSQL real pendente por ausência de `TEST_DATABASE_URL` neste ambiente.
+**Item 5 — escalonamento humano:** concluído na tarefa 80. A aprovação cria pedido persistente com motivo protegido; o administrador sempre atende e pode liberar atendentes por pessoa. Fila interna notifica atendentes, permite assumir uma única vez com atualização condicional e resolver pelo responsável ou admin, notificando quem pediu. API protegida, tela Atendimento com contagem e ações, auditoria e testes unitários. Sem envio externo. PostgreSQL real pendente por ausência de `TEST_DATABASE_URL` neste ambiente.
 
 **Item 6 — disponibilidade do modelo:** providers oficiais OpenAI e Anthropic consultam `/models/{id}` antes do POST de chat e devolvem erro claro em modelo ausente, chave recusada ou checagem inconclusiva. Endpoints OpenAI-compatible/customizados e Gemini não usam essa verificação, pois não compartilham contrato garantido. Testes usam `fetch` dublado; nenhuma API real foi chamada.
 
