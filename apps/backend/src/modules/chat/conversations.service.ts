@@ -124,4 +124,16 @@ export class ConversationsService {
       throw error;
     } finally { client.release(); }
   }
+
+  /** Remove apenas a última resposta do assistente após uma regeneração bem-sucedida. */
+  async removeLastAssistantMessage(conversationId: string, ownerId = "sistema"): Promise<boolean> {
+    const result = await this.database.getPool().query(
+      `DELETE FROM messages WHERE id = (
+         SELECT m.id FROM messages m JOIN conversations c ON c.id=m.conversation_id
+         WHERE m.conversation_id=$1 AND c.owner_id=$2 AND m.role='assistant'
+         ORDER BY m.created_at DESC, m.id DESC LIMIT 1
+       ) RETURNING id`, [conversationId, ownerId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
 }

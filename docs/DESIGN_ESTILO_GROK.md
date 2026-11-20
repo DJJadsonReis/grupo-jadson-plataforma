@@ -1,5 +1,15 @@
 # Design do desktop: conversa escura e direta
 
+## Redesenho da casca, chat e compositor (tarefa 106)
+
+A entrega usa o shell existente e completa o fluxo visual da conversa: histórico agrupado por Hoje, Ontem, Últimos 7 dias e Mais antigas; preferências locais para tema e recolhimento da barra; atalhos Ctrl/Cmd+N, Ctrl/Cmd+K e Ctrl/Cmd+B; início centralizado antes da primeira mensagem; ações de copiar, refazer e editar junto às mensagens; e rolagem que acompanha a resposta somente quando a pessoa já estava no fim. A troca de tema mantém escuro como padrão e aplica os mesmos tokens institucionais no claro. Em larguras inferiores a 900 px, a barra vira sobreposição fechável por Esc.
+
+Os tokens para fundos, superfícies, bordas e texto do shell ficam em `apps/desktop/src/styles/design-tokens.css`; `shell-redesign.css` e `chat-grok.css` consomem esses tokens. Os controles existentes de modelo, modo, esforço, ditado, anexo, envio e interrupção mantêm sua lógica.
+
+Capturas solicitadas: não foram geradas nesta execução. A tentativa de abrir o app pelo navegador Playwright falhou porque a extensão Playwright não está instalada no perfil de navegador disponível. Não há imagens antes/depois para anexar; ficam pendentes de captura em ambiente com navegador configurado.
+
+O restante das telas internas e a revisão geral dos textos da interface ficam para a tarefa 107, conforme itens 5 e 7 da Decisão 37.
+
 ## 1. Estado atual
 
 O desktop já tem camadas de estilo em `apps/desktop/src/styles/`: `design-tokens.css` define a paleta institucional dourada, fontes de sistema, escalas e raios; `global.css` contém a base e componentes gerais; `shell-redesign.css` simplifica a barra lateral e o chat; `chat-grok.css` dá estilo à conversa; e `workspace.css` reúne telas, painéis e componentes que foram sendo acrescentados. `App.tsx` e componentes sob `components/` fornecem os rótulos e mensagens. A lista já usa prévia pura de `apps/desktop/src/lib/preview.ts`, avatar de 36 px e nome/prévia, mas havia regras repetidas e o avatar do agente fixo recebia tratamentos diferentes. O composer já preservava os controles de ditado, modelo, esforço e modo; tinha contorno e sombra fortes.

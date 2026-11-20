@@ -11,10 +11,10 @@
   --gx-canvas: var(--shell-canvas, #0b0b0b);
   --gx-ink: var(--shell-text, #ececec);
   --gx-ink-2: var(--shell-text-2, #a8a8a8);
-  --gx-ink-3: #7a7a7a;
-  --gx-line: #242424;
-  --gx-bubble: #1f1f1f;
-  --gx-field: #161616;
+  --gx-ink-3: var(--shell-text-3);
+  --gx-line: var(--shell-line);
+  --gx-bubble: var(--shell-active);
+  --gx-field: var(--shell-raised);
   --gx-gold: var(--gj-gold, #d4a017);
   position: relative;
   display: flex;
@@ -242,6 +242,9 @@
 /* Estado vazio: centralizado na tela, com o composer logo abaixo. */
 .gx-chat.is-empty .gx-scroll { display: flex; flex-direction: column; justify-content: center; }
 .gx-chat .gx-empty { display: flex; flex-direction: column; align-items: flex-start; padding: 24px 0 8px; }
+.gx-chat.is-empty .gx-scroll { flex: 1 1 50%; justify-content: flex-end; }
+.gx-chat.is-empty .gx-dock { flex: 1 1 50%; display: flex; align-items: flex-start; padding-top: 8px; }
+.gx-chat.is-empty .gx-dock > .gx-column { flex: 0 1 var(--gx-column); }
 .gx-chat .gx-empty-logo { width: 44px; height: 44px; margin-bottom: 18px; }
 .gx-chat .gx-empty h2 { margin: 0 0 6px; font-size: 26px; font-weight: 500; letter-spacing: -0.01em; color: var(--gx-ink); }
 .gx-chat .gx-empty p { margin: 0; color: var(--gx-ink-3); font-size: 14px; }
@@ -416,3 +419,37 @@
 
 /* Avatar do agente ao lado do título da conversa. */
 .gx-chat .gx-title-avatar { margin-right: 8px; vertical-align: middle; }
+
+/* Ações aparecem ao passar o mouse ou ao navegar com teclado. */
+.gx-message-actions { display: flex; gap: 4px; opacity: 0; transition: opacity .12s ease; }
+.gx-turn:hover .gx-message-actions, .gx-turn:focus-within .gx-message-actions { opacity: 1; }
+.gx-message-actions button { display: inline-flex; align-items: center; gap: 5px; padding: 4px 7px; border: 0; border-radius: 7px; background: transparent; color: var(--gx-ink-3); font: inherit; font-size: 11px; cursor: pointer; }
+.gx-message-actions button:hover { color: var(--gx-ink); background: var(--shell-hover); }
+.gx-message-actions button:disabled { opacity: .5; cursor: default; }
+.gx-chat .gx-turn-user .gx-message-actions { align-self: flex-end; }
+.gx-chat .gx-scroll { scroll-behavior: auto; }
+.history-date-group + .history-date-group { margin-top: 8px; }
+
+:root[data-theme="light"] .gx-chat .gx-turn-body .inline-code { background: #eceae3; }
+:root[data-theme="light"] .gx-chat .gx-turn-body .code-block { background: #efeee9; border-color: var(--gx-line); }
+:root[data-theme="light"] .gx-chat .gx-pill-select option,
+:root[data-theme="light"] .model-provider-form input:not([type="checkbox"]),
+:root[data-theme="light"] .model-provider-form select { background: #fff; color: var(--gx-ink); }
+:root[data-theme="light"] .gx-chat .gx-notice,
+:root[data-theme="light"] .gx-chat .gx-chip,
+:root[data-theme="light"] .gx-chat .dictation-controls button,
+:root[data-theme="light"] .gx-chat .dictation-confirm button,
+:root[data-theme="light"] .model-provider-actions button { background: var(--shell-raised); color: var(--gx-ink-2); border-color: var(--gx-line); }
+:root[data-theme="light"] .gx-chat .gx-send { color: #fff; }
+:root[data-theme="light"] .gx-chat .gx-send:disabled { background: #dedbd2; color: #77736a; }
+:root[data-theme="light"] .provider-key-status.neutral { background: #e8e6de; color: var(--gx-ink-2); }
+:root[data-theme="light"] .provider-key-status.success { background: #e1f0e3; color: #24592c; }
+:root[data-theme="light"] .provider-key-status.warning { background: #f3ecd8; color: #694e10; }
+:root[data-theme="light"] .provider-key-status.danger { background: #f6e1df; color: #812c25; }
+
+@media (max-width: 900px) {
+  .sidebar, .app-shell-collapsed .sidebar { position: fixed; inset: 0 auto 0 0; z-index: calc(var(--gj-z-overlay) + 1); width: min(300px, 84vw); transform: translateX(-105%); transition: transform .18s ease; }
+  .sidebar.sidebar-open { transform: translateX(0); }
+  .scrim { position: fixed; inset: 0; z-index: var(--gj-z-overlay); background: rgb(0 0 0 / 45%); }
+  .app-shell { --sidebar-width: 0px !important; }
+}

@@ -168,6 +168,8 @@ export class ChatController {
       catch { throw new BadRequestException({ code: "PROVIDER_UNAVAILABLE", message: "O provedor selecionado está indisponível." }); }
     }
     const conversationId = this.parseUuidField(body, "conversationId");
+    const regenerate = body && typeof body === "object" ? (body as { regenerate?: unknown }).regenerate : undefined;
+    if (regenerate !== undefined && typeof regenerate !== "boolean") throw new BadRequestException("O campo regenerate precisa ser booleano.");
     let agentId = this.parseUuidField(body, "agentId");
     const groupId = this.parseUuidField(body, "groupId");
     const attachments = this.parseAttachments(body);
@@ -288,7 +290,7 @@ export class ChatController {
           if (initialMode === "ignorar_permissoes") throw new BadRequestException("Ative Ignorar permissões pelo seletor com confirmação de administrador.");
           if (typeof this.conversations.setOperationMode === "function") await this.conversations.setOperationMode(conversationId, conversationOwner, initialMode, request.principal?.role ?? "admin", request.principal?.name ?? "Administrador");
         }
-        await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
+        if (!regenerate) await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
       } catch (error) { throw error; }
     }
     const storedEffort = conversationId && typeof this.conversations.reasoningEffort === "function"
@@ -366,7 +368,10 @@ export class ChatController {
         } catch {
           answer = "Não foi possível obter uma resposta do endpoint do agente.";
           res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AGENT_ENDPOINT_FAILED", message: answer })}\n\n`));
-          try { if (conversationId) await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema"); } catch { /* best effort */ }
+          try { if (conversationId) {
+            if (regenerate && typeof this.conversations.removeLastAssistantMessage === "function") await this.conversations.removeLastAssistantMessage(conversationId, conversationOwner);
+            await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, conversationOwner);
+          } } catch { /* best effort */ }
           if (!abort.signal.aborted) { res.write(SSE_DONE); res.end(); }
           return;
         }
@@ -573,7 +578,10 @@ export class ChatController {
           const title = await generateConversationTitle((input) => this.providers.stream({ ...input, ...(reportedProviderId ? { providerId: reportedProviderId } : {}) }, abort.signal), reportedModel || effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
           if (title) await this.conversations.setTitleForFirstResponse(conversationId, title, request.principal?.id ?? "sistema");
         } catch { /* the current user-message title is the fallback */ }
-        try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema"); }
+        try {
+          if (regenerate && typeof this.conversations.removeLastAssistantMessage === "function") await this.conversations.removeLastAssistantMessage(conversationId, conversationOwner);
+          await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema");
+        }
         catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
       if (!abort.signal.aborted) {

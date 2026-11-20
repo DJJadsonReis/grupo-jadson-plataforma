@@ -13,6 +13,14 @@ function setup(initial = "") {
 }
 
 describe("DictationSession", () => {
+  it("começa a capturar diretamente quando o modelo embutido já está pronto", async () => {
+    const ctx = setup();
+    await ctx.session.begin("");
+    expect(ctx.session.getState()).toBe("recording");
+    expect(ctx.client.download).not.toHaveBeenCalled();
+    expect(ctx.events.state).not.toHaveBeenCalledWith("confirm-download", expect.anything());
+  });
+
   it("explica a causa do erro e inclui o status HTTP quando disponível", () => {
     expect(dictationErrorMessage(Object.assign(new Error(), { status: 401, code: "UNAUTHORIZED" }), "status")).toContain("HTTP 401");
     expect(dictationErrorMessage(Object.assign(new Error(), { status: 404 }), "download")).toContain("não está instalado");
@@ -47,6 +55,13 @@ describe("DictationSession", () => {
     const ctx = setup(); ctx.client.status.mockResolvedValue({ state: "missing", sizeMb: 82 }); await ctx.session.begin("");
     expect(ctx.session.getState()).toBe("confirm-download"); expect(ctx.events.state).toHaveBeenLastCalledWith("confirm-download", { state: "missing", sizeMb: 82 });
     ctx.session.cancelDownload(); expect(ctx.client.download).not.toHaveBeenCalled();
+  });
+  it("solicita confirmação quando a verificação inicial termina sem modelo válido", async () => {
+    const ctx = setup();
+    ctx.client.status.mockResolvedValueOnce({ state: "downloading", progress: 0, sizeMb: 82 }).mockResolvedValueOnce({ state: "missing", sizeMb: 82 });
+    await ctx.session.begin("");
+    await vi.waitFor(() => expect(ctx.session.getState()).toBe("confirm-download"));
+    expect(ctx.client.download).not.toHaveBeenCalled();
   });
   it("tenta mais uma vez quando o serviço responde ocupado", async () => {
     const ctx = setup();

@@ -5,7 +5,9 @@ import { MODEL_SIZE_MB, TransformersTranscriber, type DictationModel } from "./t
 @Injectable()
 export class DictationService {
   private busy = false;
-  constructor(private readonly transcriber: DictationModel = new TransformersTranscriber()) {}
+  constructor(private readonly transcriber: DictationModel = new TransformersTranscriber()) {
+    if (transcriber instanceof TransformersTranscriber) void transcriber.preloadBundledModel();
+  }
 
   status() { return { ...this.transcriber.getStatus(), ...(this.transcriber.getStatus().state === "missing" ? { sizeMb: MODEL_SIZE_MB } : {}) }; }
   download() { return this.transcriber.startDownload(); }

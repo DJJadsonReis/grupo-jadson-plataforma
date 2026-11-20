@@ -78,6 +78,66 @@
   text-rendering: optimizeLegibility;
 }
 
+/* Superfícies do redesenho: escuro é o padrão; o claro troca os mesmos tokens. */
+:root,
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --shell-canvas: #0b0b0b;
+  --shell-rail: #0e0e0e;
+  --shell-raised: #161616;
+  --shell-field: #1b1b1b;
+  --shell-hover: #161616;
+  --shell-active: #1f1f1f;
+  --shell-line: #242424;
+  --shell-line-strong: #343434;
+  --shell-text: #f5f2ea;
+  --shell-text-2: #c2bfb5;
+  --shell-text-3: #a6a297;
+  --gx-ink-3: #a6a297;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+  --gj-canvas: #f7f6f2;
+  --gj-sidebar: #eeede8;
+  --gj-surface: #ffffff;
+  --gj-surface-raised: #f2f1ec;
+  --gj-surface-pressed: #e8e6de;
+  --gj-border: #d8d5ca;
+  --gj-border-strong: #b9ad8c;
+  --gj-text: #24231f;
+  --gj-text-secondary: #4f4c44;
+  --gj-text-muted: #625f56;
+  --gj-bg-dark: #f7f6f2;
+  --gj-text-primary: #24231f;
+  --gj-text-secondary-contrast: #625f56;
+  --workspace-bg: var(--gj-canvas);
+  --workspace-sidebar: var(--gj-sidebar);
+  --workspace-surface: var(--gj-surface);
+  --workspace-border: var(--gj-border);
+  --workspace-text: var(--gj-text);
+  --workspace-muted: var(--gj-text-muted);
+  --shell-canvas: #f7f6f2;
+  --shell-rail: #eeede8;
+  --shell-raised: #ffffff;
+  --shell-field: #ffffff;
+  --shell-hover: #eae8e1;
+  --shell-active: #e4e1d7;
+  --shell-line: #dedbd2;
+  --shell-line-strong: #cbc7ba;
+  --shell-text: #24231f;
+  --shell-text-2: #4f4c44;
+  --shell-text-3: #625f56;
+  --gx-canvas: #f7f6f2;
+  --gx-ink: #24231f;
+  --gx-ink-2: #4f4c44;
+  --gx-ink-3: #625f56;
+  --gx-line: #dedbd2;
+  --gx-bubble: #e9e7e0;
+  --gx-field: #ffffff;
+  --gj-text-secondary-contrast: #625f56;
+}
+
 body,
 .app-shell {
   background: var(--gj-canvas);

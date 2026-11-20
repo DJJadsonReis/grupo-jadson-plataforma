@@ -30,14 +30,22 @@ pub fn repair_setup_config(
     let record = config.as_object_mut().ok_or_else(|| "configuração local inválida".to_string())?;
     let saved_database_url = record.get("databaseUrl").and_then(serde_json::Value::as_str).map(str::trim);
     let database_url = saved_database_url.filter(|value| valid_postgres_url(value))
-        .or_else(|| environment_database_url.map(str::trim).filter(|value| valid_postgres_url(value)))
-        .ok_or_else(|| "configure um endereço PostgreSQL antes de iniciar".to_string())?.to_string();
+        .or_else(|| environment_database_url.map(str::trim).filter(|value| valid_postgres_url(value)));
     let token_is_valid = record.get("apiToken").and_then(serde_json::Value::as_str).is_some_and(valid_api_token);
-    record.insert("databaseUrl".to_string(), serde_json::Value::String(database_url));
+    if let Some(database_url) = database_url {
+        record.insert("databaseUrl".to_string(), serde_json::Value::String(database_url.to_string()));
+    } else {
+        record.remove("databaseUrl");
+    }
     if !token_is_valid {
         record.insert("apiToken".to_string(), serde_json::Value::String(generated_token.to_string()));
     }
     Ok(config)
+}
+
+pub fn setup_needs_database_url(config: &serde_json::Value) -> bool {
+    config.get("databaseUrl").and_then(serde_json::Value::as_str)
+        .is_none_or(|value| !valid_postgres_url(value.trim()))
 }
 
 pub fn valid_api_token(value: &str) -> bool {
@@ -57,7 +65,7 @@ pub fn valid_postgres_url(value: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use super::{merge_setup_config, repair_setup_config};
+    use super::{merge_setup_config, repair_setup_config, setup_needs_database_url};
     use serde_json::{json, Value};
 
     #[test]
@@ -114,5 +122,35 @@ mod tests {
         let repaired = repair_setup_config(json!({"databaseUrl":"https://invalid","apiToken":"d".repeat(64)}), Some("postgres://localhost/app"), &"e".repeat(64)).unwrap();
         assert_eq!(repaired["databaseUrl"], "postgres://localhost/app");
         assert_eq!(repaired["apiToken"], "d".repeat(64));
+    }
+
+    #[test]
+    fn setup_repair_creates_token_without_database_url() {
+        let repaired = repair_setup_config(json!({}), None, &"f".repeat(64)).unwrap();
+        assert_eq!(repaired["apiToken"], "f".repeat(64));
+        assert!(repaired.get("databaseUrl").is_none());
+        assert!(setup_needs_database_url(&repaired));
+    }
+
+    #[test]
+    fn setup_repair_uses_environment_database_url_when_saved_url_is_missing() {
+        let repaired = repair_setup_config(json!({"apiToken":"a".repeat(64)}), Some("postgresql://localhost/app"), &"b".repeat(64)).unwrap();
+        assert_eq!(repaired["databaseUrl"], "postgresql://localhost/app");
+        assert!(!setup_needs_database_url(&repaired));
+    }
+
+    #[test]
+    fn setup_repair_preserves_valid_setup_without_changes() {
+        let setup = json!({"databaseUrl":"postgres://localhost/app","apiToken":"a".repeat(64),"other":true});
+        assert_eq!(repair_setup_config(setup.clone(), None, &"b".repeat(64)).unwrap(), setup);
+        assert!(!setup_needs_database_url(&setup));
+    }
+
+    #[test]
+    fn setup_repair_replaces_invalid_token_and_preserves_other_fields_without_url() {
+        let repaired = repair_setup_config(json!({"apiToken":"bad","other":true}), None, &"c".repeat(64)).unwrap();
+        assert_eq!(repaired["apiToken"], "c".repeat(64));
+        assert_eq!(repaired["other"], true);
+        assert!(repaired.get("databaseUrl").is_none());
     }
 }

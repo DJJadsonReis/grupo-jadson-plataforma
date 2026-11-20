@@ -1,4 +1,5 @@
 export type ApiFailure = Error & { status?: number; code?: string };
+import type { SetupRepairResult } from "./setup-status";
 
 export class BackendHealthError extends Error {
   constructor(readonly status: number) {
@@ -9,14 +10,22 @@ export class BackendHealthError extends Error {
 
 export async function repairHealthAndRetry(
   check: () => Promise<Response>,
-  repairSetup: () => Promise<unknown>,
+  repairSetup: () => Promise<SetupRepairResult>,
+  restartBackend: () => Promise<unknown>,
   onUnauthorized?: () => void,
+  onSetupStatus?: (status: SetupRepairResult | null, failed: boolean) => void,
 ): Promise<Response> {
   const first = await check();
   if (first.status !== 401) return first;
-  await repairSetup().catch(() => undefined);
+  let setup: SetupRepairResult;
+  try { setup = await repairSetup(); }
+  catch { onSetupStatus?.(null, true); onUnauthorized?.(); return first; }
+  onSetupStatus?.(setup, false);
+  if (setup.databaseUrlMissing) { onUnauthorized?.(); return first; }
+  try { await restartBackend(); }
+  catch { onSetupStatus?.(null, true); onUnauthorized?.(); return first; }
   const retried = await check();
-  if (retried.status === 401) onUnauthorized?.();
+  if (retried.status === 401) { onSetupStatus?.(setup, false); onUnauthorized?.(); }
   return retried;
 }
 

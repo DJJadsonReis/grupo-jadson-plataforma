@@ -79,6 +79,7 @@ export class DictationSession {
       if (generation !== this.generation) return;
       this.events.state("downloading", status);
       if (status.state === "ready") { await this.startRecording(generation); return; }
+      if (status.state === "missing") { this.setState("confirm-download", status); return; }
       if (status.state === "error") { this.fail(status.error ? `Falha ao baixar o modelo: ${status.error}` : "Falha ao baixar o modelo local. Tente novamente."); return; }
       await new Promise((resolve) => setTimeout(resolve, 500));
     }
