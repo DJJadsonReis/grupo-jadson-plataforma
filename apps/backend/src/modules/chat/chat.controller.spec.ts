@@ -87,6 +87,19 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
   return response;
 }
 
+const subagentRequest = (tool: string, args: Record<string, unknown> = {}) => [
+  sseResponse([toolCall("subagente.delegar", { tarefa: "execute a ferramenta disponível" })]),
+  sseResponse([toolCall(tool, args)]),
+  sseResponse([{ choices: [{ delta: { content: "subagente concluído" } }] }]),
+  sseResponse([{ choices: [{ delta: { content: "resposta final" } }] }]),
+];
+
+async function completePersistedConversation(controller: ChatController, conversationId: string) {
+  const response = new FakeResponse();
+  await controller.complete({ conversationId, messages: [{ role: "user", content: "pesquise" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+  return response;
+}
+
 describe("ChatController tool loop", () => {
   it("tenta a reserva após 429, envia o modelo respondido e registra auditoria sem dados crus", async () => {
     const mainProvider = "123e4567-e89b-42d3-a456-426614174020";
@@ -370,6 +383,46 @@ describe("ChatController tool loop", () => {
     expect(event.details).toMatchObject({ depth: 1, toolsUsed: 0 });
     expect(JSON.stringify(event)).not.toContain("pesquise");
     expect(JSON.stringify(event)).not.toContain("resultado isolado");
+  });
+
+  it.each(["manual", "aceitar_edicoes"] as const)("subagente em %s pede aprovação para busca na rede", async (mode) => {
+    const conversationId = "123e4567-e89b-42d3-a456-426614174030";
+    const invoke = jest.fn(async () => ({ id: "run-pending", tool: "busca.web", requestedBy: "Jadson", status: "pending_approval", input: {}, output: null, approvalId: "approval-1", createdAt: "", finishedAt: null }));
+    const { controller, tools, providers } = setup({ invoke, streams: subagentRequest("busca.web", { consulta: "pesquisa" }) });
+    (controller as any).conversations.isPersisted = jest.fn(async () => true);
+    tools.operationModeForChat.mockResolvedValue(mode);
+    await completePersistedConversation(controller, conversationId);
+    expect(invoke).toHaveBeenCalledWith("busca.web", { consulta: "pesquisa", conversationId }, "Jadson", undefined, "pessoa-1");
+    expect(providers.stream).toHaveBeenCalledTimes(5);
+  });
+
+  it("subagente em Planejamento não recebe rede ou escrita e bloqueia tentativa de rede", async () => {
+    const conversationId = "123e4567-e89b-42d3-a456-426614174031";
+    const invoke = jest.fn(async () => { throw Object.assign(new Error("bloqueado"), { response: { code: "OPERATION_MODE_BLOCKED" } }); });
+    const { controller, tools, inputs } = setup({ invoke, streams: [
+      sseResponse([toolCall("subagente.delegar", { tarefa: "execute a ferramenta disponível" })]),
+      sseResponse([toolCall("busca.web", { consulta: "pesquisa" })]),
+      sseResponse([{ choices: [{ delta: { content: "subagente concluído" } }] }]),
+      sseResponse([{ choices: [{ delta: { content: "resposta final" } }] }]),
+    ] });
+    (controller as any).conversations.isPersisted = jest.fn(async () => true);
+    tools.operationModeForChat.mockResolvedValue("planejamento");
+    await completePersistedConversation(controller, conversationId);
+    const subagentTools = inputs[2].tools.map((tool: any) => tool.function.name);
+    expect(subagentTools).not.toContain("busca__web");
+    expect(subagentTools).not.toContain("computador__escrever");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("subagente preserva o conversationId do servidor e não o recebido do modelo", async () => {
+    const conversationId = "123e4567-e89b-42d3-a456-426614174032";
+    const forgedConversationId = "123e4567-e89b-42d3-a456-426614174033";
+    const invoke = jest.fn(async () => ({ id: "run-done", tool: "pagina.ler", requestedBy: "Jadson", status: "done", input: {}, output: { titulo: "página" }, approvalId: null, createdAt: "", finishedAt: "" }));
+    const { controller, tools } = setup({ invoke, streams: subagentRequest("pagina.ler", { url: "https://example.invalid", conversationId: forgedConversationId }) });
+    (controller as any).conversations.isPersisted = jest.fn(async () => true);
+    tools.operationModeForChat.mockResolvedValue("automatico");
+    await completePersistedConversation(controller, conversationId);
+    expect(invoke).toHaveBeenCalledWith("pagina.ler", { url: "https://example.invalid", conversationId }, "Jadson", undefined, "pessoa-1");
   });
 
   it("recusa a quarta delegação e tarefa inválida sem abrir modelo adicional", async () => {

@@ -35,7 +35,7 @@ describe("subagentes ponta a ponta", () => {
     (controller as any).audit = audit;
     const output = new FakeResponse();
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "pedido confidencial" }] }, { principal: { id: "pessoa-1", name: "Operador", role: "operator" } }, output as unknown as Response);
-    expect(invoke).toHaveBeenCalledWith("notion.buscar", { consulta: "teste" }, "Operador", "123e4567-e89b-42d3-a456-426614174000", "pessoa-1");
+    expect(invoke).toHaveBeenCalledWith("notion.buscar", { consulta: "teste", conversationId: "123e4567-e89b-42d3-a456-426614174001" }, "Operador", "123e4567-e89b-42d3-a456-426614174000", "pessoa-1");
     expect(inputs[1].messages.at(-1)).toMatchObject({ role: "user", content: "pesquise uma página" });
     expect(inputs[2].messages.find((message: any) => message.role === "tool").content).toContain("página encontrada");
     expect(inputs[3].messages.find((message: any) => message.role === "tool").content).toContain("resultado do Notion");

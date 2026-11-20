@@ -467,7 +467,7 @@ export class ChatController {
                 limits: {
                   mask,
                   invokeTool: async (name, args) => {
-                    const value = await this.toolsService.invoke(name, args, request.principal?.name ?? "sistema", agentId, request.principal?.id);
+                    const value = await this.toolsService.invoke(name, { ...args, ...(conversationId ? { conversationId } : {}) }, request.principal?.name ?? "sistema", agentId, request.principal?.id);
                     return withUntrustedNotice(typeof value.output === "object" && value.output !== null ? value.output as Record<string, unknown> : { resultado: value.output }, name);
                   },
                 },
