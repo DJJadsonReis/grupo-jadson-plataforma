@@ -30,7 +30,7 @@ Nenhum código, `.env`, teste, `decisoes.md`, `status.md`, `build.rs`, `Cargo.lo
 ## Commit
 
 Commit principal solicitado: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`.
-Hash: será preenchido após o commit e a conferência com `git log`.
+Hash real do commit principal: `c0a2ab4` (mensagem: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`). A revisão deste campo ocorre em um commit documental subsequente.
 Autor solicitado: Jadson Reis <jrdesign9@gmail.com>, sem `Co-Authored-By`.
 
 ## Pendente
