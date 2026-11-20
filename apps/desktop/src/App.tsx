@@ -338,7 +338,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
   const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
-  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
+  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const deletedConversationIdsRef = useRef(new Set<string>());
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
@@ -809,6 +809,13 @@ function Workspace({ edition }: { edition: Edition }) {
   function saveAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!agentEditor) return;
     const saved = agentEditor;
+    const routing = saved.modelRouting;
+    const targets = [
+      ...(saved.provider && saved.model ? [{ providerId: saved.provider, model: saved.model }] : []),
+      ...(routing?.fallbacks ?? []),
+      ...Object.values(routing?.taskModels ?? {}).filter((target): target is AgentModelTarget => Boolean(target)),
+    ];
+    if (targets.some((target) => selectableProviders.find((provider) => provider.providerId === target.providerId)?.models.find((item) => item.id === target.model)?.availability === "indisponivel")) return;
     setAgents((items) => items.some((item) => item.id === saved.id) ? items.map((item) => item.id === saved.id ? saved : item) : [saved, ...items]);
     void persistAgent(saved);
     setAgentEditor(null);
@@ -2306,6 +2313,12 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
     finally { setTesting(null); }
   }
+  async function verifyModels(id: string) {
+    setTesting(id); setError(null); setNotice(null);
+    try { await api.checkModels(id); await onRefresh(); setNotice("Checagem de modelos concluída."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível verificar os modelos."); }
+    finally { setTesting(null); }
+  }
   async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
   async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
@@ -2324,8 +2337,8 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
         {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
           <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
-          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
-          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id}) — <strong>{model.availability === "disponivel" ? "Disponível" : model.availability === "indisponivel" ? "Indisponível" : "Não verificado"}</strong>{model.checkedAt ? ` · ${new Date(model.checkedAt).toLocaleString()}` : ""}</li>)}</ul>
         </article>)}
       </div>
       <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
@@ -3559,7 +3572,7 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
 /* =========================================================================
    MODAIS & HELPERS
    ========================================================================= */
-type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string }[] };
+type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }[] };
 function isCodeFileName(name: string): boolean { return /\.(?:c|cc|cpp|cs|go|h|java|js|jsx|php|py|rb|rs|sh|sql|ts|tsx|json|yaml|yml|toml|md)$/i.test(name); }
 
 function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, label }: { value?: AgentModelTarget | undefined; providers: AgentModelProviderOption[]; onChange: (value?: AgentModelTarget) => void; allowPrimary?: boolean; label: string }) {
@@ -3567,6 +3580,7 @@ function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, l
   const missingProvider = value && !providers.some((provider) => provider.providerId === value.providerId);
   const selectedProvider = value && providers.find((provider) => provider.providerId === value.providerId);
   const missingModel = value && selectedProvider && !selectedProvider.models.some((model) => model.id === value.model);
+  const selectedModel = value && selectedProvider?.models.find((model) => model.id === value.model);
   return <label><span>{label}</span><select value={selected} onChange={(event) => {
     if (!event.target.value) { onChange(undefined); return; }
     const [providerId, model] = event.target.value.split("|");
@@ -3576,8 +3590,8 @@ function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, l
     {allowPrimary && <option value="">Usar o principal</option>}
     {missingProvider && <option value={selected}>Provedor desabilitado ou indisponível: {value?.providerId}</option>}
     {missingModel && <option value={selected}>Modelo atual: {value?.model}</option>}
-    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
-  </select>{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
+    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}{model.availability === "indisponivel" ? " (indisponível)" : ""}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
+  </select>{selectedModel?.availability === "indisponivel" && <small role="alert">O modelo “{value?.model}” está indisponível em {selectedProvider?.providerName}. Escolha outro modelo antes de salvar.</small>}{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
 }
 
 function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: Agent; providers: AgentModelProviderOption[]; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -3587,6 +3601,11 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
   const fallbacks = routing.fallbacks;
   const setRouting = (next: NonNullable<Agent["modelRouting"]>) => onChange({ ...agent, modelRouting: next });
   const primaryProvider = providers.find((provider) => provider.providerId === agent.provider);
+  const unavailableTargets = [
+    ...(agent.provider && agent.model ? [{ providerId: agent.provider, model: agent.model }] : []),
+    ...fallbacks,
+    ...Object.values(routing.taskModels ?? {}).filter((target): target is AgentModelTarget => Boolean(target)),
+  ].filter((target) => providers.find((provider) => provider.providerId === target.providerId)?.models.find((model) => model.id === target.model)?.availability === "indisponivel");
   const primaryModelValue = agent.provider && agent.model && primaryProvider
     ? { providerId: agent.provider, model: agent.model } : undefined;
   const updatePrimary = (target?: AgentModelTarget) => onChange({ ...agent, provider: target?.providerId ?? "openai", model: target?.model ?? "" });
@@ -3654,7 +3673,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
         </div>
         <div className="modal-footer">
           <button type="button" className="btn-outline-sm" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn-primary-gold">{agent.name ? "Salvar" : "Criar"}</button>
+          <button type="submit" className="btn-primary-gold" disabled={unavailableTargets.length > 0}>{agent.name ? "Salvar" : "Criar"}</button>
         </div>
       </form>
     </div>

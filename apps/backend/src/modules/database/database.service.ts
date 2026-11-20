@@ -40,6 +40,7 @@ import { migrationId as modelProvidersMigrationId, up as addModelProviders } fro
 import { migrationId as agentModelRoutingMigrationId, up as addAgentModelRouting } from "./migrations/037-agent-model-routing";
 import { migrationId as providerModelsMigrationId, up as addProviderModels } from "./migrations/038-provider-discovered-models";
 import { migrationId as mcpHttpMigrationId, up as addMcpHttp } from "./migrations/039-mcp-http";
+import { migrationId as modelAvailabilityMigrationId, up as addModelAvailability } from "./migrations/040-model-availability";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -101,6 +102,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: agentModelRoutingMigrationId, apply: async () => addAgentModelRouting(this.pool!) },
         { id: providerModelsMigrationId, apply: async () => addProviderModels(this.pool!) },
         { id: mcpHttpMigrationId, apply: async () => addMcpHttp(this.pool!) },
+        { id: modelAvailabilityMigrationId, apply: async () => addModelAvailability(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

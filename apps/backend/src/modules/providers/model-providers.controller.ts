@@ -11,4 +11,5 @@ export class ModelProvidersController {
   @AdminOnly() @Patch(":id") patch(@Param("id") id: string, @Body() body: ModelProviderInput) { return this.providers.patch(id, body); }
   @AdminOnly() @Delete(":id") @HttpCode(HttpStatus.NO_CONTENT) async remove(@Param("id") id: string) { await this.providers.remove(id); }
   @AdminOnly() @Post(":id/test") test(@Param("id") id: string) { return this.providers.test(id); }
+  @AdminOnly() @Post(":id/check-models") checkModels(@Param("id") id: string) { return this.providers.checkModels(id); }
 }

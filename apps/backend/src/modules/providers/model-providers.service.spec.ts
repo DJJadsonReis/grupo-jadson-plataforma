@@ -12,15 +12,19 @@ class TestSecretBox {
 const fakeKey = "sk-teste-falso-000";
 function setup(useDefaultFetcher = false) {
   const rows: Record<string, unknown>[] = [];
+  const availability: Record<string, unknown>[] = [];
   const query = jest.fn(async (sql: string, values: unknown[] = []) => {
     if (sql.startsWith("INSERT INTO model_providers")) {
       const row = { id: values[0], kind: values[1], name: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")), enabled: true, createdAt: new Date(), updatedAt: new Date() };
       rows.push(row); return { rows: [row], rowCount: 1 };
     }
+    if (sql.startsWith("SELECT model_id,status,checked_at")) return { rows: availability.filter((row) => row.provider_id === values[0]), rowCount: availability.length };
+    if (sql.startsWith("SELECT status FROM model_availability")) return { rows: availability.filter((row) => row.provider_id === values[0] && row.model_id === values[1]), rowCount: 1 };
+    if (sql.startsWith("INSERT INTO model_availability")) { const [provider_id, model_id, status] = values; const old = availability.find((row) => row.provider_id === provider_id && row.model_id === model_id); if (old) old.status = status; else availability.push({ provider_id, model_id, status, checked_at: new Date() }); return { rows: [], rowCount: 1 }; }
     if (sql.startsWith("SELECT id,kind,name,models_json")) return { rows: rows.filter((row) => row.enabled === true && row.secretCiphertext !== "").map(({ id, kind, name, models }) => ({ id, kind, name, models })), rowCount: rows.length };
     if (sql.startsWith("SELECT id,kind,name,base_url AS \"baseUrl\"")) {
       const found = sql.includes("WHERE id=$1") ? rows.filter((row) => row.id === values[0]) : rows.filter((row) => row.enabled === true && row.secretCiphertext !== "");
-      return { rows: found, rowCount: found.length };
+      return { rows: found.map((row) => ({ ...row, models: rows.find((item) => item.id === row.id)?.models })), rowCount: found.length };
     }
     if (sql.startsWith("SELECT name FROM integrations")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("UPDATE model_providers")) {
@@ -35,7 +39,7 @@ function setup(useDefaultFetcher = false) {
   const service = new ModelProvidersService(database);
   service.setTestSecretBox(new TestSecretBox() as never);
   if (!useDefaultFetcher) service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["8.8.8.8"]);
-  return { service, rows, query };
+  return { service, rows, query, availability };
 }
 
 describe("ModelProvidersService", () => {
@@ -49,10 +53,45 @@ describe("ModelProvidersService", () => {
   it("discovers models on create, persists them, and exposes them for chat and agents", async () => {
     const { service, rows } = setup();
     const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
-    expect(created.models).toEqual([{ id: "model-falso", label: "Modelo falso" }]);
-    expect(await service.selectable()).toEqual([{ providerId: created.id, providerName: "OpenAI falso", models: created.models }]);
+    expect(created.models).toEqual([expect.objectContaining({ id: "model-falso", label: "Modelo falso", availability: "disponivel", checkedAt: expect.any(Date) })]);
+    expect(await service.selectable()).toEqual([{ providerId: created.id, providerName: "OpenAI falso", models: [{ id: "model-falso", label: "Modelo falso" }] }]);
     await expect(service.validateAgentTarget(created.id, "model-falso")).resolves.toBeUndefined();
-    expect(rows[0]?.models).toEqual(created.models);
+    expect(rows[0]?.models).toEqual([{ id: "model-falso", label: "Modelo falso" }]);
+  });
+  it.each(["openai", "anthropic", "gemini", "xai", "custom"] as const)("records model availability for %s and blocks unavailable agent targets", async (kind) => {
+    const { service, availability } = setup();
+    const input = { kind, name: `provedor ${kind}`, apiKey: fakeKey, ...(kind === "custom" ? { baseUrl: "http://127.0.0.1:9000/v1", allowLocal: true } : {}) };
+    const created = await service.create(input);
+    expect(created.models[0]).toMatchObject({ availability: "disponivel", checkedAt: expect.any(Date) });
+    expect(availability[0]).toMatchObject({ status: "disponivel" });
+    service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
+    const checked = await service.checkModels(created.id);
+    expect(checked.models.find((model) => model.id === "model-falso")?.availability).toBe("indisponivel");
+    await expect(service.validateAgentTarget(created.id, "model-falso")).rejects.toMatchObject({ response: { code: "MODEL_UNAVAILABLE" } });
+  });
+  it("marks failed checks not verified without exposing keys", async () => {
+    const { service, availability } = setup(); const created = await service.create({ kind: "openai", name: "Falso", apiKey: fakeKey });
+    service.setTestDependencies(jest.fn(async () => { throw new Error(`failed ${fakeKey}`); }));
+    const checked = await service.checkModels(created.id);
+    expect(checked.models[0]?.availability).toBe("nao_verificado");
+    expect(availability[0]).toMatchObject({ status: "nao_verificado" });
+    expect(JSON.stringify(checked)).not.toContain(fakeKey);
+  });
+  it("blocks the chat check before a provider request and marks upstream missing models unavailable", async () => {
+    const { service, availability } = setup(); const created = await service.create({ kind: "openai", name: "Falso", apiKey: fakeKey });
+    service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
+    await service.checkModels(created.id);
+    await expect(service.assertAvailable(created.id, "model-falso")).rejects.toMatchObject({ response: { code: "MODEL_UNAVAILABLE", message: expect.stringContaining("model-falso") } });
+    await service.markDiscoveredModelUnavailable(created.id, "modelo-inesistente");
+    expect(availability.find((entry) => entry.model_id === "modelo-inesistente")?.status).toBe("indisponivel");
+    expect(JSON.stringify(availability)).not.toContain(fakeKey);
+  });
+  it("persists removed models as unavailable when a new list responds", async () => {
+    const { service, availability } = setup(); const created = await service.create({ kind: "openai", name: "Falso", apiKey: fakeKey });
+    service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })));
+    await service.checkModels(created.id);
+    expect(availability.find((entry) => entry.model_id === "model-falso")?.status).toBe("indisponivel");
+    expect((await service.list())[0]?.models[0]).toMatchObject({ id: "model-falso", availability: "indisponivel", checkedAt: expect.any(Date) });
   });
   it("keeps a saved key and returns a safe warning when discovery fails", async () => {
     const { service, rows } = setup();
@@ -85,7 +124,11 @@ describe("ModelProvidersService", () => {
     const unchanged = await service.patch(created.id, { apiKey: "  " });
     expect(fetcher).toHaveBeenCalledTimes(before); expect(unchanged.models).toEqual(created.models);
     const replaced = await service.patch(created.id, { apiKey: "sk-teste-falso-001" });
-    expect(fetcher).toHaveBeenCalledTimes(before + 1); expect(replaced.models).toEqual([{ id: "novo-modelo", label: "novo-modelo" }]);
+    expect(fetcher).toHaveBeenCalledTimes(before + 1);
+    expect(replaced.models).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: "novo-modelo", label: "novo-modelo", availability: "disponivel" }),
+      expect.objectContaining({ id: "model-falso", availability: "indisponivel" }),
+    ]));
   });
   it("does not replace a key when PATCH receives an empty apiKey", async () => {
     const { service, rows } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
@@ -122,8 +165,8 @@ describe("ModelProvidersService", () => {
     jest.useFakeTimers();
     try {
       const pending = service.test(created.id);
-      await jest.advanceTimersByTimeAsync(8000);
-      await expect(pending).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/8 segundos/i) });
+      await jest.advanceTimersByTimeAsync(10_000);
+      await expect(pending).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/10 segundos/i) });
     } finally { jest.useRealTimers(); }
   });
   it("pins discovery to the just-validated address, blocks rebinding, and rejects redirects", async () => {
@@ -170,7 +213,7 @@ describe("ModelProvidersService", () => {
       const { port } = server.address() as AddressInfo;
       const { service } = setup(true);
       const created = await service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, allowLocal: true, apiKey: fakeKey });
-      expect(created.models).toEqual([{ id: "modelo-local", label: "Modelo local" }]);
+      expect(created.models).toEqual([expect.objectContaining({ id: "modelo-local", label: "Modelo local", availability: "disponivel" })]);
       const fetcher = (service as unknown as { fetcher: (url: string, init: RequestInit) => Promise<Response> }).fetcher;
       const response = await fetcher(`http://localhost:${port}/v1/models`, { method: "GET", headers: {}, signal: new AbortController().signal, redirect: "manual", address: "127.0.0.1" } as RequestInit & { address: string });
       expect(response).toBeInstanceOf(Response);

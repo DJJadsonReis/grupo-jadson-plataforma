@@ -52,8 +52,9 @@ export class ProvidersService {
   stream(input: CompletionInput, signal?: AbortSignal) {
     if (input.providerId && this.modelProviders) return this.modelProviders.forChat(input.providerId).then(({ kind, baseUrl, apiKey }) => {
       const selectedModel = input.model || modelsForProvider(kind)[0]?.id || MODEL_CATALOGUE.find((model) => model.provider === kind)?.id || "";
-      if (kind === "anthropic") return this.streamManagedAnthropic(input, apiKey, selectedModel, signal);
-      return this.streamManagedCompatible(input, baseUrl ?? this.defaultUrl(kind), apiKey, selectedModel, signal);
+      return this.modelProviders!.assertAvailable(input.providerId!, selectedModel).then(() => kind === "anthropic"
+        ? this.streamManagedAnthropic(input, apiKey, selectedModel, signal)
+        : this.streamManagedCompatible(input, baseUrl ?? this.defaultUrl(kind), apiKey, selectedModel, signal));
     });
     return input.provider === "anthropic" ? this.anthropic.stream(input, signal) : this.openAi.stream(input, signal);
   }
@@ -62,6 +63,7 @@ export class ProvidersService {
     if (!this.modelProviders) throw new Error("managed provider service unavailable");
     await this.modelProviders.forChat(id);
   }
+  async validateManagedModel(id: string, model: string): Promise<void> { await this.modelProviders?.assertAvailable(id, model); }
 
   private defaultUrl(kind: string): string {
     const roots: Record<string, string> = { openai: "https://api.openai.com/v1", gemini: "https://generativelanguage.googleapis.com/v1beta/openai", xai: "https://api.x.ai/v1" };
@@ -79,7 +81,9 @@ export class ProvidersService {
     } catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
     if (isProviderRedirect(response.status)) throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "O provedor de IA redirecionou a solicitação." });
     if (!response.ok) {
-      const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
+      const modelUnavailable = (response.status === 400 || response.status === 404) && await this.modelUnavailable(response);
+      if (modelUnavailable && input.providerId) await this.modelProviders?.markDiscoveredModelUnavailable(input.providerId, model);
+      if (modelUnavailable) throw new HttpException({ code: "MODEL_UNAVAILABLE", message: `O modelo “${model}” está indisponível neste provedor. Escolha outro modelo antes de continuar.` }, 400);
       throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `O modelo respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);
     }
     return response;
@@ -91,7 +95,9 @@ export class ProvidersService {
     try { response = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(translateAnthropicRequest({ ...input, model })) }); }
     catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor Anthropic." }); }
     if (!response.ok) {
-      const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
+      const modelUnavailable = (response.status === 400 || response.status === 404) && await this.modelUnavailable(response);
+      if (modelUnavailable && input.providerId) await this.modelProviders?.markDiscoveredModelUnavailable(input.providerId, model);
+      if (modelUnavailable) throw new HttpException({ code: "MODEL_UNAVAILABLE", message: `O modelo “${model}” está indisponível no provedor Anthropic. Escolha outro modelo antes de continuar.` }, 400);
       throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `Anthropic respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);
     }
     return anthropicStreamToOpenAi(response);
