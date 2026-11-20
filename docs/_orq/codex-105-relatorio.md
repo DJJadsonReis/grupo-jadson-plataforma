@@ -1,4 +1,4 @@
-# Relat?rio da tarefa 105
+﻿# Relat?rio da tarefa 105
 
 ## O que foi feito
 
@@ -41,9 +41,10 @@ Resultado: exit 0; `PIPELINE_READY_MS=808`. O pipeline real carregou sem rede; n
 - `scripts/fetch-dictation-model.mjs`
 - `docs/_orq/codex-105-relatorio.md`
 
-Commit: `(preenchido após commit)` ? `fix(dictation): modelo embutido no layout que o transformers usa, com teste de caminho`.
+Commit: `(preenchido apÃ³s commit)` ? `fix(dictation): modelo embutido no layout que o transformers usa, com teste de caminho`.
 
 ## Pendente
 
 - Gerar o instalador e verificar o recurso dentro do execut?vel: n?o executado, pois `makensis` n?o est? dispon?vel neste ambiente; essa verifica??o depende do dono.
 - N?o foi feito push.
+
