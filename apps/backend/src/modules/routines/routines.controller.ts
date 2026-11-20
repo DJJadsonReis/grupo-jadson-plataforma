@@ -11,11 +11,13 @@ export class RoutinesController {
   }
 
   @Post()
-  create(@Body() body: { name?: unknown; tool?: unknown; intervalMinutes?: unknown }, @Req() request: { principal?: { id: string } }) {
-    if (typeof body?.name !== "string" || typeof body?.tool !== "string" || typeof body?.intervalMinutes !== "number") {
-      throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Informe nome, ferramenta e intervalo em minutos." });
+  create(@Body() body: { name?: unknown; tool?: unknown; intervalMinutes?: unknown; dailyAt?: unknown }, @Req() request: { principal?: { id: string } }) {
+    const intervalMode = typeof body?.intervalMinutes === "number" && body?.dailyAt === undefined;
+    const dailyMode = typeof body?.dailyAt === "string" && body?.intervalMinutes === undefined && /^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(body.dailyAt);
+    if (typeof body?.name !== "string" || typeof body?.tool !== "string" || (!intervalMode && !dailyMode)) {
+      throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Informe nome, ferramenta e apenas um agendamento: intervalo ou horário diário." });
     }
-    return this.routines.create({ name: body.name, tool: body.tool, intervalMinutes: body.intervalMinutes, owner: request.principal?.id ?? "sistema" });
+    return this.routines.create({ name: body.name, tool: body.tool, ...(intervalMode ? { intervalMinutes: body.intervalMinutes as number } : { dailyAt: body.dailyAt as string }), owner: request.principal?.id ?? "sistema" });
   }
 
   @Put(":id/enabled")

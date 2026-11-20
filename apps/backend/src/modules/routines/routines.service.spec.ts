@@ -1,7 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { ToolsService } from "../tools/tools.service";
-import { nextRunFrom, RoutinesService } from "./routines.service";
+import { nextDailyRunFrom, nextRunFrom, RoutinesService } from "./routines.service";
 
 describe("nextRunFrom", () => {
   const now = new Date("2026-11-08T10:00:00Z");
@@ -22,6 +22,22 @@ describe("nextRunFrom", () => {
   });
 });
 
+describe("nextDailyRunFrom", () => {
+  it("agenda hoje se o horário ainda não chegou", () => expect(nextDailyRunFrom(new Date(2026, 0, 31, 7, 30), "08:00").getTime()).toBe(new Date(2026, 0, 31, 8).getTime()));
+  it("agenda amanhã se o horário passou ou é exatamente agora", () => {
+    expect(nextDailyRunFrom(new Date(2026, 0, 31, 9), "08:00").getTime()).toBe(new Date(2026, 1, 1, 8).getTime());
+    expect(nextDailyRunFrom(new Date(2026, 0, 31, 8), "08:00").getTime()).toBe(new Date(2026, 1, 1, 8).getTime());
+  });
+  it("trata 00:00 e 23:59 e a virada do mês", () => {
+    expect(nextDailyRunFrom(new Date(2026, 0, 31, 0, 0), "00:00").getDate()).toBe(1);
+    expect(nextDailyRunFrom(new Date(2026, 0, 31, 23, 58), "23:59").getDate()).toBe(31);
+    expect(nextDailyRunFrom(new Date(2026, 0, 31, 9), "08:00").toString()).toContain("Feb 01 2026");
+  });
+  it.each(["8:00", "24:00", "12:60", "abc", 800])("recusa horário inválido %p", (value) => {
+    expect(() => nextDailyRunFrom(new Date(), value as string)).toThrow(BadRequestException);
+  });
+});
+
 describe("limites de rotinas", () => {
   const catalog = [{ name: "tempo.agora", description: "", risk: "read" }];
 
@@ -31,6 +47,12 @@ describe("limites de rotinas", () => {
     };
     const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, { catalog: () => catalog } as unknown as ToolsService);
     await expect(service.create({ name: "x", tool: "tempo.agora", intervalMinutes: 60 })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("recusa rotina diária quando já há 20 ativas", async () => {
+    const pool = { query: async (text: string) => text.includes("count(*)") ? { rows: [{ n: 20 }], rowCount: 1 } : { rows: [], rowCount: 0 } };
+    const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, { catalog: () => catalog } as unknown as ToolsService);
+    await expect(service.create({ name: "x", tool: "tempo.agora", dailyAt: "08:00" })).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("recusa ligar uma rotina quando já há 20 ativas", async () => {
@@ -52,7 +74,7 @@ describe("limites de rotinas", () => {
     const pool = {
       query: async (text: string, params?: unknown[]) => {
         if (text.includes("WHERE enabled = true AND next_run_at")) {
-          return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 15 }], rowCount: 1 };
+          return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 1440, dailyAt: "08:00" }], rowCount: 1 };
         }
         if (text.startsWith("UPDATE routines")) updates.push(params ?? []);
         return { rows: [], rowCount: 1 };
@@ -81,12 +103,29 @@ describe("RoutinesService.create", () => {
     await expect(service.create({ name: "x", tool: "memoria.apagar_tudo", intervalMinutes: 60 })).rejects.toBeInstanceOf(BadRequestException);
   });
 
+  it("não agenda ferramenta sensível em frequência diária", async () => {
+    await expect(service.create({ name: "x", tool: "memoria.apagar_tudo", dailyAt: "08:00" })).rejects.toBeInstanceOf(BadRequestException);
+  });
+
   it("não agenda ferramenta inexistente", async () => {
     await expect(service.create({ name: "x", tool: "shell.executar", intervalMinutes: 60 })).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
 describe("RoutinesService.tick", () => {
+  it("recalcula a próxima execução diária no horário, em vez de somar 1440 minutos", async () => {
+    const queries: { text: string; params?: unknown[] }[] = [];
+    const pool = { query: async (text: string, params?: unknown[]) => {
+      queries.push({ text, ...(params ? { params } : {}) });
+      if (text.includes("FOR UPDATE SKIP LOCKED")) return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", owner: "dono", intervalMinutes: 1440, dailyAt: "08:00", claimToken: "claim-1" }], rowCount: 1 };
+      return { rows: [], rowCount: 1 };
+    } };
+    const service = new RoutinesService({ getPool: () => pool, isReady: () => true } as unknown as DatabaseService, { invoke: async () => ({}) } as unknown as ToolsService);
+    const now = new Date(2026, 0, 31, 9);
+    await service.tick(now);
+    expect(queries[0]?.text).toContain('r.daily_at AS "dailyAt"');
+    expect(queries[1]?.params?.[3]).toEqual(new Date(2026, 1, 1, 8));
+  });
   it("consulta disparos vencidos no PostgreSQL para retomar depois do boot", async () => {
     const query = jest.fn(async () => ({ rows: [], rowCount: 0 }));
     const service = new RoutinesService({ getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService, {} as ToolsService);

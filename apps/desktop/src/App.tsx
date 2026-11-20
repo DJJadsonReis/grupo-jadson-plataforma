@@ -2,6 +2,7 @@ import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIco
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { buildGroupRequest, readGroupMentions } from "./lib/groups";
+import { buildRoutinePayload, describeRoutineSchedule, type RoutineFrequency } from "./lib/routines";
 import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPreference, shouldAutoRead } from "./lib/read-aloud";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
@@ -3291,7 +3292,7 @@ function ActivityPage() {
   );
 }
 
-type RoutineEntry = { id: string; name: string; tool: string; intervalMinutes: number; enabled: boolean; nextRunAt: string; lastStatus: string | null };
+type RoutineEntry = { id: string; name: string; tool: string; intervalMinutes: number; dailyAt: string | null; enabled: boolean; nextRunAt: string; lastStatus: string | null };
 
 /** Rotinas: uma ferramenta de leitura roda sozinha a cada N minutos. Sensíveis não entram aqui. */
 function RoutinesSection() {
@@ -3300,6 +3301,8 @@ function RoutinesSection() {
   const [name, setName] = useState("");
   const [tool, setTool] = useState("");
   const [minutes, setMinutes] = useState(60);
+  const [frequency, setFrequency] = useState<RoutineFrequency>("interval");
+  const [dailyAt, setDailyAt] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
 
@@ -3338,8 +3341,10 @@ function RoutinesSection() {
   }
 
   async function create() {
-    if (!name.trim() || !tool) return;
-    const ok = await send("/routines", "POST", { name: name.trim(), tool, intervalMinutes: minutes });
+    let payload;
+    try { payload = buildRoutinePayload({ name, tool, frequency, intervalMinutes: minutes, dailyAt }); }
+    catch (error) { setError(error instanceof Error ? error.message : "Revise os campos da rotina."); return; }
+    const ok = await send("/routines", "POST", payload);
     if (ok) setName("");
   }
 
@@ -3359,16 +3364,20 @@ function RoutinesSection() {
         <select value={tool} onChange={(event) => setTool(event.target.value)} aria-label="Ferramenta">
           {tools.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
         </select>
-        <input type="number" min={1} max={1440} value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} aria-label="Intervalo em minutos" style={{ width: 70, background: "transparent", color: "inherit" }} />
-        <span>min</span>
-        <button className="btn-primary-gold" onClick={create} disabled={!name.trim() || !tool}>Agendar</button>
+        <label>Frequência</label>
+        <select value={frequency} onChange={(event) => setFrequency(event.target.value as RoutineFrequency)} aria-label="Frequência">
+          <option value="interval">A cada N minutos</option>
+          <option value="daily">Todo dia às</option>
+        </select>
+        {frequency === "interval" ? <><input type="number" min={15} max={1440} value={minutes} onChange={(event) => setMinutes(Number(event.target.value))} aria-label="Intervalo em minutos" style={{ width: 70, background: "transparent", color: "inherit" }} /><span>min</span></> : <input type="time" value={dailyAt} onChange={(event) => setDailyAt(event.target.value)} aria-label="Horário diário" />}
+        <button className="btn-primary-gold" onClick={create} disabled={!name.trim() || !tool || (frequency === "daily" && !dailyAt)}>Agendar</button>
       </div>
       {routines.length === 0 ? (
         <p>Nenhuma rotina agendada.</p>
       ) : (
         routines.map((routine) => (
           <div className="workspace-fact" key={routine.id}>
-            <b>{routine.name} · {routine.tool} a cada {routine.intervalMinutes} min{routine.enabled ? "" : " (pausada)"}</b>
+            <b>{routine.name} · {describeRoutineSchedule(routine)}{routine.enabled ? "" : " (pausada)"}</b>
             <span style={{ display: "flex", gap: 6 }}>
               <button className="icon-btn-close" onClick={() => void send(`/routines/${routine.id}/enabled`, "PUT", { enabled: !routine.enabled })}>
                 {routine.enabled ? "Pausar" : "Retomar"}

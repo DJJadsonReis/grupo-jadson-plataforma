@@ -18,6 +18,7 @@ export interface Routine {
   name: string;
   tool: string;
   intervalMinutes: number;
+  dailyAt: string | null;
   enabled: boolean;
   nextRunAt: string;
   lastRunAt: string | null;
@@ -32,8 +33,20 @@ export function nextRunFrom(now: Date, intervalMinutes: number): Date {
   return new Date(now.getTime() + intervalMinutes * 60_000);
 }
 
+/** Próxima ocorrência diária de HH:MM no fuso local do backend, estritamente após now. */
+export function nextDailyRunFrom(now: Date, dailyAt: string): Date {
+  if (!/^([01][0-9]|2[0-3]):[0-5][0-9]$/.test(dailyAt)) {
+    throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Informe um horário válido no formato HH:MM (00:00 a 23:59)." });
+  }
+  const [hours = 0, minutes = 0] = dailyAt.split(":").map(Number);
+  const next = new Date(now);
+  next.setHours(hours, minutes, 0, 0);
+  if (next.getTime() <= now.getTime()) next.setDate(next.getDate() + 1);
+  return next;
+}
+
 const COLUMNS = `id, name, tool, interval_minutes AS "intervalMinutes", enabled,
-  next_run_at AS "nextRunAt", last_run_at AS "lastRunAt", last_status AS "lastStatus"`;
+  next_run_at AS "nextRunAt", last_run_at AS "lastRunAt", last_status AS "lastStatus", daily_at AS "dailyAt"`;
 
 /**
  * Rotinas agendadas. Só ferramentas de leitura podem ser agendadas: as sensíveis precisam de
@@ -56,7 +69,10 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     if (this.timer) clearTimeout(this.timer);
   }
 
-  async create(input: { name: string; tool: string; intervalMinutes: number; owner?: string }): Promise<Routine> {
+  async create(input: { name: string; tool: string; intervalMinutes?: number; dailyAt?: string; owner?: string }): Promise<Routine> {
+    const hasInterval = input.intervalMinutes !== undefined;
+    const hasDailyAt = input.dailyAt !== undefined;
+    if (hasInterval === hasDailyAt) throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Informe um intervalo ou um horário diário, sem combinar os dois." });
     const name = input.name.trim();
     if (!name || name.length > 80) throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Dê um nome de até 80 caracteres." });
     const tool = this.tools.catalog().find((item) => item.name === input.tool);
@@ -64,11 +80,13 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
     if (tool.risk !== "read") {
       throw new BadRequestException({ code: "INVALID_ROUTINE", message: "Só ferramentas de leitura podem ser agendadas." });
     }
-    const next = nextRunFrom(new Date(), input.intervalMinutes);
+    const now = new Date();
+    const intervalMinutes = hasDailyAt ? 1440 : input.intervalMinutes!;
+    const next = hasDailyAt ? nextDailyRunFrom(now, input.dailyAt!) : nextRunFrom(now, intervalMinutes);
     await this.assertRoomForOneMore();
     const result = await this.database.getPool().query(
-      `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at, owner) VALUES ($1,$2,$3,$4,$5,$6) RETURNING ${COLUMNS}`,
-      [randomUUID(), name, tool.name, input.intervalMinutes, next, input.owner ?? "sistema"],
+      `INSERT INTO routines(id, name, tool, interval_minutes, next_run_at, owner, daily_at) VALUES ($1,$2,$3,$4,$5,$6,$7) RETURNING ${COLUMNS}`,
+      [randomUUID(), name, tool.name, intervalMinutes, next, input.owner ?? "sistema", input.dailyAt ?? null],
     );
     await this.scheduleNextTick();
     return result.rows[0] as Routine;
@@ -132,10 +150,10 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
          )
          UPDATE routines r SET claim_until = $2, claim_token = $3
          FROM due WHERE r.id = due.id
-         RETURNING r.id, r.name, r.tool, r.owner, r.interval_minutes AS "intervalMinutes", r.claim_token AS "claimToken"`,
+           RETURNING r.id, r.name, r.tool, r.owner, r.interval_minutes AS "intervalMinutes", r.daily_at AS "dailyAt", r.claim_token AS "claimToken"`,
         [now, leaseUntil, claimToken],
       );
-      for (const row of due.rows as { id: string; name: string; tool: string; owner: string; intervalMinutes: number; claimToken: string }[]) {
+      for (const row of due.rows as { id: string; name: string; tool: string; owner: string; intervalMinutes: number; dailyAt: string | null; claimToken: string }[]) {
         let status = "done";
         try {
           await this.tools.invoke(row.tool, {}, `rotina:${row.name}`);
@@ -151,7 +169,7 @@ export class RoutinesService implements OnModuleInit, OnModuleDestroy {
              enabled = CASE WHEN $3 = 'failed' AND failure_streak + 1 >= $5 THEN false ELSE enabled END
            , claim_until = NULL, claim_token = NULL
            WHERE id = $1 AND claim_token = $6`,
-          [row.id, now, status, nextRunFrom(now, row.intervalMinutes), MAX_FAILURE_STREAK, row.claimToken],
+          [row.id, now, status, row.dailyAt ? nextDailyRunFrom(now, row.dailyAt) : nextRunFrom(now, row.intervalMinutes), MAX_FAILURE_STREAK, row.claimToken],
         );
         if (status === "failed") {
           this.logger.warn(`Rotina ${row.name}: falha registrada (limite de ${MAX_FAILURE_STREAK} falhas seguidas desliga a rotina).`);
