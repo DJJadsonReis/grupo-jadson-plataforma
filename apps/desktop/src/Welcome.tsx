@@ -3,6 +3,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { Check, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
 import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput, type FirstRunHealth } from "./lib/first-run";
+import { evaluateWindowsBuild, type WindowsBuildEvaluation } from "./lib/windows-requirements";
 
 type Props = { apiUrl: string; onComplete: () => void };
 
@@ -17,6 +18,15 @@ export function Welcome({ apiUrl, onComplete }: Props) {
   const [showServicesDialog, setShowServicesDialog] = useState(false);
   const [startingServices, setStartingServices] = useState(false);
   const [servicesOutput, setServicesOutput] = useState<string | null>(null);
+  const [windowsRequirement, setWindowsRequirement] = useState<WindowsBuildEvaluation | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    void invoke<string>("get_windows_build")
+      .then((build) => { if (active) setWindowsRequirement(evaluateWindowsBuild(build)); })
+      .catch(() => { if (active) setWindowsRequirement(evaluateWindowsBuild(undefined)); });
+    return () => { active = false; };
+  }, []);
 
   const check = useCallback(async () => {
     setChecking(true);
@@ -60,6 +70,7 @@ export function Welcome({ apiUrl, onComplete }: Props) {
   }
 
   async function requestServicesStart() {
+    if (windowsRequirement?.status === "bloqueado") return;
     setError(null);
     setServicesOutput(null);
     try {
@@ -98,6 +109,9 @@ export function Welcome({ apiUrl, onComplete }: Props) {
         <h1 id="welcome-title">Vamos preparar o Grupo Jadson</h1>
         <p>Este assistente verifica os serviços locais e salva a configuração mínima neste computador.</p>
 
+        {windowsRequirement?.status === "bloqueado" && <div className="gallery-notice-pill" role="alert">{windowsRequirement.message}</div>}
+        {windowsRequirement?.status === "indisponivel" && <small role="status">{windowsRequirement.message}</small>}
+
         <div className="welcome-checklist" aria-live="polite">
           <div className="welcome-check-row">
             <span className={databaseReady ? "welcome-state ready" : "welcome-state"}>{databaseReady ? <Check size={15} /> : <CircleAlert size={15} />}</span>
@@ -134,7 +148,7 @@ export function Welcome({ apiUrl, onComplete }: Props) {
         <div className="welcome-restart">
           <strong>Inicialização local</strong>
           <span>O script pode iniciar PostgreSQL (se disponível), Redis (se disponível), backend e interface Vite. Os logs ficam em <code>.runtime\logs</code> (incluindo PostgreSQL e Redis); os PIDs ficam em <code>.runtime\processes.json</code> e, para PostgreSQL, em <code>.runtime\database\postmaster.pid</code>.</span>
-          <button type="button" className="btn-primary-gold" onClick={() => void requestServicesStart()} disabled={startingServices}>{startingServices ? "Iniciando serviços…" : "Iniciar serviços locais"}</button>
+          <button type="button" className="btn-primary-gold" onClick={() => void requestServicesStart()} disabled={startingServices || windowsRequirement?.status === "bloqueado"}>{startingServices ? "Iniciando serviços…" : "Iniciar serviços locais"}</button>
         </div>
 
         {servicesOutput && <pre className="welcome-restart" role="status" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{servicesOutput}</pre>}

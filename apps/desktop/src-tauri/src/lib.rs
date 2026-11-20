@@ -127,6 +127,31 @@ fn open_external(url: String) -> Result<(), String> {
     Ok(())
 }
 
+fn parse_reg_build(output: &str) -> Option<u32> {
+    output.lines().find_map(|line| {
+        let mut columns = line.split_whitespace();
+        if columns.next()? != "CurrentBuild" { return None; }
+        columns.nth(1)?.parse::<u32>().ok()
+    })
+}
+
+#[tauri::command]
+fn get_windows_build() -> Result<String, String> {
+    #[cfg(target_os = "windows")]
+    {
+        let output = Command::new("reg")
+            .args(["query", "HKLM\\SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion", "/v", "CurrentBuild"])
+            .output()
+            .map_err(|_| "não foi possível consultar a versão do Windows".to_string())?;
+        if !output.status.success() { return Err("não foi possível consultar a versão do Windows".to_string()); }
+        let text = String::from_utf8_lossy(&output.stdout);
+        return parse_reg_build(&text).map(|build| build.to_string())
+            .ok_or_else(|| "não foi possível interpretar a versão do Windows".to_string());
+    }
+    #[cfg(not(target_os = "windows"))]
+    Err("a consulta da versão do Windows não está disponível neste sistema".to_string())
+}
+
 fn desktop_setup_path() -> Result<PathBuf, String> {
     let root = std::env::var_os("LOCALAPPDATA")
         .map(PathBuf::from)
@@ -314,7 +339,7 @@ fn get_first_run_api_token() -> Result<String, String> {
 
 #[cfg(test)]
 mod tests {
-    use super::merge_setup_config;
+    use super::{merge_setup_config, parse_reg_build};
     use serde_json::{json, Value};
 
     #[test]
@@ -344,6 +369,17 @@ mod tests {
     fn consent_merge_rejects_non_object_config_like_existing_behavior() {
         assert!(merge_setup_config(json!(null), &[("servicesConsent", Value::Bool(true))]).is_err());
     }
+
+    #[test]
+    fn parses_reg_query_build() {
+        assert_eq!(parse_reg_build("\nHKEY_LOCAL_MACHINE\\...\n    CurrentBuild    REG_SZ    26200\n"), Some(26200));
+    }
+
+    #[test]
+    fn rejects_missing_or_invalid_reg_query_build() {
+        assert_eq!(parse_reg_build(""), None);
+        assert_eq!(parse_reg_build("CurrentBuild REG_SZ abc"), None);
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -352,7 +388,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
