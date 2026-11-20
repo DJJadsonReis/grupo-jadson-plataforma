@@ -2263,7 +2263,6 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
-  const [models, setModels] = useState<Record<string, { id: string; label: string }[]>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const api = new ModelProvidersApi(apiFetch, API_URL);
   async function submit(event: FormEvent) {
@@ -2278,7 +2277,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   }
   async function test(id: string) {
     setTesting(id); setError(null); setNotice(null);
-    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; setModels((current) => ({ ...current, [id]: discovered })); const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
+    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); await onRefresh(); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
     finally { setTesting(null); }
   }
@@ -2301,7 +2300,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
           <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
           <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
-          <ul>{(models[provider.id] ?? provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>
+          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>
         </article>)}
       </div>
       <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
