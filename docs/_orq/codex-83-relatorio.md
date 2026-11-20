@@ -30,7 +30,7 @@ Nenhum código, `.env`, teste, `decisoes.md`, `status.md`, `build.rs`, `Cargo.lo
 ## Commit
 
 Commit principal solicitado: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`.
-Hash real do commit principal: `c0a2ab4` (mensagem: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`). A revisão deste campo e o ajuste de status detalhado foram registrados em commits documentais subsequentes.
+Hash real do commit principal: `c0a2ab4b973a3c73ec32e5437774824830a2964a` (mensagem: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`). A revisão deste campo e o ajuste de status detalhado foram registrados em commits documentais subsequentes.
 Autor solicitado: Jadson Reis <jrdesign9@gmail.com>, sem `Co-Authored-By`.
 
 ## Pendente
