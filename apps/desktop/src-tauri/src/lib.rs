@@ -7,6 +7,7 @@ use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
+use tauri::Manager;
 
 use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::{merge_setup_config, repair_setup_config, setup_needs_database_url, valid_api_token}, valid_postgres_archive_path, valid_sha256};
 
@@ -138,6 +139,17 @@ fn find_project_root() -> Option<PathBuf> {
     }
     candidates.into_iter().flat_map(|path| path.ancestors().map(PathBuf::from).collect::<Vec<_>>())
         .find(|root| root.join("scripts").join("start.ps1").is_file())
+}
+
+fn bundled_dictation_model_dir(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    if cfg!(debug_assertions) {
+        if let Some(root) = find_project_root() {
+            return Ok(root.join("apps").join("desktop").join("src-tauri").join("resources").join("dictation-model"));
+        }
+    }
+    app.path().resource_dir()
+        .map(|path| path.join("dictation-model"))
+        .map_err(|_| "Não foi possível localizar os recursos locais do ditado.".to_string())
 }
 
 #[derive(serde::Serialize)]
@@ -284,22 +296,23 @@ fn ensure_desktop_setup() -> Result<SetupRepairStatus, String> {
 }
 
 #[tauri::command]
-async fn restart_local_backend() -> Result<(), String> {
-    tauri::async_runtime::spawn_blocking(run_local_backend_restart)
+async fn restart_local_backend(app: tauri::AppHandle) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || run_local_backend_restart(&app))
         .await.map_err(|_| "não foi possível acompanhar a reinicialização do backend".to_string())?
 }
 
-fn run_local_backend_restart() -> Result<(), String> {
+fn run_local_backend_restart(app: &tauri::AppHandle) -> Result<(), String> {
     let setup = read_setup_config()?;
     if setup_needs_database_url(&setup) || !setup.get("apiToken").and_then(serde_json::Value::as_str).is_some_and(valid_api_token) {
         return Err("Informe o endereço do PostgreSQL nas configurações antes de reconectar.".to_string());
     }
     let root = find_project_root().ok_or_else(|| "Não foi possível localizar o script do backend local.".to_string())?;
+    let bundled_model_dir = bundled_dictation_model_dir(app)?;
     let script = root.join("scripts").join("restart-backend.ps1");
     if !script.is_file() { return Err("O script de reinicialização do backend não foi encontrado.".to_string()); }
     let output = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
-        .arg(script).current_dir(root).output()
+        .arg(script).current_dir(root).env("GJ_DICTATION_BUNDLED_MODEL_DIR", bundled_model_dir).output()
         .map_err(|_| "Não foi possível iniciar a reconexão do backend.".to_string())?;
     if output.status.success() { Ok(()) } else { Err("Não foi possível reconectar o backend. Confira o PostgreSQL e tente novamente.".to_string()) }
 }
@@ -331,20 +344,22 @@ fn get_local_services_info() -> Result<LocalServicesInfo, String> {
 struct LocalServicesResult { stdout: String, stderr: String }
 
 #[tauri::command]
-async fn start_local_services() -> Result<LocalServicesResult, String> {
-    tauri::async_runtime::spawn_blocking(run_local_services)
+async fn start_local_services(app: tauri::AppHandle) -> Result<LocalServicesResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_local_services(&app))
         .await
         .map_err(|_| "não foi possível acompanhar o script de inicialização".to_string())?
 }
 
-fn run_local_services() -> Result<LocalServicesResult, String> {
+fn run_local_services(app: &tauri::AppHandle) -> Result<LocalServicesResult, String> {
     let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; inicie manualmente".to_string())?;
+    let bundled_model_dir = bundled_dictation_model_dir(app)?;
     let script = root.join("scripts").join("start.ps1");
     save_services_consent()?;
     let mut child = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(&script)
         .current_dir(&root)
+        .env("GJ_DICTATION_BUNDLED_MODEL_DIR", bundled_model_dir)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

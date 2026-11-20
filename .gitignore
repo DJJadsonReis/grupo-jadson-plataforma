@@ -56,3 +56,7 @@ tools/redis/redis.conf.bak-*
 # Saídas geradas por site-recriado (screenshots e relatório da verificação visual)
 site-recriado/verificacao/
 site-recriado/faq-celular.png
+
+# Bundled local dictation model (downloaded by scripts/fetch-dictation-model.mjs)
+apps/desktop/src-tauri/resources/dictation-model/*
+!apps/desktop/src-tauri/resources/dictation-model/.gitkeep
