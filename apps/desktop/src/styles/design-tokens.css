@@ -14,6 +14,11 @@
   --gj-text-muted: #96938a;
   --gj-success: #8eb18a;
   --gj-danger: #d78272;
+  --gj-danger-surface: #2a1714;
+  --border-subtle: var(--gj-border);
+  --surface-raised: var(--gj-surface-raised);
+  --text-muted: var(--gj-text-muted);
+  --bg: var(--gj-canvas);
 
   /* Tokens para o tema escuro, cartões e compositor. */
   --gj-bg-dark: #0b0b0b;
@@ -94,6 +99,12 @@
   --shell-text-2: #c2bfb5;
   --shell-text-3: #a6a297;
   --gx-ink-3: #a6a297;
+  --shell-radius: var(--gj-radius-md);
+  --shell-column: 54rem;
+  --shell-panel: var(--gj-surface);
+  --gx-gold: var(--gj-gold);
+  --gx-column: 54rem;
+  --gx-panel: var(--gj-surface);
 }
 
 :root[data-theme="light"] {
@@ -108,9 +119,17 @@
   --gj-text: #24231f;
   --gj-text-secondary: #4f4c44;
   --gj-text-muted: #625f56;
+  --gj-danger-surface: #f6e8e4;
+  --border-subtle: var(--gj-border);
+  --surface-raised: var(--gj-surface-raised);
+  --text-muted: var(--gj-text-muted);
+  --bg: var(--gj-canvas);
   --gj-bg-dark: #f7f6f2;
   --gj-text-primary: #24231f;
   --gj-text-secondary-contrast: #625f56;
+  --shell-panel: var(--gj-surface);
+  --gx-gold: var(--gj-gold);
+  --gx-panel: var(--gj-surface);
   --workspace-bg: var(--gj-canvas);
   --workspace-sidebar: var(--gj-sidebar);
   --workspace-surface: var(--gj-surface);

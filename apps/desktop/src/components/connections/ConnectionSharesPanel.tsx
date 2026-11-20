@@ -36,7 +36,7 @@ export function ConnectionSharesPanel({ apiFetch, apiUrl }: { apiFetch: (input: 
     setMessage(response.ok ? "Pedido aprovado." : "Não foi possível aprovar."); await refresh();
   }
   return <article className="settings-box"><h3>Compartilhamento da conexão Google</h3><p>Peça acesso para outra pessoa; um admin precisa aprovar.</p>
-    <div className="security-notice"><select aria-label="Pessoa para compartilhar" value={target} onChange={(e) => setTarget(e.target.value)}><option value="">Escolha uma pessoa</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="btn-primary-gold" onClick={() => void requestShare()}>Compartilhar minha conexão</button></div>
+    <div className="security-notice"><select aria-label="Pessoa para compartilhar" value={target} onChange={(e) => setTarget(e.target.value)}><option value="">Escolha uma pessoa</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="primary-button" onClick={() => void requestShare()}>Compartilhar minha conexão</button></div>
     {message && <p role="status">{message}</p>}
     <h4>Compartilhado com</h4>{outgoing.map((s) => <div key={s.granteeId}><span>{s.name} · {shareStatusLabel(s.status)}</span>{canRevokeShare(personId, false, { ...s, ownerId: personId }) && <button onClick={() => void revoke(s)}>Revogar</button>}</div>)}
     <h4>Usando a conexão de</h4>{incoming.map((s) => <div key={s.ownerId ?? s.id}><span>{s.name} · {shareStatusLabel(s.status)}</span></div>)}

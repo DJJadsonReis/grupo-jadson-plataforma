@@ -26,6 +26,8 @@ export function SkillsPage({ apiFetch, apiUrl, agents, isAdmin }: SkillsPageProp
   const [formError, setFormError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deletingSlug, setDeletingSlug] = useState<string | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<SkillRecord | null>(null);
+  const [detachCandidate, setDetachCandidate] = useState<SkillRecord | null>(null);
 
   const loadSkills = useCallback(async () => {
     setLoading(true);
@@ -96,14 +98,14 @@ export function SkillsPage({ apiFetch, apiUrl, agents, isAdmin }: SkillsPageProp
   }
 
   async function removeSkill(skill: SkillRecord) {
-    if (!canDeleteSkill(skill, isAdmin) || !window.confirm(`Excluir a habilidade “${skill.title}”?`)) return;
+    if (!canDeleteSkill(skill, isAdmin)) return;
     setDeletingSlug(skill.slug);
     setActionError(null);
     try {
       const response = await apiFetch(`${apiUrl}/skills/${encodeURIComponent(skill.slug)}`, { method: "DELETE" });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(readErrorMessage(body, "Não foi possível excluir a habilidade."));
-      await loadSkills();
+      setDeleteCandidate(null); await loadSkills();
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : "Não foi possível excluir a habilidade.");
     } finally {
@@ -129,13 +131,13 @@ export function SkillsPage({ apiFetch, apiUrl, agents, isAdmin }: SkillsPageProp
   }
 
   async function detachSkill(skill: SkillRecord) {
-    if (!selectedAgentId || !window.confirm(`Desvincular “${skill.title}” deste bot?`)) return;
+    if (!selectedAgentId) return;
     setActionError(null);
     try {
       const response = await apiFetch(agentSkillUrl(apiUrl, selectedAgentId, skill.slug), { method: "DELETE" });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(readErrorMessage(body, "Não foi possível desvincular a habilidade."));
-      await loadAgentSkills(selectedAgentId);
+      setDetachCandidate(null); await loadAgentSkills(selectedAgentId);
     } catch (reason) {
       setActionError(reason instanceof Error ? reason.message : "Não foi possível desvincular a habilidade.");
     }
@@ -184,14 +186,14 @@ export function SkillsPage({ apiFetch, apiUrl, agents, isAdmin }: SkillsPageProp
           <ul>{agentSkills.map((skill) => <li key={skill.id}>
             <strong>{skill.title}</strong>{skill.global && <span> Global</span>}
             {skill.tools.length > 0 && <p>Ferramentas: {skill.tools.join(", ")}</p>}
-            <button type="button" onClick={() => void detachSkill(skill)}>Desvincular</button>
+          <button type="button" className="danger-button" onClick={() => setDetachCandidate(skill)}>Desvincular</button>
           </li>)}</ul>
           {agentSkills.length === 0 && <p>Nenhuma habilidade vinculada a este bot.</p>}
         </>}
       </section>
 
       {actionError && <p role="alert">{actionError}</p>}
-      {loading ? <p>Carregando habilidades...</p> : loadError ? (
+      {loading ? <p>Carregando habilidades…</p> : loadError ? (
         <div role="alert"><p>{loadError}</p><button type="button" onClick={() => void loadSkills()}>Tentar de novo</button></div>
       ) : skills.length === 0 ? <p>Nenhuma habilidade ainda.</p> : (
         <ul>{skills.map((skill) => <li key={skill.id}>
@@ -199,11 +201,13 @@ export function SkillsPage({ apiFetch, apiUrl, agents, isAdmin }: SkillsPageProp
           {skill.summary && <p>{skill.summary}</p>}
           <p>{skill.instructions}</p>
           {skill.tools.length > 0 && <p>Ferramentas: {skill.tools.join(", ")}</p>}
-          <button type="button" disabled={!canDeleteSkill(skill, isAdmin) || deletingSlug === skill.slug} onClick={() => void removeSkill(skill)}>
+          <button type="button" className="danger-button" disabled={!canDeleteSkill(skill, isAdmin) || deletingSlug === skill.slug} onClick={() => setDeleteCandidate(skill)}>
             {deletingSlug === skill.slug ? "Excluindo..." : "Excluir"}
           </button>
         </li>)}</ul>
       )}
+      {deleteCandidate && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteCandidate(null); }}><section className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="skill-delete-title"><h2 id="skill-delete-title">Excluir habilidade?</h2><p>A habilidade “{deleteCandidate.title}” será excluída.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setDeleteCandidate(null)}>Cancelar</button><button type="button" className="danger-button" disabled={deletingSlug === deleteCandidate.slug} onClick={() => void removeSkill(deleteCandidate)}>Excluir</button></div></section></div>}
+      {detachCandidate && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDetachCandidate(null); }}><section className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="skill-detach-title"><h2 id="skill-detach-title">Desvincular habilidade?</h2><p>“{detachCandidate.title}” deixará de estar vinculada a este agente.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setDetachCandidate(null)}>Cancelar</button><button type="button" className="danger-button" onClick={() => void detachSkill(detachCandidate)}>Desvincular</button></div></section></div>}
     </section>
   );
 }

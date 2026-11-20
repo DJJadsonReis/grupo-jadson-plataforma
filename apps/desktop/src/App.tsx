@@ -1207,6 +1207,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
         </div>}
 
         {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
+        <div className={page !== "dashboard" && page !== "chat" ? "internal-screen" : undefined}>
         {page === "dashboard" && (
           <Dashboard
             health={health}
@@ -1312,6 +1313,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
         {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities", "status"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
+        </div>
       </main>
 
       {setupNotice(setupStatus, setupFailed).action !== "none" && (

@@ -3067,3 +3067,141 @@ select:focus-visible {
 
 /* Função do bot ao lado do nome na lista de Conversas */
 .agent-role-chip { display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px; border: 1px solid rgba(212, 160, 23, 0.45); color: #d4a017; font-size: 10px; font-weight: 600; vertical-align: middle; }
+.internal-screen,
+.page-content:has(> h1),
+.page-content[aria-labelledby] {
+  box-sizing: border-box;
+  min-width: 0;
+  color: var(--gj-text);
+  font-family: var(--gj-font-ui);
+}
+
+.internal-screen h1,
+.page-content:has(> h1) > h1,
+.page-content[aria-labelledby] > h1 {
+  margin: 0 0 var(--gj-space-5);
+  color: var(--gj-text);
+  font-size: var(--gj-text-xl);
+  font-weight: var(--gj-font-weight-semibold);
+}
+
+.internal-screen > form,
+.page-content:has(> h1) > form,
+.page-content[aria-labelledby] > form,
+.page-content[aria-labelledby] > section,
+.page-content[aria-labelledby] > article,
+.page-content[aria-labelledby] > .settings-card,
+.settings-box,
+.settings-card {
+  min-width: 0;
+  padding: var(--gj-space-5);
+  border: 1px solid var(--gj-border);
+  border-radius: var(--gj-card-radius);
+  background: var(--gj-surface);
+  color: var(--gj-text);
+  box-shadow: var(--gj-shadow-panel);
+}
+
+.internal-screen label,
+.page-content:has(> h1) label,
+.page-content[aria-labelledby] label {
+  color: var(--gj-text-secondary);
+}
+
+.internal-screen input:not([type="checkbox"]):not([type="radio"]),
+.internal-screen textarea,
+.internal-screen select,
+.page-content:has(> h1) input:not([type="checkbox"]):not([type="radio"]),
+.page-content:has(> h1) textarea,
+.page-content:has(> h1) select,
+.page-content[aria-labelledby] input:not([type="checkbox"]):not([type="radio"]),
+.page-content[aria-labelledby] textarea,
+.page-content[aria-labelledby] select {
+  max-width: 100%;
+  min-width: 0;
+  border: 1px solid var(--gj-border);
+  border-radius: var(--gj-radius-sm);
+  background: var(--gj-surface-raised);
+  color: var(--gj-text);
+}
+
+.internal-screen button,
+.page-content:has(> h1) button,
+.page-content[aria-labelledby] button,
+.settings-box button,
+.settings-card button {
+  max-width: 100%;
+  border-radius: var(--gj-radius-sm);
+  transition: background-color 140ms ease, border-color 140ms ease, color 140ms ease;
+}
+
+.page-content[aria-labelledby] ul,
+.page-content[aria-labelledby] ol {
+  min-width: 0;
+  padding-left: var(--gj-space-6);
+}
+
+.page-content[aria-labelledby] li,
+.settings-box .workspace-fact,
+.settings-card .workspace-fact {
+  min-width: 0;
+  border-color: var(--gj-border);
+  border-radius: var(--gj-radius-md);
+}
+
+.primary-button,
+.internal-screen .primary-button,
+.settings-box .primary-button {
+  border: 1px solid var(--gj-border-strong);
+  background: var(--gj-gold);
+  color: var(--gj-canvas);
+}
+
+.secondary-button {
+  border: 1px solid var(--gj-border);
+  background: var(--gj-surface-raised);
+  color: var(--gj-text-secondary);
+}
+
+.danger-button {
+  border: 1px solid var(--gj-danger);
+  background: var(--gj-danger-surface);
+  color: var(--gj-danger);
+}
+
+.modal-card {
+  width: min(30rem, calc(100vw - 2 * var(--gj-space-4)));
+  padding: var(--gj-space-6);
+  border: 1px solid var(--gj-border);
+  border-radius: var(--gj-card-radius);
+  background: var(--gj-surface);
+  color: var(--gj-text);
+  box-shadow: var(--gj-shadow-overlay);
+}
+
+.modal-card h2 { margin-top: 0; color: var(--gj-text); }
+.modal-card p { color: var(--gj-text-secondary); }
+.modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: var(--gj-space-2); margin-top: var(--gj-space-5); }
+
+.team-rooms-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 2fr);
+  gap: var(--gj-space-6);
+}
+
+.team-rooms-layout > * { min-width: 0; }
+.team-rooms-layout ol { max-width: 100%; overflow-x: auto; }
+
+.page-content[aria-labelledby] table { display: block; max-width: 100%; overflow-x: auto; }
+
+@media (max-width: 899px) {
+  .team-rooms-layout { grid-template-columns: minmax(0, 1fr); }
+  .settings-box, .settings-card, .page-content[aria-labelledby] > form { padding: var(--gj-space-4); }
+  .page-content[aria-labelledby] .workspace-fact { flex-wrap: wrap; gap: var(--gj-space-2); }
+}
+
+@media (max-width: 520px) {
+  .page-content[aria-labelledby] { padding-inline: var(--gj-space-3); }
+  .page-content[aria-labelledby] .page-header-row { align-items: flex-start; flex-direction: column; }
+  .modal-actions > button { flex: 1 1 auto; }
+}

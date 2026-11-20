@@ -77,7 +77,7 @@ export function PreferencesPanel({ apiFetch, apiUrl }: PreferencesPanelProps) {
           <option value="detailed">Detalhado</option>
         </select>
       </label>
-      <button type="button" className="btn-primary-gold" onClick={() => void save()} disabled={loading || !changed || !valid || saving}>
+      <button type="button" className="primary-button" onClick={() => void save()} disabled={loading || !changed || !valid || saving}>
         {saving ? "Salvando…" : "Salvar"}
       </button>
     </section>
