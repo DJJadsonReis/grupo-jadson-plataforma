@@ -5,6 +5,7 @@ import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { assertPersonalHost, parseEdition } from "./common/edition";
+import { maskSecrets } from "./common/secret-masking";
 
 applyDesktopSetup();
 
@@ -18,9 +19,9 @@ async function bootstrap() {
   const edition = parseEdition(process.env.GRUPO_EDICAO);
   assertPersonalHost(edition, host);
   await app.listen(port, host);
-  console.log(`Grupo Jadson API disponível em http://${host}:${port}/api/v1`);
+  console.log(maskSecrets(`Grupo Jadson API disponível em http://${host}:${port}/api/v1`));
 }
 bootstrap().catch((error: unknown) => {
-  console.error(error instanceof Error ? error.message : "Falha ao iniciar o backend.");
+  console.error(maskSecrets(error instanceof Error ? error.message : "Falha ao iniciar o backend."));
   process.exitCode = 1;
 });

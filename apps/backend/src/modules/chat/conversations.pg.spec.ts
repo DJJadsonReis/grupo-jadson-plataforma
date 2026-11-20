@@ -21,7 +21,7 @@ describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL
     process.env.DATABASE_URL = databaseUrl;
     database = new DatabaseService();
     await database.onModuleInit();
-    conversations = new ConversationsService(database);
+    conversations = new ConversationsService(database, { record: async () => undefined } as never);
   });
 
   afterAll(async () => {
@@ -31,6 +31,9 @@ describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL
 
   it("lists, appends, titles and deletes only for the owning principal", async () => {
     await conversations.create(conversationId, "private chat", undefined, undefined, ownerA);
+    expect(await conversations.operationMode(conversationId, ownerA)).toEqual({ mode: "automatico", inherited: true });
+    await conversations.setOperationMode(conversationId, ownerA, "planejamento", "admin", "Admin");
+    expect(await new ConversationsService(database, { record: async () => undefined } as never).operationMode(conversationId, ownerA)).toEqual({ mode: "planejamento", inherited: false });
     await conversations.addMessage(conversationId, "user", "segredo local", {}, ownerA);
     const usageId = randomUUID();
     await database.getPool().query(

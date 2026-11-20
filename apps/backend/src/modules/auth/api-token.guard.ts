@@ -3,6 +3,7 @@ import { Reflector } from "@nestjs/core";
 import { timingSafeEqual } from "crypto";
 import { ADMIN_ONLY_ROUTE } from "./roles";
 import { IS_PUBLIC_ROUTE } from "./public.decorator";
+import { applyDesktopSetup } from "../bootstrap/desktop-setup";
 import { Principal, UsersService } from "./users.service";
 
 type AuthedRequest = { method: string; url?: string; headers: Record<string, string | undefined>; principal?: Principal };
@@ -22,6 +23,8 @@ export class ApiTokenGuard implements CanActivate {
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_ROUTE, [context.getHandler(), context.getClass()]);
     if (isPublic) return true;
 
+    // Recarrega a configuração local em cada chamada para aceitar o reparo do desktop sem reiniciar.
+    applyDesktopSetup();
     const request = context.switchToHttp().getRequest<AuthedRequest>();
     const header = request.headers.authorization ?? "";
     const provided = header.startsWith("Bearer ") ? header.slice("Bearer ".length) : "";

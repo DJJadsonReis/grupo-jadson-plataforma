@@ -1,4 +1,5 @@
-import { Injectable, Logger, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { Injectable, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { MaskedLogger } from "../../common/masked-logger";
 import { randomUUID } from "node:crypto";
 import { RedisService } from "../redis/redis.service";
 import { MemoryQueueAdapter } from "./memory-queue.adapter";
@@ -7,7 +8,7 @@ import { QueueAdapter, QueueJob } from "./queue.types";
 
 @Injectable()
 export class QueueService implements OnModuleInit {
-  private readonly logger = new Logger(QueueService.name);
+  private readonly logger = new MaskedLogger(QueueService.name);
   private readonly memory = new MemoryQueueAdapter();
   private adapter: QueueAdapter = this.memory;
 

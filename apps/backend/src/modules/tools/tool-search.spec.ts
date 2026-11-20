@@ -2,7 +2,7 @@ import { TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
 import { FOUND_LIMIT, SEARCH_RESULTS, SEARCH_TOOL_NAME, TOOL_SEARCH_FLOOR, foundFrom, searchEnabled, searchTools, visibleTools } from "./tool-search";
 
 function mcpTools(count: number): ToolDefinition[] {
-  return Array.from({ length: count }, (_, index) => ({ name: `mcp.ferramenta_${index}`, description: `Ferramenta de leitura ${index}`, risk: "read" as const }));
+  return Array.from({ length: count }, (_, index) => ({ name: `mcp.ferramenta_${index}`, description: `Ferramenta de leitura ${index}`, risk: "read", category: "leitura" as const }));
 }
 
 describe("tool-search", () => {
@@ -35,8 +35,8 @@ describe("tool-search", () => {
 
   it("busca por nome e descrição e retorna resultados ordenados", () => {
     const defs: ToolDefinition[] = [
-      { name: "mcp.z_arquivos", description: "Lê documento", risk: "read" },
-      { name: "mcp.a", description: "Lista arquivos", risk: "read" },
+      { name: "mcp.z_arquivos", description: "Lê documento", risk: "read", category: "leitura" },
+      { name: "mcp.a", description: "Lista arquivos", risk: "read", category: "leitura" },
     ];
     expect(searchTools("lista arquivos", defs)).toEqual([
       { name: "mcp.a", description: "Lista arquivos" },
@@ -59,7 +59,7 @@ describe("tool-search", () => {
 
   it("ignora sensíveis e limita resultados a oito mesmo com limite maior", () => {
     const defs: ToolDefinition[] = [
-      { name: "perigosa", description: "Arquivos", risk: "sensitive" },
+      { name: "perigosa", description: "Arquivos", risk: "sensitive", category: "leitura" },
       ...mcpTools(12).map((definition) => ({ ...definition, description: "Arquivos e leitura" })),
     ];
     expect(searchTools("perigosa arquivos", defs).some((result) => result.name === "perigosa")).toBe(false);

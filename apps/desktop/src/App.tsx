@@ -22,6 +22,7 @@ import { ConnectionSharesPanel } from "./components/connections/ConnectionShares
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
+import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
 import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
@@ -34,7 +35,8 @@ import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
-import { reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
+import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
+import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -94,7 +96,7 @@ function localSystemToken(refresh = false): Promise<string> {
 }
 
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
-async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+async function apiFetch(input: string, init: RequestInit = {}, suppressUnauthorizedNotice = false): Promise<Response> {
   const send = async (refresh: boolean) => {
     const headers = new Headers(init.headers);
     const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken(refresh));
@@ -103,7 +105,7 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   };
   let unauthorized = false;
   const response = await requestWithTokenRefresh(send, () => { unauthorized = true; });
-  if (unauthorized) {
+  if (unauthorized && !suppressUnauthorizedNotice) {
     window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
     rejectedRequest = { input, init };
   } else if (response.ok) window.dispatchEvent(new CustomEvent("gj-api-token-accepted"));
@@ -119,6 +121,7 @@ async function reconnectAndRetry(): Promise<void> {
     () => apiFetch(failed.input, failed.init),
     () => localSystemToken(true),
     clearSession,
+    () => invoke("ensure_desktop_setup"),
   );
 }
 
@@ -211,6 +214,7 @@ export default function App() {
   const [edition, setEdition] = useState<Edition>("equipe");
   const [editionLoaded, setEditionLoaded] = useState(false);
   const [session, setSession] = useState<string | null>(() => readSession());
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => edition === "pessoal" || !readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
   const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
     try { return window.localStorage.getItem(FIRST_RUN_COMPLETE_KEY) === "1"; } catch { return false; }
@@ -218,9 +222,14 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 3000);
-    fetch(`${API_URL}/edition`, { signal: controller.signal })
+    let controller: AbortController | null = null;
+    let timeout: number | null = null;
+    const initialize = async () => {
+      if (!import.meta.env.DEV) await invoke("ensure_desktop_setup").catch(() => undefined);
+      if (!active) return;
+      controller = new AbortController();
+      timeout = window.setTimeout(() => controller?.abort(), 3000);
+      void fetch(`${API_URL}/edition`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("edition"))))
       .then((body: unknown) => parseEditionResponse(body))
       .catch(() => "equipe" as const)
@@ -231,6 +240,7 @@ export default function App() {
         setEditionLoaded(true);
         if (selectedEdition === "pessoal") {
           setSession(null);
+          setIsAdmin(true);
           setNeedsLogin(false);
           return;
         }
@@ -244,8 +254,10 @@ export default function App() {
       })
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
       })
-      .finally(() => window.clearTimeout(timeout));
-    return () => { active = false; };
+      .finally(() => { if (timeout !== null) window.clearTimeout(timeout); });
+    };
+    void initialize();
+    return () => { active = false; controller?.abort(); if (timeout !== null) window.clearTimeout(timeout); };
   }, []);
 
   const initialScreen = startupScreen({
@@ -255,6 +267,17 @@ export default function App() {
     edition,
     hasSession: Boolean(session),
   });
+
+  useEffect(() => {
+    if (!session || edition === "pessoal") { setIsAdmin(true); return; }
+    let active = true;
+    apiFetch(`${API_URL}/auth/me`).then(async (response) => {
+      if (!response.ok) throw new Error();
+      const principal = await response.json() as { role?: string };
+      if (active) setIsAdmin(principal.role === "admin");
+    }).catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, [session, edition]);
 
   if (initialScreen === "welcome") {
     return <Welcome apiUrl={API_URL} onComplete={() => {
@@ -274,7 +297,7 @@ export default function App() {
       />
     );
   }
-  return <Workspace edition={edition} />;
+  return <Workspace edition={edition} isAdmin={isAdmin} />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -327,7 +350,7 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-function Workspace({ edition }: { edition: Edition }) {
+function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean }) {
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -512,17 +535,43 @@ function Workspace({ edition }: { edition: Edition }) {
   }
 
   useEffect(() => {
-    const controller = new AbortController();
-    apiFetch(`${API_URL}/health`, { signal: controller.signal })
-      .then(async (response) => {
-        if (!response.ok) throw new Error();
+    let active = true;
+    const checkHealth = async () => {
+      try {
+        const response = await repairHealthAndRetry(
+            () => apiFetch(`${API_URL}/health`, {}, true),
+            () => invoke("ensure_desktop_setup"),
+            () => {
+              window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
+              rejectedRequest = { input: `${API_URL}/health`, init: {} };
+            },
+          );
+        if (!response.ok) throw new BackendHealthError(response.status);
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
-        setHealth("connected");
-        setPostgresHealth(data.dependencies?.postgres === "connected" ? "connected" : "unavailable");
-        setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
-        setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
-      })
-      .then(() => apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal }))
+        if (active) {
+          setHealth("connected");
+          setPostgresHealth(data.dependencies?.postgres === "connected" ? "connected" : "unavailable");
+          setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
+          setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
+        }
+      } catch (cause) {
+        if (active) {
+          setHealth("unavailable");
+          setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
+          setVectorHealth((value) => value === "checking" ? "unavailable" : value);
+          setRedisHealth((value) => value === "checking" ? "unavailable" : value);
+        }
+      }
+    };
+    const stop = monitorBackendHealth(checkHealth, undefined, 10_000);
+    return () => { active = false; stop(); };
+  }, []);
+
+  /* Catálogo acompanha a reconexão, para a tela sair do estado de inicialização. */
+  useEffect(() => {
+    if (health !== "connected") return;
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const catalogue = groupCatalogue(await response.json());
@@ -530,17 +579,10 @@ function Workspace({ edition }: { edition: Edition }) {
         const status = catalogue.map(({ id, name, configured }) => ({ id, name, configured }));
         setProviders(status);
         setConfiguredProviders(status.filter((provider) => provider.configured).length);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setHealth((value) => value === "checking" ? "unavailable" : value);
-          setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
-          setVectorHealth((value) => value === "checking" ? "unavailable" : value);
-          setRedisHealth((value) => value === "checking" ? "unavailable" : value);
-        }
-      });
+      }).catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [health]);
+
 
   useEffect(() => {
     const client = new ModelProvidersApi(apiFetch, API_URL);
@@ -555,7 +597,7 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
         serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
@@ -674,7 +716,7 @@ function Workspace({ edition }: { edition: Edition }) {
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -745,7 +787,8 @@ function Workspace({ edition }: { edition: Edition }) {
           attachments,
           messages: [...prior, userMessage],
           ...(model.trim() ? { model: model.trim() } : {}),
-          ...(modelProviderId ? { modelProviderId } : {})
+          ...(modelProviderId ? { modelProviderId } : {}),
+          ...(operationMode ? { operationMode } : {})
         }),
       });
       if (!response.ok) {
@@ -1126,6 +1169,10 @@ function Workspace({ edition }: { edition: Edition }) {
             onDismissError={() => setError(null)}
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
+            isAdmin={isAdmin}
+            apiFetch={apiFetch}
+            apiUrl={API_URL}
+            persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
             onEditAgent={setAgentEditor}
@@ -1168,7 +1215,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
+        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={isAdmin} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={managedProviders} legacyExists={hasLegacyProviderKey(managedProviders)} onModelsTested={(providerId, providerName, models) => setSelectableProviders((current) => [...current.filter((provider) => provider.providerId !== providerId), { providerId, providerName, models }])} onRefresh={async () => { const client = new ModelProvidersApi(apiFetch, API_URL); const [items, selectable] = await Promise.all([client.list(), client.selectable()]); setManagedProviders(items); setSelectableProviders(selectable); }} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
@@ -1533,7 +1580,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
@@ -1541,12 +1588,20 @@ function ChatPage({
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
+  isAdmin: boolean;
+  apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
+  apiUrl: string;
+  persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [modelSelection, setModelSelection] = useState("");
+  const [operationMode, setOperationMode] = useState<DesktopOperationMode>(conversation?.operationMode ?? "automatico");
+  const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false);
+  const [ignoreConfirmation, setIgnoreConfirmation] = useState("");
+  const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const modelOptions = groupSelectableProviders(selectableProviders);
   const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
   const model = selectedModelOption?.model ?? "";
@@ -1623,6 +1678,33 @@ function ChatPage({
   }
 
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
+
+  useEffect(() => {
+    if (!conversation) { setOperationMode("automatico"); return; }
+    const localMode = conversation.operationMode ?? agents.find((item) => item.id === agentId)?.defaultOperationMode ?? "automatico";
+    setOperationMode(localMode);
+    if (conversation.operationMode || !isServerConversationId(conversation.id)) return;
+    void new OperationModesApi(apiFetch, apiUrl).get(conversation.id).then((state) => {
+      setOperationMode(state.mode);
+      persistLocalOperationMode(conversation.id, state.mode);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.operationMode, conversation?.agentId, agents, agentId]);
+
+  async function changeOperationMode(mode: DesktopOperationMode, confirmation?: string) {
+    if (conversation && isServerConversationId(conversation.id)) {
+      try { await new OperationModesApi(apiFetch, apiUrl).set(conversation.id, mode, confirmation); }
+      catch (cause) { setPdfError(cause instanceof Error ? cause.message : "Não foi possível salvar o modo."); return; }
+    }
+    setOperationMode(mode);
+    if (conversation) persistLocalOperationMode(conversation.id, mode);
+    setIgnoreDialogOpen(false);
+    setIgnoreConfirmation("");
+  }
+
+  useEffect(() => {
+    if (!conversation || conversation.operationMode || !selectedAgent?.defaultOperationMode) return;
+    setOperationMode(selectedAgent.defaultOperationMode);
+  }, [agentId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1812,17 +1894,24 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId);
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode);
               setPdfDocs([]);
             }}
           >
             <textarea
+              ref={messageTextareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Mensagem para o Grupo Jadson"
               rows={1}
               aria-label="Mensagem"
               onKeyDown={(event) => {
+                const shortcutMode = operationModeForShortcut(event.key, event.altKey);
+                if (shortcutMode) {
+                  event.preventDefault();
+                  void changeOperationMode(shortcutMode);
+                  return;
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
@@ -1851,6 +1940,20 @@ function ChatPage({
                   <Paperclip size={16} />
                 </button>
                 <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text, selectedModelOption?.providerId)} />
+                <label className="gx-pill" title="Modo de operação. Atalhos Alt+1 a Alt+4">
+                  <ShieldCheck size={13} />
+                  <select className="gx-pill-select" aria-label="Modo de operação" value={operationMode} onChange={(event) => {
+                    const next = event.target.value as DesktopOperationMode;
+                    if (next === "ignorar_permissoes") { setIgnoreDialogOpen(true); return; }
+                    void changeOperationMode(next);
+                  }}>
+                    <option value="automatico">Automático · Alt+1</option>
+                    <option value="manual">Manual · Alt+2</option>
+                    <option value="aceitar_edicoes">Aceitar edições · Alt+3</option>
+                    <option value="planejamento">Planejamento · Alt+4</option>
+                    {isAdmin && <option value="ignorar_permissoes">Ignorar permissões</option>}
+                  </select>
+                </label>
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
                   <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
@@ -1880,6 +1983,19 @@ function ChatPage({
               )}
             </div>
           </form>
+          {ignoreDialogOpen && (
+            <div className="delete-confirm-backdrop" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>
+              <section className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ignore-mode-title" onClick={(event) => event.stopPropagation()}>
+                <h2 id="ignore-mode-title">Ignorar permissões?</h2>
+                <p>Este modo permite que o agente execute ferramentas sem pedir aprovação. A ativação e cada execução ficam registradas na auditoria.</p>
+                <label>Digite <b>IGNORAR PERMISSÕES</b> para confirmar<input autoFocus value={ignoreConfirmation} onChange={(event) => setIgnoreConfirmation(event.target.value)} /></label>
+                <div className="delete-confirm-actions">
+                  <button type="button" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>Cancelar</button>
+                  <button type="button" className="delete-confirm-danger" disabled={ignoreConfirmation !== "IGNORAR PERMISSÕES"} onClick={() => void changeOperationMode("ignorar_permissoes", ignoreConfirmation)}>Ativar</button>
+                </div>
+              </section>
+            </div>
+          )}
           <p className="gx-disclaimer">O histórico fica neste dispositivo. As respostas dependem do modelo configurado em Configurações.</p>
         </div>
       </div>
@@ -2438,9 +2554,19 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
 function UsageSettings() {
   type UsageLine = { agentId?: string | null; conversationId?: string | null; personId?: string; title?: string; totalTokens: number; calls: number; costUsd: number | null; callsWithoutPrice: number };
+  type Price = { provider: string; model: string; inputUsdPerMillion: number; outputUsdPerMillion: number; updatedBy: string };
+  type MissingPrice = { provider: string; model: string; calls: number };
   const [summary, setSummary] = useState<{ byAgent: UsageLine[]; byConversation: UsageLine[]; byPerson?: UsageLine[] } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [prices, setPrices] = useState<Price[]>([]);
+  const [missingPrices, setMissingPrices] = useState<MissingPrice[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { input: string; output: string }>>({});
+  const [priceNotice, setPriceNotice] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [pricesVersion, setPricesVersion] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
@@ -2454,6 +2580,62 @@ function UsageSettings() {
     }).catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/auth/me`).then((response) => response.ok ? response.json() as Promise<{ role?: string }> : null)
+      .then((person) => { if (active) setIsAdmin(person?.role === "admin"); }).catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    apiFetch(`${API_URL}/usage/prices`).then((response) => response.ok ? response.json() as Promise<{ prices: Price[]; modelsWithoutPrice: MissingPrice[] }> : Promise.reject(new Error("prices")))
+      .then((data) => { if (active) { setPrices(data.prices); setMissingPrices(data.modelsWithoutPrice); } })
+      .catch(() => { if (active) setPriceNotice("Não foi possível carregar os preços cadastrados."); });
+    return () => { active = false; };
+  }, [isAdmin, pricesVersion]);
+  useEffect(() => {
+    if (!priceNotice) return;
+    const timer = window.setTimeout(() => setPriceNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [priceNotice]);
+  const savePrice = async (item: MissingPrice) => {
+    const key = `${item.provider}:${item.model}`;
+    const draft = drafts[key] ?? { input: "", output: "" };
+    const input = parsePriceField(draft.input);
+    const output = parsePriceField(draft.output);
+    if ("error" in input) { setPriceNotice(input.error); return; }
+    if ("error" in output) { setPriceNotice(output.error); return; }
+    setSaving(key);
+    try {
+      const response = await apiFetch(`${API_URL}/usage/prices`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: item.provider, model: item.model, inputUsdPerMillion: input.value, outputUsdPerMillion: output.value }) });
+      if (!response.ok) throw new Error();
+      setPriceNotice("Preço salvo.");
+      setPricesVersion((value) => value + 1);
+      const summaryResponse = await apiFetch(`${API_URL}/usage/summary?days=30`);
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json() as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+        setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      }
+    } catch { setPriceNotice("Não foi possível salvar. Confira os valores e tente novamente."); }
+    finally { setSaving(null); }
+  };
+  const removePrice = async (item: Price) => {
+    const key = `${item.provider}:${item.model}`;
+    try {
+      const response = await apiFetch(`${API_URL}/usage/prices/${encodeURIComponent(item.provider)}/${encodeURIComponent(item.model)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error();
+      setRemoving(null);
+      setPriceNotice("Preço removido.");
+      setPricesVersion((value) => value + 1);
+      const summaryResponse = await apiFetch(`${API_URL}/usage/summary?days=30`);
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json() as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+        setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      }
+    } catch { setPriceNotice("Não foi possível remover o preço. Tente novamente."); }
+    void key;
+  };
   const rows = summary?.byAgent ?? [];
   const totalTokens = rows.reduce((sum, row) => sum + row.totalTokens, 0);
   const totalCalls = rows.reduce((sum, row) => sum + row.calls, 0);
@@ -2479,6 +2661,30 @@ function UsageSettings() {
       {renderLines("Por agente", summary.byAgent, (row) => row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente")}
       {renderLines("Por conversa", summary.byConversation, (row) => row.title ?? "Sem conversa")}
       {summary.byPerson && renderLines("Por pessoa", summary.byPerson, (row) => row.personId ?? "sistema")}
+      {isAdmin && <section className="usage-prices-panel">
+        <h4>Preços dos modelos</h4>
+        {priceNotice && <small className="usage-price-notice" role="status">{priceNotice}</small>}
+        <h5>Sem preço</h5>
+        {missingPrices.length === 0 ? <small className="sidebar-empty">Nenhum modelo sem preço nos últimos 30 dias.</small> : missingPrices.map((item) => {
+          const key = `${item.provider}:${item.model}`;
+          const draft = drafts[key] ?? { input: "", output: "" };
+          return <div className="usage-price-row" key={key}>
+            <b>{item.provider} · {item.model}</b><small>{item.calls} chamadas</small>
+            <label>Entrada (US$ por milhão)<input inputMode="decimal" value={draft.input} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, input: event.target.value } }))} /></label>
+            <label>Saída (US$ por milhão)<input inputMode="decimal" value={draft.output} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, output: event.target.value } }))} /></label>
+            <button className="btn-primary-gold" disabled={saving === key} onClick={() => void savePrice(item)}>{saving === key ? "Salvando…" : "Salvar"}</button>
+          </div>;
+        })}
+        <h5>Preços cadastrados</h5>
+        {prices.length === 0 ? <small className="sidebar-empty">Nenhum preço cadastrado.</small> : prices.map((price) => {
+          const key = `${price.provider}:${price.model}`;
+          return <div className="usage-price-row" key={key}>
+            <b>{price.provider} · {price.model}</b>
+            <small>Entrada {formatModelPriceUsd(Number(price.inputUsdPerMillion))} · saída {formatModelPriceUsd(Number(price.outputUsdPerMillion))}</small>
+            {removing === key ? <div><span>Remover este preço?</span> <button onClick={() => void removePrice(price)}>Confirmar</button> <button onClick={() => setRemoving(null)}>Cancelar</button></div> : <button onClick={() => setRemoving(key)}>Remover</button>}
+          </div>;
+        })}
+      </section>}
     </>}
   </article>;
 }
@@ -3707,6 +3913,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
               <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
+              <label><span>Modo padrão para conversas novas</span><select aria-label="Modo padrão do agente" value={agent.defaultOperationMode ?? "automatico"} onChange={(event) => onChange({ ...agent, defaultOperationMode: event.target.value as DesktopOperationMode })}><option value="automatico">Automático</option><option value="manual">Manual</option><option value="aceitar_edicoes">Aceitar edições</option><option value="planejamento">Planejamento</option></select></label>
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>

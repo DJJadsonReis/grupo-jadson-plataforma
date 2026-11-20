@@ -21,7 +21,7 @@ export function readDesktopSetup(env: NodeJS.ProcessEnv = process.env): DesktopS
     if (!value || typeof value !== "object" || Array.isArray(value)) return null;
     const record = value as Record<string, unknown>;
     const databaseUrl = typeof record.databaseUrl === "string" ? record.databaseUrl.trim() : "";
-    const apiToken = typeof record.apiToken === "string" ? record.apiToken.trim() : "";
+    const apiToken = typeof record.apiToken === "string" ? record.apiToken : "";
     const parsed = new URL(databaseUrl);
     if (!(parsed.protocol === "postgres:" || parsed.protocol === "postgresql:") || !parsed.hostname || !/^[a-f0-9]{64}$/i.test(apiToken)) return null;
     return { databaseUrl, apiToken };

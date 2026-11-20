@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes). Nada foi implementado nesta revisão. Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -30,13 +30,12 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 
 - **Ditado por voz (entrada):** a propagação da causa real da tarefa 81 está Feita no código; o recurso continua Parcial até a reprodução autenticada no exe. Nesta sessão, `setup.json` estava ausente, então essa reprodução está pendente (ação do dono). Evidências: `apps/backend/src/modules/dictation/dictation.service.ts`, `apps/desktop/src/lib/dictation-session.ts` e `apps/desktop/src/lib/dictation-api.ts`.
 - **Mascaramento de segredos em saídas e logs:** permanece Parcial; mascarar segredos nos logs é o item 8 da fila.
-- **Medição de uso e custo:** permanece Parcial; medir uso e custo é o item 9 da fila.
 
 ### Fila autorizada
 
 Decisão 29, na ordem obrigatória:
 
-1. **Modos de operação por conversa/agente** (Decisão 27) — INTERNO.
+1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
 2. **Esforço por conversa** (Decisão 26) — INTERNO.
 3. **Troca de IA por conversa salva no servidor** (Decisão 26) — INTERNO.
 4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.
@@ -47,7 +46,6 @@ Depois dos itens 1–6, Decisão 30:
 
 7. **Limpeza da auditoria (retenção)** — INTERNO, P.
 8. **Mascarar segredos nos logs** — INTERNO, P, Parcial.
-9. **Medir uso e custo** — INTERNO, P, Parcial.
 10. **Handoff geral entre bots** — INTERNO, M.
 11. **Agente próprio por endpoint (AG-UI)** — INTERNO, M.
 12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
@@ -168,7 +166,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Provedores de modelo | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (chaves múltiplas, descoberta de modelos) e `apps/desktop/src/App.tsx` (cadastro/teste) | — | — | — |
 | Anthropic | `shared/model-providers.json` | Feito | `apps/backend/src/modules/providers/anthropic.provider.ts` (Messages API, tool_use, SSE) | API real não testada | — | — |
 | Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (`checkModels`, `assertAvailable`), `apps/backend/src/modules/providers/model-providers.service.spec.ts` | — | — | — |
-| Medição de uso e custo | `server/src/model-billing.ts` | Parcial | `apps/backend/src/modules/chat/usage.service.ts`, `apps/desktop/src/App.tsx` (relatórios por pessoa/agente/conversa) | Cobertura de preços ainda é parcial; itens sem preço ficam sem custo calculado | INTERNO | P |
+| Medição de uso e custo | `server/src/model-billing.ts` | Feito | `apps/backend/src/modules/database/migrations/043-model-prices.ts`, `apps/backend/src/modules/chat/model-prices.ts`, `apps/backend/src/modules/chat/usage.service.ts`, `apps/backend/src/modules/chat/usage.controller.ts`, `apps/desktop/src/lib/usage-prices.ts`, `apps/desktop/src/App.tsx` | Nenhum modelo tem preço até o admin cadastrar; o cadastro é feito pela própria tela de uso. | — | — |
 | Entrar com Google ou xAI (OAuth do provedor) | `server/src/provider-oauth.ts` | Falta | Não encontrado | OAuth dos provedores; contas e apps externos | EXTERNO/PESADO | G |
 
 ### Pessoas, acesso e administração
@@ -192,7 +190,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 ## Resumo da tabela
 
 - **Total:** 66 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a linha autorizada.
-- **Feito:** 40; **Parcial:** 10; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1.
+- **Feito:** 41; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1.
 - A fila autorizada está no topo deste documento; itens EXTERNO/PESADO que permanecem na tabela são apenas referência.
 ## Histórico anterior à auditoria de 2026-11-20
 

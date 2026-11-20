@@ -5,6 +5,7 @@ import { Principal } from "../auth/users.service";
 import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
 import { validateAgentEndpoint } from "./agent-endpoint";
 import { ModelProvidersService } from "../providers/model-providers.service";
+import { isOperationMode } from "../tools/operation-modes";
 
 interface PrincipalRequest { principal?: Principal }
 
@@ -107,6 +108,12 @@ export class AgentsController {
     }
     if (result.provider && !["openai", "anthropic"].includes(String(result.provider)) && !this.isUuid(String(result.provider))) throw new BadRequestException("Selecione um provedor cadastrado.");
     if (value.modelRouting !== undefined || creating) result.modelRouting = this.parseModelRouting(value.modelRouting ?? {});
+    if (value.defaultOperationMode !== undefined || creating) {
+      const mode = value.defaultOperationMode ?? "automatico";
+      if (!isOperationMode(mode)) throw new BadRequestException("Modo de operação padrão inválido.");
+      if (mode === "ignorar_permissoes") throw new BadRequestException("Ignorar permissões não pode ser padrão de agente.");
+      result.defaultOperationMode = mode;
+    }
     if (creating && !(result.name as string).trim()) throw new BadRequestException("Nome do agente é obrigatório.");
     if (value.enabled !== undefined && typeof value.enabled !== "boolean") throw new BadRequestException("Campo enabled deve ser booleano.");
     if (creating || value.enabled !== undefined) result.enabled = value.enabled ?? true;

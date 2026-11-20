@@ -22,6 +22,7 @@ export interface Conversation {
   agentId?: string;
   groupId?: string;
   type?: "individual" | "group";
+  operationMode?: import("./operation-modes").DesktopOperationMode;
 }
 
 export interface Agent {
@@ -45,6 +46,7 @@ export interface Agent {
   hasEndpointToken?: boolean;
   endpointToken?: string;
   modelRouting?: import("./agent-model-routing").AgentModelRouting;
+  defaultOperationMode?: import("./operation-modes").DesktopOperationMode;
 }
 
 export interface Group {

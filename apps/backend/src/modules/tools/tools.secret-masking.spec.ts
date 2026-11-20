@@ -16,10 +16,10 @@ function build(call: () => Promise<unknown>, knownSecret: string) {
   };
   const service = new ToolsService(
     { getPool: () => pool } as never,
-    { request: jest.fn() } as never,
+    { request: jest.fn(async () => ({ id: "approval-1" })) } as never,
     { record: jest.fn() } as never,
     { list: async () => [] } as never,
-    { catalog: () => [{ name: "pesquisa.externa", description: "Pesquisa", risk: "read" }], find: () => ({ name: "pesquisa.externa" }), call } as never,
+    { catalog: () => [{ name: "pesquisa.externa", description: "Pesquisa", risk: "read", category: "rede" }], find: () => ({ name: "pesquisa.externa", description: "Pesquisa", risk: "read", category: "rede" }), call } as never,
     {
       secret: async () => knownSecret,
       secretValuesForMasking: async () => [knownSecret],
@@ -27,6 +27,7 @@ function build(call: () => Promise<unknown>, knownSecret: string) {
     { decisionFor: async () => null } as never,
     {} as never,
   );
+  (service as any).catalog = () => [{ name: "pesquisa.externa", description: "Pesquisa", risk: "read", category: "rede" }];
   return { service, inserted };
 }
 

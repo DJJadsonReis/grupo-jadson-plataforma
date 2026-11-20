@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Req } from "@nestjs/common";
 import { ConversationsService, StoredRole } from "./conversations.service";
 import { Principal } from "../auth/users.service";
 
@@ -9,6 +9,19 @@ export class ConversationsController {
   constructor(private readonly conversations: ConversationsService) {}
 
   @Get() list(@Req() request: PrincipalRequest) { return this.conversations.list(request.principal?.id ?? "sistema"); }
+
+  @Get(":id/operation-mode") operationMode(@Param("id") id: string, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    return this.conversations.operationMode(id, request.principal?.id ?? "sistema");
+  }
+
+  @Put(":id/operation-mode") setOperationMode(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw new BadRequestException("Corpo de modo inválido.");
+    const value = body as { mode?: unknown; confirmation?: unknown };
+    const principal = request.principal ?? { id: "sistema", name: "Administrador", role: "admin" as const };
+    return this.conversations.setOperationMode(id, principal.id, value.mode, principal.role, principal.name, value.confirmation);
+  }
 
   @Post() create(@Body() body: unknown, @Req() request: PrincipalRequest) {
     if (!body || typeof body !== "object") throw new BadRequestException("Corpo de conversa inválido.");

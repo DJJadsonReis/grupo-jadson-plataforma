@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
 
-use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::merge_setup_config, valid_postgres_archive_path, valid_sha256};
+use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::{merge_setup_config, repair_setup_config, valid_api_token}, valid_postgres_archive_path, valid_sha256};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -207,6 +207,76 @@ fn read_setup_config() -> Result<serde_json::Value, String> {
     }
 }
 
+fn secure_token() -> Result<String, String> {
+    let mut bytes = [0u8; 32];
+    #[cfg(windows)]
+    {
+        #[link(name = "advapi32")]
+        extern "system" { fn SystemFunction036(buffer: *mut u8, length: u32) -> u8; }
+        // RtlGenRandom is provided by Windows and uses the system cryptographic RNG.
+        if unsafe { SystemFunction036(bytes.as_mut_ptr(), bytes.len() as u32) } == 0 {
+            return Err("não foi possível gerar uma credencial local".to_string());
+        }
+    }
+    #[cfg(not(windows))]
+    {
+        use std::io::Read;
+        fs::File::open("/dev/urandom").and_then(|mut file| file.read_exact(&mut bytes))
+            .map_err(|_| "não foi possível gerar uma credencial local".to_string())?;
+    }
+    Ok(bytes.iter().map(|byte| format!("{byte:02x}")).collect())
+}
+
+fn atomic_write_setup(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
+    fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
+    let nonce = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+        .map_err(|_| "não foi possível preparar a configuração local".to_string())?.as_nanos();
+    let temporary = directory.join(format!("setup.{}.{}.tmp", std::process::id(), nonce));
+    let mut file = fs::OpenOptions::new().write(true).create_new(true).open(&temporary)
+        .map_err(|_| "não foi possível preparar a configuração local".to_string())?;
+    use std::io::Write;
+    if file.write_all(bytes).and_then(|_| file.sync_all()).is_err() {
+        let _ = fs::remove_file(&temporary);
+        return Err("não foi possível salvar a configuração local".to_string());
+    }
+    drop(file);
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::OsStrExt;
+        extern "system" { fn MoveFileExW(existing: *const u16, new: *const u16, flags: u32) -> i32; }
+        const MOVEFILE_REPLACE_EXISTING: u32 = 0x1;
+        const MOVEFILE_WRITE_THROUGH: u32 = 0x8;
+        let source: Vec<u16> = temporary.as_os_str().encode_wide().chain(Some(0)).collect();
+        let destination: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
+        if unsafe { MoveFileExW(source.as_ptr(), destination.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) } == 0 {
+            let _ = fs::remove_file(&temporary);
+            return Err("não foi possível substituir a configuração local".to_string());
+        }
+    }
+    #[cfg(not(windows))]
+    fs::rename(&temporary, path).map_err(|_| {
+        let _ = fs::remove_file(&temporary);
+        "não foi possível substituir a configuração local".to_string()
+    })?;
+    Ok(())
+}
+
+#[tauri::command]
+fn ensure_desktop_setup() -> Result<(), String> {
+    let path = desktop_setup_path()?;
+    let existing = match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({})),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => serde_json::json!({}),
+        Err(_) => return Err("não foi possível ler a configuração local".to_string()),
+    };
+    let token = secure_token()?;
+    let repaired = repair_setup_config(existing.clone(), std::env::var("DATABASE_URL").ok().as_deref(), &token)?;
+    if repaired == existing { return Ok(()); }
+    let bytes = serde_json::to_vec(&repaired).map_err(|_| "não foi possível preparar a configuração local".to_string())?;
+    atomic_write_setup(&path, &bytes)
+}
+
 fn save_services_consent() -> Result<(), String> {
     let path = desktop_setup_path()?;
     let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
@@ -317,7 +387,7 @@ fn save_first_run_config(database_url: String, api_token: String) -> Result<(), 
     if !has_authority_and_database || parsed.chars().any(char::is_control) {
         return Err("informe um endereço PostgreSQL válido".to_string());
     }
-    if api_token.len() != 64 || !api_token.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+    if !valid_api_token(&api_token) {
         return Err("token local inválido".to_string());
     }
 
@@ -332,17 +402,18 @@ fn save_first_run_config(database_url: String, api_token: String) -> Result<(), 
     ])?;
     let content = serde_json::to_vec(&config)
         .map_err(|_| "não foi possível preparar a configuração".to_string())?;
-    fs::write(&path, content).map_err(|_| "não foi possível salvar a configuração local".to_string())
+    atomic_write_setup(&path, &content)
 }
 
 /// Entrega o token do sistema apenas ao frontend local do desktop.
 #[tauri::command]
 fn get_first_run_api_token() -> Result<String, String> {
+    ensure_desktop_setup()?;
     let value: serde_json::Value = serde_json::from_slice(
         &fs::read(desktop_setup_path()?).map_err(|_| "configuração local ainda não foi salva".to_string())?,
     ).map_err(|_| "configuração local inválida".to_string())?;
     value.get("apiToken").and_then(serde_json::Value::as_str)
-        .filter(|token| token.len() == 64 && token.bytes().all(|byte| byte.is_ascii_hexdigit()))
+        .filter(|token| valid_api_token(token))
         .map(str::to_string)
         .ok_or_else(|| "token local inválido".to_string())
 }
@@ -353,7 +424,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, ensure_desktop_setup, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
