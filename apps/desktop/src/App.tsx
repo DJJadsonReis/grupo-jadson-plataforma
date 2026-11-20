@@ -2,6 +2,7 @@ import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIco
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { buildGroupRequest, readGroupMentions } from "./lib/groups";
+import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPreference, shouldAutoRead } from "./lib/read-aloud";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
@@ -391,9 +392,41 @@ function Workspace({ edition }: { edition: Edition }) {
   const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
+  const [autoReadEnabled, setAutoReadEnabled] = useState(() => loadAutoReadPreference(localStorage));
+  const autoReadEnabledRef = useRef(autoReadEnabled);
+  const autoReadSupported = typeof window !== "undefined" && "speechSynthesis" in window;
+  const lastSpokenIdRef = useRef<string | null>(null);
+  const historyConversationIdsRef = useRef(new Set(readWorkspace().conversations.map((conversation) => conversation.id)));
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const active = useMemo(() => conversations.find((c) => c.id === activeConversation) ?? (pendingConversation && pendingConversation.id === activeConversation ? pendingConversation : null), [conversations, activeConversation, pendingConversation]);
+
+  useEffect(() => {
+    autoReadEnabledRef.current = autoReadEnabled;
+    saveAutoReadPreference(localStorage, autoReadEnabled);
+  }, [autoReadEnabled]);
+
+  useEffect(() => {
+    if (autoReadSupported) window.speechSynthesis.cancel();
+    lastSpokenIdRef.current = null;
+  }, [activeConversation, autoReadSupported]);
+
+  function speakAutomatically(id: string, content: string) {
+    const text = cleanForSpeech(content);
+    if (!text || !autoReadSupported || !shouldAutoRead({ enabled: autoReadEnabledRef.current, supported: autoReadSupported,
+      message: { role: "assistant", streaming: false, id }, lastSpokenId: lastSpokenIdRef.current,
+      loadedFromHistory: historyConversationIdsRef.current.has(activeConversation ?? "") })) return;
+    const synthesis = window.speechSynthesis;
+    synthesis.cancel();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = "pt-BR";
+    const voices = synthesis.getVoices();
+    const voiceIndex = choosePtBrVoice(voices);
+    const voice = voiceIndex === null ? undefined : voices[voiceIndex];
+    if (voice) utterance.voice = voice;
+    lastSpokenIdRef.current = id;
+    synthesis.speak(utterance);
+  }
 
   useEffect(() => {
     const controller = new AbortController();
@@ -431,6 +464,7 @@ function Workspace({ edition }: { edition: Edition }) {
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
         const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        for (const item of remote) historyConversationIdsRef.current.add(item.id);
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -533,6 +567,7 @@ function Workspace({ edition }: { edition: Edition }) {
       ...(groupId ? { groupId, type: "group" as const } : {})
     };
     setPendingConversation(conversation);
+    historyConversationIdsRef.current.delete(conversation.id);
     setActiveConversation(conversation.id);
     setPage("chat");
     setError(null);
@@ -550,6 +585,7 @@ function Workspace({ edition }: { edition: Edition }) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
+    if (autoReadSupported) window.speechSynthesis.cancel();
     let conversationId = activeConversation;
     if (pendingConversation && pendingConversation.id === activeConversation) {
       setConversations((items) => [{ ...pendingConversation, title: (title || "Nova conversa").slice(0, 48) }, ...items]);
@@ -620,6 +656,7 @@ function Workspace({ edition }: { edition: Edition }) {
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
       const decoder = new TextDecoder(); let answer = ""; let pending = ""; let eventName = ""; let streamError: string | null = null;
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(responseAgent ? { agentId: responseAgent.id } : {}) }] } : item));
+      const responseMessageId = `${id}:${Date.now()}:${Math.random()}`;
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -644,6 +681,7 @@ function Workspace({ edition }: { edition: Edition }) {
       }
       if (streamError) throw new Error(streamError);
       if (!answer) throw new Error("O provedor encerrou a resposta sem conteúdo.");
+      speakAutomatically(responseMessageId, answer);
     } catch (cause) {
       const aborted = cause instanceof DOMException && cause.name === "AbortError";
       const reason = cause instanceof Error ? cause.message : "Não foi possível enviar a mensagem.";
@@ -952,6 +990,9 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "chat" && (
           <ChatPage
             conversation={active}
+            autoReadEnabled={autoReadEnabled}
+            autoReadSupported={autoReadSupported}
+            onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
             agents={agents}
             groups={edition === "equipe" ? groups : []}
             draft={draft}
@@ -1269,7 +1310,9 @@ function ReadAloudButton({ text }: { text: string }) {
 
   function toggle() {
     if (speaking) { window.speechSynthesis.cancel(); setSpeaking(false); return; }
-    const utterance = new SpeechSynthesisUtterance(text.replace(/[*#_`>]/g, " "));
+    const cleaned = cleanForSpeech(text);
+    if (!cleaned) return;
+    const utterance = new SpeechSynthesisUtterance(cleaned);
     utterance.lang = "pt-BR";
     utterance.onend = () => setSpeaking(false);
     utterance.onerror = () => setSpeaking(false);
@@ -1458,11 +1501,12 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
+  autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
@@ -1565,6 +1609,9 @@ function ChatPage({
           {currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}
         </h1>
         <div className="gx-header-actions">
+          {autoReadSupported && <button type="button" className="read-aloud-btn" onClick={onToggleAutoRead} aria-pressed={autoReadEnabled}>
+            {`Leitura automática: ${autoReadEnabled ? "ligada" : "desligada"}`}
+          </button>}
           {conversation && conversation.messages.length > 0 && (
             <button
               type="button"
