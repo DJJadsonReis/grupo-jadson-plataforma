@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { buildGroupRequest, readGroupMentions } from "./lib/groups";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
+import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
@@ -614,7 +615,7 @@ function Workspace({ edition }: { edition: Edition }) {
       }
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
-      const decoder = new TextDecoder(); let answer = ""; let pending = "";
+      const decoder = new TextDecoder(); let answer = ""; let pending = ""; let eventName = ""; let streamError: string | null = null;
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(responseAgent ? { agentId: responseAgent.id } : {}) }] } : item));
       while (true) {
         const { value, done } = await reader.read();
@@ -622,10 +623,13 @@ function Workspace({ edition }: { edition: Edition }) {
         pending += decoder.decode(value, { stream: true });
         const lines = pending.split("\n"); pending = lines.pop() ?? "";
         for (const line of lines) {
+          if (line.startsWith("event:")) { eventName = line.slice(6).trim(); continue; }
+          if (!line.trim()) { eventName = ""; continue; }
           if (!line.startsWith("data:")) continue;
           const payload = line.slice(5).trim(); if (payload === "[DONE]") continue;
           try {
             const parsed = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[]; content?: string };
+            if (eventName === "error") { streamError = "O endpoint do agente não respondeu. Verifique a configuração do bot."; continue; }
             answer += parsed.choices?.[0]?.delta?.content ?? parsed.content ?? "";
             setConversations((items) => items.map((item) => item.id === id ? {
               ...item,
@@ -635,6 +639,7 @@ function Workspace({ edition }: { edition: Edition }) {
           } catch { /* ignore incomplete frames */ }
         }
       }
+      if (streamError) throw new Error(streamError);
       if (!answer) throw new Error("O provedor encerrou a resposta sem conteúdo.");
     } catch (cause) {
       const aborted = cause instanceof DOMException && cause.name === "AbortError";
@@ -657,7 +662,11 @@ function Workspace({ edition }: { edition: Edition }) {
       const response = await apiFetch(exists ? `${API_URL}/agents/${agent.id}` : `${API_URL}/agents`, {
         method: exists ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(agent),
+        body: JSON.stringify(agentPayload(agent, {
+          providerKind: (agent as Agent & { providerKind?: "model" | "endpoint" }).providerKind ?? "model",
+          endpointUrl: agent.endpointUrl ?? "",
+          endpointToken: (agent as Agent & { endpointToken?: string }).endpointToken ?? "",
+        })),
       });
       if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
       const saved = await response.json() as Agent;
@@ -3437,6 +3446,7 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
    MODAIS & HELPERS
    ========================================================================= */
 function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+  const endpoint = (agent as Agent & { providerKind?: string }).providerKind === "endpoint";
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <form className="bot-create-dialog" onSubmit={onSubmit}>
@@ -3462,6 +3472,12 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
               <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
+              <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
+              {endpoint && <>
+                <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
+                <label><span>Token (opcional)</span><input type="password" autoComplete="new-password" value={(agent as Agent & { endpointToken?: string }).endpointToken ?? ""} onChange={(event) => onChange({ ...agent, endpointToken: event.target.value })} placeholder={agent.hasEndpointToken ? "Já salvo" : ""} /></label>
+                <p role="note">Este bot não usa ferramentas nem a memória do modelo; a resposta vem do seu endpoint.</p>
+              </>}
               <label>
                 <span>Especialidade / Descrição Curta</span>
                 <input value={agent.description} onChange={(event) => onChange({ ...agent, description: event.target.value })} placeholder="Ex.: Especialista em refatoração e arquitetura" />
@@ -3470,12 +3486,12 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
                 <span>Instruções de Sistema (Prompt Base)</span>
                 <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
               </label>
-              <label>
+              {!endpoint && <label>
                 <span>Modelo Específico (Opcional)</span>
                 <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
-              </label>
-              <label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
-              <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+              </label>}
+              {!endpoint && <><label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
+              <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label></>}
             </div>
           </details>
         </div>

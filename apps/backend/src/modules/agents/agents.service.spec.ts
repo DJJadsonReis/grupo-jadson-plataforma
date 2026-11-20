@@ -10,7 +10,7 @@ describe("AgentsService local UUID persistence", () => {
     const result = await new AgentsService(database).create(profile);
 
     expect(result).toEqual(profile);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema", "model", null, null]);
   });
 
   it("returns an existing row without overwriting it when the UUID is already present", async () => {

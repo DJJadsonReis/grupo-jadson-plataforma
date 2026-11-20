@@ -4,7 +4,7 @@ import { DatabaseService } from "../database/database.service";
 
 export type StoredRole = "system" | "user" | "assistant";
 export interface StoredAttachment { id: string; name: string; type: string; size: number; dataUrl: string; }
-export interface StoredMessage { id: string; role: StoredRole; content: string; createdAt: string; agentId?: string | null; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[]; }
+export interface StoredMessage { id: string; role: StoredRole; content: string; createdAt: string; agentId?: string | null; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[]; error?: string; }
 export interface StoredConversation { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: StoredMessage[]; createdAt: string; updatedAt: string; }
 
 @Injectable()

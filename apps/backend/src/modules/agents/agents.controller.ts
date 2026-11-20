@@ -3,6 +3,7 @@ import { AgentInput, AgentsService } from "./agents.service";
 import { AgentPermissionsService, ShareRole } from "./agent-permissions.service";
 import { Principal } from "../auth/users.service";
 import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
+import { validateAgentEndpoint } from "./agent-endpoint";
 
 interface PrincipalRequest { principal?: Principal }
 
@@ -17,7 +18,7 @@ export class AgentsController {
     return records.map((agent) => {
       const access = accessById.get(agent.id)!;
       return access === "user"
-        ? { ...agent, instructions: "", toolsAllowed: [], generationConfig: {}, permission: access }
+        ? { ...agent, instructions: "", toolsAllowed: [], generationConfig: {}, endpointUrl: null, hasEndpointToken: false, permission: access }
         : { ...agent, permission: access };
     });
   }
@@ -84,6 +85,20 @@ export class AgentsController {
       const max = field === "instructions" ? 20_000 : field === "avatar" ? 2_000_000 : 300;
       if (fieldValue !== undefined && (typeof fieldValue !== "string" || fieldValue.length > max)) throw new BadRequestException(`Campo ${field} inválido.`);
       result[field] = fieldValue ?? (field === "provider" ? "openai" : "");
+    }
+    if (value.providerKind !== undefined || creating) {
+      if (value.providerKind !== undefined && value.providerKind !== "model" && value.providerKind !== "endpoint") throw new BadRequestException("Tipo de agente inválido.");
+      result.providerKind = value.providerKind ?? "model";
+    }
+    if (value.providerKind === "endpoint" || (!creating && value.endpointUrl !== undefined)) {
+      result.endpointUrl = validateAgentEndpoint(value.endpointUrl);
+    } else if (!creating && value.providerKind === "model") {
+      result.endpointUrl = null;
+      result.endpointToken = "";
+    } else if (value.endpointUrl !== undefined) throw new BadRequestException("URL de endpoint só pode ser usada por agente endpoint.");
+    if (value.endpointToken !== undefined) {
+      if (typeof value.endpointToken !== "string" || value.endpointToken.length > 2000) throw new BadRequestException("Token do endpoint inválido.");
+      result.endpointToken = value.endpointToken;
     }
     if (result.provider && result.provider !== "openai") throw new BadRequestException("Este backend atualmente oferece somente o provider OpenAI.");
     if (creating && !(result.name as string).trim()) throw new BadRequestException("Nome do agente é obrigatório.");

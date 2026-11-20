@@ -25,6 +25,7 @@ import { buildSkillsSystemMessage } from "../skills/skill-prompt";
 import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 import { effectiveSkillTools } from "../skills/skill-tools";
+import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -140,6 +141,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
+  private endpointFetcher?: Parameters<typeof callAgentEndpoint>[0]["fetcher"];
+  private endpointLookup?: Parameters<typeof callAgentEndpoint>[0]["lookupHost"];
   constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService, @Optional() private readonly database?: DatabaseService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
@@ -174,20 +177,20 @@ export class ChatController {
     let promptSkills: Awaited<ReturnType<AgentSkillsService["loadPromptSkills"]>> = [];
     // Keep the safety guidance server-owned and directly after the profile instructions.
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
-    if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
-    if (agentId && this.database) {
+    if (agent?.providerKind !== "endpoint" && agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
+    if (agent?.providerKind !== "endpoint" && agentId && this.database) {
       promptSkills = await new AgentSkillsService(this.database).loadPromptSkills(agentId).catch(() => []);
       const skillsMessage = buildSkillsSystemMessage(promptSkills);
       if (skillsMessage) messages.splice(agent?.instructions.trim() ? 1 : 0, 0, { role: "system", content: skillsMessage });
     }
-    const userPreferences = await this.preferences?.read(request.principal?.id ?? "sistema").catch(() => null);
+    const userPreferences = agent?.providerKind === "endpoint" ? null : await this.preferences?.read(request.principal?.id ?? "sistema").catch(() => null);
     if (userPreferences && (userPreferences.instructions || userPreferences.responseStyle !== "balanced")) {
       const guidance = messages.findIndex((message) => message.role === "system" && message.content === UNTRUSTED_GUIDANCE);
       const preferenceMessage = { role: "system" as const, content: `Preferências da pessoa: estilo de resposta ${userPreferences.responseStyle}.${userPreferences.instructions ? ` Instruções: ${userPreferences.instructions}` : ""}` };
       messages.splice(guidance < 0 ? messages.length : guidance, 0, preferenceMessage);
     }
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
-    const memoryLines = await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
+    const memoryLines = agent?.providerKind === "endpoint" ? [] : await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
     const effectiveModel = model ?? (agent?.model || undefined);
     if (attachments.length) {
@@ -254,6 +257,20 @@ export class ChatController {
     let answer = "";
     let reportedModel = effectiveModel ?? "", usageReport = null as { promptTokens: number; completionTokens: number; totalTokens: number } | null;
     try {
+      if (agent?.providerKind === "endpoint") {
+        try {
+          const credentials = await this.agents.endpointCredentials(agent.id);
+          if (!credentials) throw new Error(AGENT_ENDPOINT_FAILED);
+          answer = await callAgentEndpoint({ url: credentials.url, token: credentials.token, conversationId, messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, timeoutMs: 30_000, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) });
+          res.write(sseTextChunk(answer));
+        } catch {
+          answer = "Não foi possível obter uma resposta do endpoint do agente.";
+          res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AGENT_ENDPOINT_FAILED", message: answer })}\n\n`));
+          try { if (conversationId) await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema"); } catch { /* best effort */ }
+          if (!abort.signal.aborted) { res.write(SSE_DONE); res.end(); }
+          return;
+        }
+      } else {
       let workingMessages = [...messages];
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
@@ -330,6 +347,7 @@ export class ChatController {
           }
         }
       }
+      }
       if (usageReport) {
         try {
           await this.usage.record({ conversationId, agentId, provider: "openai", model: reportedModel, ...usageReport });
@@ -341,6 +359,7 @@ export class ChatController {
       } catch (error) { this.logger.warn(`Auditoria não gravada: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       if (conversationId && answer) {
         try {
+          if (agent?.providerKind === "endpoint") throw new Error("endpoint title generation disabled");
           const title = await generateConversationTitle((input) => this.providers.stream(input, abort.signal), effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
           if (title) await this.conversations.setTitleForFirstResponse(conversationId, title, request.principal?.id ?? "sistema");
         } catch { /* the current user-message title is the fallback */ }

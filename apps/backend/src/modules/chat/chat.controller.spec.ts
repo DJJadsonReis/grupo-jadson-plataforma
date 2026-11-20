@@ -33,6 +33,9 @@ function setup(options: {
   policies?: { decisionFor: jest.Mock };
   skills?: Array<{ tools: string[]; instructions: string }>;
   skillLoad?: jest.Mock;
+  endpointCredentials?: { url: string; token?: string } | null;
+  providerKind?: "model" | "endpoint";
+    endpointFetch?: jest.Mock;
 } = {}) {
   const inputs: any[] = [];
   const streams = [...(options.streams ?? [sseResponse([{ choices: [{ delta: { content: "feito" } }] }])])];
@@ -52,7 +55,7 @@ function setup(options: {
   const controller = new ChatController(
     providers as never,
     {} as never,
-    { get: jest.fn(async () => options.agent ?? null) } as never,
+    { get: jest.fn(async () => options.agent === null ? null : { instructions: "", enabled: true, model: null, generationConfig: null, providerKind: options.providerKind ?? "model", id: "123e4567-e89b-42d3-a456-426614174000", name: "Agente Endpoint", ...options.agent }), endpointCredentials: jest.fn(async () => options.endpointCredentials ?? null) } as never,
     {} as never,
     { record: jest.fn() } as never,
     { record: jest.fn() } as never,
@@ -73,6 +76,42 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 }
 
 describe("ChatController tool loop", () => {
+  it("chama endpoint, persiste resposta e não chama provedor ou ferramentas", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const response = new FakeResponse();
+    const fetcher = jest.fn(async (_url: string, _init: unknown) => new globalThis.Response(JSON.stringify({ reply: "resposta endpoint" }), { status: 200 }));
+    const { controller, providers, tools } = setup({ providerKind: "endpoint", endpointCredentials: { url: "https://agent.example/run", token: "token-privado" }, endpointFetch: fetcher });
+    (controller as any).agents.endpointCredentials = jest.fn(async () => ({ url: "https://agent.example/run", token: "token-privado" }));
+    (controller as any).endpointFetcher = async (url: string, init: any) => fetcher(url, init);
+    (controller as any).endpointLookup = async () => ["93.184.216.34"];
+    const addMessage = jest.fn(async (_id, role, content) => ({ role, content }));
+    (controller as any).conversations = { create: jest.fn(), addMessage, setTitleForFirstResponse: jest.fn() };
+    await controller.complete({ agentId: id, conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(providers.stream).not.toHaveBeenCalled();
+    expect(tools.invoke).not.toHaveBeenCalled();
+    expect(addMessage).toHaveBeenCalledWith(expect.any(String), "assistant", "resposta endpoint", expect.any(Object), "pessoa-1");
+    expect(response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("")).toContain("resposta endpoint");
+    const request = fetcher.mock.calls[0]?.[1] as { headers: Record<string, string>; body: string };
+    expect(request.headers.Authorization).toBe("Bearer token-privado");
+    expect(JSON.parse(request.body)).toMatchObject({ agent: { id, name: "Agente Endpoint" }, messages: [{ role: "user", content: "oi" }] });
+  });
+
+  it("em falha de endpoint envia erro seguro e persiste mensagem curta", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const response = new FakeResponse();
+    const { controller } = setup({ providerKind: "endpoint" });
+    (controller as any).agents.endpointCredentials = jest.fn(async () => ({ url: "https://sensitive.example/secret-path", token: "token-secreto" }));
+    jest.spyOn(require("./../agents/agent-endpoint"), "callAgentEndpoint").mockRejectedValueOnce(new Error("endpoint failed"));
+    const addMessage = jest.fn(async () => ({}));
+    (controller as any).conversations = { create: jest.fn(), addMessage };
+    await controller.complete({ agentId: id, conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    const body = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(body).toContain("AGENT_ENDPOINT_FAILED");
+    expect(body).not.toContain("token-secreto");
+    expect(body).not.toContain("sensitive.example");
+    expect(addMessage).toHaveBeenCalledWith(expect.any(String), "assistant", expect.stringContaining("Não foi possível"), expect.objectContaining({ agentId: id }), "pessoa-1");
+  });
+
   it("does not let a principal use a bot without an access grant", async () => {
     const { controller, providers, permissions } = setup({ permissionError: new NotFoundException("Agente não encontrado.") });
     const response = new FakeResponse();

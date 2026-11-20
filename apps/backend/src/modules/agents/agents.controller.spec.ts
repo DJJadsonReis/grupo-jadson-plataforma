@@ -10,8 +10,8 @@ const bot = (id: string) => ({
 
 function setup() {
   const agents = {
-    list: jest.fn(async () => [bot("visible"), bot("hidden")]),
-    create: jest.fn(async (input, ownerId) => ({ ...bot(input.id ?? "created"), ownerId })),
+    list: jest.fn(async () => [{ ...bot("visible"), providerKind: "endpoint", endpointUrl: "https://agent.example", hasEndpointToken: true }, bot("hidden")]),
+    create: jest.fn(async (input, ownerId) => ({ ...bot(input.id ?? "created"), ownerId, providerKind: input.providerKind ?? "model", endpointUrl: input.endpointUrl ?? null, hasEndpointToken: Boolean(input.endpointToken) })),
     update: jest.fn(async () => bot("visible")),
     remove: jest.fn(async () => true),
   };
@@ -39,6 +39,21 @@ describe("AgentsController access rules", () => {
     const { controller, agents } = setup();
     await controller.create({ name: "New", ownerId: "victim", id: "123e4567-e89b-42d3-a456-426614174000" }, { principal });
     expect(agents.create).toHaveBeenCalledWith(expect.objectContaining({ id: "123e4567-e89b-42d3-a456-426614174000", name: "New" }), "person-1");
+  });
+
+  it.each(["http://example.com", "https://user:senha@example.com"]) ("rejects unsafe endpoint URL %s", async (endpointUrl) => {
+    const { controller, agents } = setup();
+    await expect(controller.create({ name: "Endpoint", providerKind: "endpoint", endpointUrl }, { principal })).rejects.toMatchObject({ response: { code: "INVALID_AGENT_ENDPOINT" } });
+    expect(agents.create).not.toHaveBeenCalled();
+  });
+
+  it("aceita endpoint HTTPS e não expõe token em lista para papel user", async () => {
+    const { controller } = setup();
+    const created = await controller.create({ name: "Endpoint", providerKind: "endpoint", endpointUrl: "https://agent.example/run", endpointToken: "top-secret" }, { principal });
+    expect(created).not.toHaveProperty("endpointToken");
+    const [listed] = await controller.list({ principal });
+    expect(listed).toMatchObject({ providerKind: "endpoint", endpointUrl: null, hasEndpointToken: false });
+    expect(JSON.stringify(listed)).not.toContain("top-secret");
   });
 
   it("checks edit permission before mutation and lets the owner grant a role", async () => {
