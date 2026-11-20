@@ -19,6 +19,7 @@ import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
+import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { StatusPanel } from "./components/status/StatusPanel";
@@ -27,7 +28,7 @@ import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
-  CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
+  CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -302,7 +303,14 @@ function Workspace({ edition }: { edition: Edition }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [sidebarHover, setSidebarHover] = useState(false);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/notifications`).then((r) => r.ok ? r.json() : Promise.reject(new Error("notifications"))).then((items: unknown[]) => { if (active) setNotificationCount(items.length); }).catch(() => { if (active) setNotificationCount(0); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (!accountOpen) return;
     const onPointer = (event: PointerEvent) => {
@@ -846,6 +854,7 @@ function Workspace({ edition }: { edition: Edition }) {
           ))}
         </nav>
 
+        <button className="nav-item" onClick={() => setNotificationsOpen((open) => !open)} aria-expanded={notificationsOpen} title={railCollapsed ? "Notificações" : undefined}><Bell size={17} /><span>Notificações{notificationCount > 0 ? ` (${notificationCount})` : ""}</span></button>
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
           <div className="history">
@@ -976,6 +985,7 @@ function Workspace({ edition }: { edition: Edition }) {
           </div>
         </header>
 
+        {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
         {page === "dashboard" && (
           <Dashboard
             health={health}

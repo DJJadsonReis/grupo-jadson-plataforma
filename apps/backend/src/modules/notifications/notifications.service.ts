@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
-export type NotificationKind = "approval.pending" | "routine.failed" | "tool_limit.reached";
+export type NotificationKind = "approval.pending" | "routine.failed" | "tool_limit.reached" | "responsibility.result" | "responsibility.disabled";
 export interface Notification { id: string; owner: string; kind: NotificationKind; title: string; body: string; details: Record<string, unknown>; createdAt: string; readAt: string | null; }
 const COLUMNS = `id, owner, kind, title, body, details, created_at AS "createdAt", read_at AS "readAt"`;
 
@@ -30,5 +30,13 @@ export class NotificationsService {
   async markRead(owner: string, id: string): Promise<void> {
     const result = await this.database.getPool().query(`UPDATE notifications SET read_at=now() WHERE id=$1 AND owner=$2 AND read_at IS NULL`, [id, owner]);
     if (!result.rowCount) throw new NotFoundException({ code: "NOT_FOUND", message: "Notificação não encontrada." });
+  }
+
+  async markAllRead(owner: string): Promise<number> {
+    const result = await this.database.getPool().query(
+      `UPDATE notifications SET read_at=now() WHERE owner=$1 AND read_at IS NULL`,
+      [owner],
+    );
+    return result.rowCount ?? 0;
   }
 }
