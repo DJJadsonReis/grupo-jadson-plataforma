@@ -2,7 +2,7 @@ import { BadRequestException, Injectable, NotFoundException } from "@nestjs/comm
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
-export type TaskStatus = "aberta" | "concluida" | "arquivada";
+export type TaskStatus = "aberta" | "concluida" | "arquivada" | "na_fila" | "em_andamento" | "falhou";
 export interface TaskRecord {
   id: string;
   ownerId: string;
@@ -11,11 +11,17 @@ export interface TaskRecord {
   status: TaskStatus;
   createdAt: Date;
   updatedAt: Date;
+  agentId: string | null;
+  result: string;
+  attempts: number;
+  failureMessage: string;
+  queuedAt: Date | null;
+  finishedAt: Date | null;
 }
 export interface TaskInput { title: unknown; description?: unknown }
 export interface TaskPatch { title?: unknown; description?: unknown; status?: unknown }
 
-const COLUMNS = `id,owner_id AS "ownerId",title,description,status,created_at AS "createdAt",updated_at AS "updatedAt"`;
+export const TASK_COLUMNS = `id,owner_id AS "ownerId",title,description,status,created_at AS "createdAt",updated_at AS "updatedAt",agent_id AS "agentId",result,attempts,failure_message AS "failureMessage",queued_at AS "queuedAt",finished_at AS "finishedAt"`;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const STATUS = new Set<TaskStatus>(["aberta", "concluida", "arquivada"]);
 
@@ -25,7 +31,7 @@ export class TasksService {
 
   async list(ownerId: string): Promise<TaskRecord[]> {
     const result = await this.database.getPool().query(
-      `SELECT ${COLUMNS} FROM tasks WHERE owner_id=$1 AND status<>'arquivada' ORDER BY updated_at DESC`, [ownerId],
+      `SELECT ${TASK_COLUMNS} FROM tasks WHERE owner_id=$1 AND status<>'arquivada' ORDER BY updated_at DESC`, [ownerId],
     );
     return result.rows as TaskRecord[];
   }
@@ -33,7 +39,7 @@ export class TasksService {
   async create(ownerId: string, input: TaskInput): Promise<TaskRecord> {
     const value = validateCreate(input);
     const result = await this.database.getPool().query(
-      `INSERT INTO tasks(id,owner_id,title,description) VALUES($1,$2,$3,$4) RETURNING ${COLUMNS}`,
+      `INSERT INTO tasks(id,owner_id,title,description) VALUES($1,$2,$3,$4) RETURNING ${TASK_COLUMNS}`,
       [randomUUID(), ownerId, value.title, value.description],
     );
     return result.rows[0] as TaskRecord;
@@ -49,7 +55,7 @@ export class TasksService {
     if (value.status !== undefined) { params.push(value.status); fields.push(`status=$${params.length}`); }
     fields.push("updated_at=now()");
     const result = await this.database.getPool().query(
-      `UPDATE tasks SET ${fields.join(",")} WHERE id=$1 AND owner_id=$2 RETURNING ${COLUMNS}`, params,
+      `UPDATE tasks SET ${fields.join(",")} WHERE id=$1 AND owner_id=$2 RETURNING ${TASK_COLUMNS}`, params,
     );
     if (result.rowCount === 0) throw notFound();
     return result.rows[0] as TaskRecord;
@@ -71,7 +77,7 @@ function validateCreate(input: TaskInput): { title: string; description: string 
   return { title: input.title, description };
 }
 
-function validatePatch(patch: TaskPatch): { title?: string; description?: string; status?: TaskStatus } {
+export function validatePatch(patch: TaskPatch): { title?: string; description?: string; status?: TaskStatus } {
   if (!patch || typeof patch !== "object" || Array.isArray(patch) || Object.keys(patch).length === 0 || Object.keys(patch).some((key) => !["title", "description", "status"].includes(key))) {
     throw new BadRequestException("Informe ao menos um campo válido para atualizar a tarefa.");
   }

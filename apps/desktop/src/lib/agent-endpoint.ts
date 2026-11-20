@@ -1,6 +1,17 @@
 import type { Agent } from "./workspace";
 
-export type AgentEndpointFields = { providerKind: "model" | "endpoint"; endpointUrl: string; endpointToken: string };
+export type AgentEndpointFields = { providerKind: "model" | "endpoint"; endpointUrl: string; endpointToken: string; endpointProtocol?: "json" | "agui" };
+
+export function protocolosEndpoint(): { value: "json" | "agui"; label: string; dica: string }[] {
+  return [
+    { value: "json", label: "Simples (JSON)", dica: "Resposta inteira de uma vez." },
+    { value: "agui", label: "AG-UI (streaming)", dica: "Resposta aparece enquanto é gerada." },
+  ];
+}
+
+export function rotuloProtocolo(valor: unknown): string {
+  return valor === "agui" ? "AG-UI (streaming)" : "Simples (JSON)";
+}
 
 export function validateEndpointUrl(raw: string): string {
   if (raw.length > 500) throw new Error("A URL do endpoint deve ter até 500 caracteres.");
@@ -17,10 +28,12 @@ export function agentPayload(agent: Agent, fields: AgentEndpointFields): Record<
   delete payload.endpointToken;
   if (fields.providerKind === "endpoint") {
     payload.endpointUrl = validateEndpointUrl(fields.endpointUrl);
+    payload.endpointProtocol = fields.endpointProtocol ?? agent.endpointProtocol ?? "json";
     if (fields.endpointToken) payload.endpointToken = fields.endpointToken;
   } else {
     delete payload.endpointUrl;
     delete payload.endpointToken;
+    delete payload.endpointProtocol;
   }
   return payload;
 }

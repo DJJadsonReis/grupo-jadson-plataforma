@@ -21,6 +21,7 @@ import { generateConversationTitle } from "./conversation-title";
 import { UserPreferencesService } from "../preferences/user-preferences.service";
 import { NotificationsService } from "../notifications/notifications.service";
 import { AgentPermissionsService } from "../agents/agent-permissions.service";
+import { HandoffsService } from "../handoffs/handoffs.service";
 import { Principal } from "../auth/users.service";
 import { AgentSkillsService } from "../skills/agent-skills.service";
 import { buildSkillsSystemMessage } from "../skills/skill-prompt";
@@ -28,7 +29,7 @@ import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 import { effectiveSkillTools } from "../skills/skill-tools";
 import { decisionForOperationMode } from "../tools/operation-modes";
-import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
+import { AGENT_ENDPOINT_FAILED, callAgentEndpoint, streamAgUiEndpoint } from "../agents/agent-endpoint";
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
@@ -152,7 +153,7 @@ export class ChatController {
   private readonly logger = new MaskedLogger(ChatController.name);
   private endpointFetcher?: Parameters<typeof callAgentEndpoint>[0]["fetcher"];
   private endpointLookup?: Parameters<typeof callAgentEndpoint>[0]["lookupHost"];
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService, @Optional() private readonly database?: DatabaseService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService, @Optional() private readonly database?: DatabaseService, @Optional() private readonly handoffs?: HandoffsService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -252,6 +253,10 @@ export class ChatController {
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
     const memoryLines = agent?.providerKind === "endpoint" ? [] : await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
+    if (conversationId && agentId && this.handoffs) {
+      const handoffContext = await this.handoffs.consumeContext(conversationId, agentId).catch(() => null);
+      if (handoffContext) messages.unshift({ role: "system", content: handoffContext });
+    }
     const effectiveModel = model ?? savedModelChoice?.model ?? (agent?.model || undefined);
     if (!modelProviderId && savedModelChoice) modelProviderId = savedModelChoice.providerId;
     if (!agent && modelProviderId && model && typeof this.providers.validateManagedModel === "function") {
@@ -348,8 +353,16 @@ export class ChatController {
         try {
           const credentials = await this.agents.endpointCredentials(agent.id);
           if (!credentials) throw new Error(AGENT_ENDPOINT_FAILED);
-          answer = await callAgentEndpoint({ url: credentials.url, token: credentials.token, conversationId, messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, timeoutMs: 30_000, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) });
-          res.write(sseTextChunk(answer));
+          if (credentials.endpointProtocol === "agui") {
+            const secrets = await this.toolsService.secretsForMasking();
+            for await (const delta of streamAgUiEndpoint({ url: credentials.url, ...(credentials.token ? { token: credentials.token } : {}), ...(conversationId ? { conversationId } : {}), messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) })) {
+              const masked = maskSecrets(delta, secrets); answer += masked; res.write(sseTextChunk(masked));
+            }
+            if (!answer.trim()) throw new Error(AGENT_ENDPOINT_FAILED);
+          } else {
+            answer = await callAgentEndpoint({ url: credentials.url, token: credentials.token, conversationId, messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, timeoutMs: 30_000, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) });
+            res.write(sseTextChunk(answer));
+          }
         } catch {
           answer = "Não foi possível obter uma resposta do endpoint do agente.";
           res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AGENT_ENDPOINT_FAILED", message: answer })}\n\n`));

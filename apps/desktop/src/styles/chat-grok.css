@@ -101,6 +101,9 @@
 .gx-chat .gx-text-btn-strong { color: var(--gx-ink); border: 1px solid #2b2b2b; }
 .gx-chat .gx-text-btn:disabled { opacity: 0.45; cursor: default; }
 .gx-chat .gx-delegate-error { flex-basis: 100%; color: var(--gj-danger, #d78272); }
+.gx-chat .gx-delegate input { min-width: 180px; height: 32px; padding: 0 10px; border: 1px solid #2b2b2b; border-radius: 8px; background: var(--gx-field); color: var(--gx-ink); }
+.gx-chat .gx-handoff-history { width: min(var(--gx-column), calc(100% - 48px)); margin: 0 auto 8px; display: grid; gap: 5px; color: var(--gx-ink-2); font-size: 12px; }
+.gx-chat .gx-handoff-transition { margin: 10px auto; padding: 8px 12px; width: fit-content; max-width: 90%; border: 1px solid #333; border-radius: 999px; color: var(--gx-ink-2); font-size: 12px; text-align: center; }
 
 /* Área de rolagem e coluna de leitura. */
 .gx-chat .gx-scroll {

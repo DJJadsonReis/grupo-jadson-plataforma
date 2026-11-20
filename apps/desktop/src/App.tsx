@@ -5,7 +5,7 @@ import { buildGroupRequest, readGroupMentions } from "./lib/groups";
 import { buildRoutinePayload, describeRoutineSchedule, type RoutineFrequency } from "./lib/routines";
 import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPreference, shouldAutoRead } from "./lib/read-aloud";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
-import { agentPayload } from "./lib/agent-endpoint";
+import { agentPayload, protocolosEndpoint } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
@@ -41,6 +41,7 @@ import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
 import { ConversationEffortApi, CONVERSATION_EFFORT_OPTIONS, effortLabel, shouldShowEffort, type ConversationEffort } from "./lib/conversation-effort";
 import { ConversationModelApi, initialConversationModel, modelChoiceForSelection, modelSelectionError } from "./lib/conversation-model";
+import { agentesDelegaveis, delegacaoDesabilitada, rotuloDelegacao } from "./lib/handoff";
 import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -863,16 +864,20 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
           providerKind: (agent as Agent & { providerKind?: "model" | "endpoint" }).providerKind ?? "model",
           endpointUrl: agent.endpointUrl ?? "",
           endpointToken: (agent as Agent & { endpointToken?: string }).endpointToken ?? "",
+          endpointProtocol: agent.endpointProtocol ?? "json",
         })),
       });
-      if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: unknown } | null;
+        throw new Error(typeof body?.message === "string" ? body.message : "Não foi possível salvar o agente no banco.");
+      }
       const savedAgent = normalizeAgent(await response.json());
       if (!savedAgent) throw new Error("Resposta inválida ao salvar agente.");
       const saved = savedAgent;
       setRemoteAgentIds((ids) => ids.includes(saved.id) ? ids : [...ids, saved.id]);
       setAgents((items) => items.map((item) => item.id === agent.id ? saved : item));
       setAgentPersistence("connected");
-    } catch { setAgentPersistence("error"); }
+    } catch (cause) { setAgentPersistence("error"); setError(cause instanceof Error ? cause.message : "Falha ao salvar agente."); }
   }
 
   async function persistGroup(group: Group) {
@@ -1162,6 +1167,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
         {page === "chat" && (
           <ChatPage
             conversation={active}
+            apiFetch={apiFetch}
+            apiUrl={API_URL}
             modelCatalogue={modelCatalogue ?? []}
             selectableProviders={selectableProviders}
             autoReadEnabled={autoReadEnabled}
@@ -1182,8 +1189,6 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
             isAdmin={isAdmin}
-            apiFetch={apiFetch}
-            apiUrl={API_URL}
             persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
             persistLocalReasoningEffort={(id, effort) => setConversations((items) => items.map((item) => item.id === id ? { ...item, reasoningEffort: effort } : item))}
             persistLocalModelChoice={(id, choice) => setConversations((items) => items.map((item) => item.id === id ? { ...item, modelProviderId: choice?.providerId ?? null, model: choice?.model ?? null } : item))}
@@ -1599,6 +1604,7 @@ function ChatPage({
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
+  apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string; supportsEffort?: boolean }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
@@ -1607,8 +1613,6 @@ function ChatPage({
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   isAdmin: boolean;
-  apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
-  apiUrl: string;
   persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
   persistLocalReasoningEffort: (id: string, effort: ConversationEffort | null) => void;
   persistLocalModelChoice: (id: string, choice: { providerId: string; model: string } | null) => void;
@@ -1643,6 +1647,8 @@ function ChatPage({
   const libraryFiles = shownItems;
   const [delegateOpen, setDelegateOpen] = useState(false);
   const [delegateTo, setDelegateTo] = useState("");
+  const [delegateReason, setDelegateReason] = useState("");
+  const [handoffs, setHandoffs] = useState<{ id: string; fromAgentId: string | null; toAgentId: string | null; reason: string; createdAt: string }[]>([]);
   const [delegating, setDelegating] = useState(false);
   const [delegateError, setDelegateError] = useState<string | null>(null);
   const [pdfError, setPdfError] = useState<string | null>(null);
@@ -1684,16 +1690,19 @@ function ChatPage({
     setDelegating(true);
     setDelegateError(null);
     try {
-      const response = await apiFetch(`${API_URL}/handoffs`, {
+      const response = await apiFetch(`${apiUrl}/handoffs`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ conversationId: conversation.id, fromAgentId: agentId || null, toAgentId: delegateTo }),
+        body: JSON.stringify({ conversationId: conversation.id, fromAgentId: agentId || null, toAgentId: delegateTo, reason: delegateReason }),
       });
       const body = (await response.json().catch(() => ({}))) as { message?: string };
       if (!response.ok) throw new Error(body.message ?? "Não foi possível delegar.");
       setAgentId(delegateTo);
       setDelegateOpen(false);
       setDelegateTo("");
+      setDelegateReason("");
+      const history = await apiFetch(`${apiUrl}/handoffs?conversationId=${encodeURIComponent(conversation.id)}`);
+      if (history.ok) setHandoffs(await history.json() as typeof handoffs);
     } catch (error) {
       setDelegateError(error instanceof Error ? error.message : "Não foi possível delegar.");
     } finally {
@@ -1702,6 +1711,16 @@ function ChatPage({
   }
 
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
+
+  useEffect(() => {
+    setHandoffs([]);
+    if (!conversation || !isServerConversationId(conversation.id)) return;
+    let active = true;
+    void apiFetch(`${apiUrl}/handoffs?conversationId=${encodeURIComponent(conversation.id)}`).then(async (response: Response) => {
+      if (response.ok && active) setHandoffs(await response.json() as typeof handoffs);
+    }).catch(() => undefined);
+    return () => { active = false; };
+  }, [conversation?.id, apiFetch, apiUrl]);
 
   useEffect(() => {
     setModelSelection(initialConversationModel(conversation?.modelProviderId, conversation?.model));
@@ -1834,17 +1853,19 @@ function ChatPage({
         <div className="gx-delegate" role="group" aria-label="Delegar conversa">
           <select value={delegateTo} onChange={(event) => setDelegateTo(event.target.value)} aria-label="Agente de destino">
             <option value="">Escolha um agente</option>
-            {agents.filter((agent) => agent.enabled && agent.id !== agentId).map((agent) => (
+            {agentesDelegaveis(agents, agentId).map((agent) => (
               <option key={agent.id} value={agent.id}>{agent.name}</option>
             ))}
           </select>
-          <button type="button" className="gx-text-btn gx-text-btn-strong" disabled={!delegateTo || delegating} onClick={delegate}>
-            {delegating ? "Delegando…" : "Confirmar"}
+          <input aria-label="Motivo da delegação (opcional)" maxLength={300} value={delegateReason} onChange={(event) => setDelegateReason(event.target.value)} placeholder="Motivo (opcional)" />
+          <button type="button" className="gx-text-btn gx-text-btn-strong" disabled={delegacaoDesabilitada(delegateTo, delegating)} onClick={delegate}>
+            {delegating ? "Delegando…" : `Passar conversa para ${agents.find((item) => item.id === delegateTo)?.name ?? "…"}`}
           </button>
           <button type="button" className="gx-text-btn" onClick={() => { setDelegateOpen(false); setDelegateError(null); }}>Cancelar</button>
           {delegateError && <small className="gx-delegate-error" role="alert">{delegateError}</small>}
         </div>
       )}
+      {handoffs.length > 0 && <section className="gx-handoff-history" aria-label="Delegações desta conversa"><b>Delegações desta conversa</b>{handoffs.map((item) => <small key={item.id}>{rotuloDelegacao(agents.find((agent) => agent.id === item.fromAgentId)?.name ?? "Assistente Geral", agents.find((agent) => agent.id === item.toAgentId)?.name ?? "Agente", item.reason)}</small>)}</section>}
 
       {/* FLUXO DA CONVERSA: coluna central de leitura */}
       <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name)); setFiles([...files, ...images]); }}>
@@ -1872,6 +1893,7 @@ function ChatPage({
             <div className="gx-thread">
               {conversation.messages.map((message, index) => {
                 const isLast = index === conversation.messages.length - 1;
+                if (message.content.startsWith("Conversa passada de ")) return <div className="gx-handoff-transition" key={`${index}-handoff`}>{message.content}</div>;
                 if (message.role === "user") {
                   return (
                     <div className="gx-turn gx-turn-user" key={index + "-user"}>
@@ -4001,6 +4023,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
+                <label><span>Protocolo do endpoint</span><select value={agent.endpointProtocol ?? "json"} onChange={(event) => onChange({ ...agent, endpointProtocol: event.target.value as "json" | "agui" })}>{protocolosEndpoint().map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{protocolosEndpoint().find((item) => item.value === (agent.endpointProtocol ?? "json"))?.dica}</small></label>
                 <label><span>Token (opcional)</span><input type="password" autoComplete="new-password" value={(agent as Agent & { endpointToken?: string }).endpointToken ?? ""} onChange={(event) => onChange({ ...agent, endpointToken: event.target.value })} placeholder={agent.hasEndpointToken ? "Já salvo" : ""} /></label>
                 <p role="note">Este bot não usa ferramentas nem a memória do modelo; a resposta vem do seu endpoint.</p>
               </>}

@@ -1,4 +1,5 @@
 export const TASK_STATUSES = ["aberta", "concluida", "arquivada"] as const;
+export type QueueTaskStatus = TaskStatus | "na_fila" | "em_andamento" | "falhou";
 
 export type TaskStatus = (typeof TASK_STATUSES)[number];
 
@@ -7,9 +8,15 @@ export type TaskRecord = {
   ownerId: string;
   title: string;
   description: string;
-  status: TaskStatus;
+  status: QueueTaskStatus;
   createdAt: string;
   updatedAt: string;
+  agentId?: string | null;
+  result?: string;
+  attempts?: number;
+  failureMessage?: string;
+  queuedAt?: string | null;
+  finishedAt?: string | null;
 };
 
 export type TaskCreateBody = { title: string; description: string };
@@ -46,10 +53,14 @@ export function readErrorMessage(body: unknown, fallback: string): string {
   return fallback;
 }
 
-export function statusLabel(status: TaskStatus): string {
+export function statusLabel(status: QueueTaskStatus): string {
   switch (status) {
     case "aberta": return "Aberta";
     case "concluida": return "Concluída";
     case "arquivada": return "Arquivada";
+    case "na_fila": return "Na fila";
+    case "em_andamento": return "Em andamento";
+    case "falhou": return "Falhou";
+    default: return "Aberta";
   }
 }

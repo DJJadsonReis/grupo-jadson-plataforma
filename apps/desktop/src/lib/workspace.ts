@@ -12,6 +12,7 @@ export interface ChatMessage {
   timestamp?: number;
   /** Falha do envio, mostrada dentro da conversa. Não é enviada ao modelo. */
   error?: string;
+  kind?: "handoff";
 }
 
 export interface Conversation {
@@ -45,6 +46,7 @@ export interface Agent {
   toolsAllowed?: string[];
   generationConfig?: { temperature?: number; maxTokens?: number };
   providerKind?: "model" | "endpoint";
+  endpointProtocol?: "json" | "agui";
   endpointUrl?: string | null;
   hasEndpointToken?: boolean;
   endpointToken?: string;

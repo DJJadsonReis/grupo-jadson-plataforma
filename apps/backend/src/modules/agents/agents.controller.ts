@@ -96,6 +96,11 @@ export class AgentsController {
       if (value.providerKind !== undefined && value.providerKind !== "model" && value.providerKind !== "endpoint") throw new BadRequestException("Tipo de agente inválido.");
       result.providerKind = value.providerKind ?? "model";
     }
+    if (value.endpointProtocol !== undefined || creating) {
+      const protocol = value.endpointProtocol ?? "json";
+      if (protocol !== "json" && protocol !== "agui") throw new BadRequestException("Protocolo do endpoint deve ser json ou agui.");
+      result.endpointProtocol = protocol;
+    }
     if (value.providerKind === "endpoint" || (!creating && value.endpointUrl !== undefined)) {
       result.endpointUrl = validateAgentEndpoint(value.endpointUrl);
     } else if (!creating && value.providerKind === "model") {
