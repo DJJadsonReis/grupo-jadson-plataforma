@@ -22,6 +22,7 @@ describe("mcp-server.e2e — tokens pessoais, ferramentas e revogação", () => 
   let app: INestApplication;
   let baseUrl: string;
   const tokenRows: Array<{ id: string; ownerId: string; name: string; hash: string; revokedAt: string | null; createdAt: string; lastUsedAt: string | null }> = [];
+  const users = new Map<string, { name: string; role: "admin" | "operator" | "viewer"; active: boolean }>([["person-a", { name: "Pessoa A", role: "admin", active: true }], ["person-b", { name: "Pessoa B", role: "viewer", active: true }]]);
   const tasks: Array<{ ownerId: string; title: string }> = [];
   const auditEvents: Array<Record<string, unknown>> = [];
   const db = { getPool: () => ({ query: async (sql: string, values: unknown[] = []) => {
@@ -29,11 +30,12 @@ describe("mcp-server.e2e — tokens pessoais, ferramentas e revogação", () => 
       const row = { id: String(values[0]), ownerId: String(values[1]), name: String(values[2]), hash: String(values[3]), revokedAt: null, createdAt: new Date().toISOString(), lastUsedAt: null };
       tokenRows.push(row); return { rows: [{ id: row.id, name: row.name, createdAt: row.createdAt, lastUsedAt: null, revokedAt: null }], rowCount: 1 };
     }
-    if (sql.includes("UPDATE mcp_server_tokens SET last_used_at")) {
+    if (sql.includes("UPDATE mcp_server_tokens t SET last_used_at")) {
       const row = tokenRows.find((entry) => entry.hash === values[0] && !entry.revokedAt);
-      if (!row) return { rows: [], rowCount: 0 };
+      const user = row ? users.get(row.ownerId) : undefined;
+      if (!row || !user?.active) return { rows: [], rowCount: 0 };
       row.lastUsedAt = new Date().toISOString();
-      return { rows: [{ ownerId: row.ownerId, tokenId: row.id }], rowCount: 1 };
+      return { rows: [{ ownerId: row.ownerId, tokenId: row.id, name: user.name, role: user.role }], rowCount: 1 };
     }
     if (sql.includes("SELECT id,name,created_at")) return { rows: tokenRows.filter((row) => row.ownerId === values[0]).map(({ id, name, createdAt, lastUsedAt, revokedAt }) => ({ id, name, createdAt, lastUsedAt, revokedAt })) };
     if (sql.includes("UPDATE mcp_server_tokens SET revoked_at")) {
@@ -50,8 +52,8 @@ describe("mcp-server.e2e — tokens pessoais, ferramentas e revogação", () => 
   } }), checkConnection: async () => true, isVectorReady: () => true };
   const toolDefinitions = ["plataforma_status", "tarefas_listar", "tarefas_criar", "memoria_listar", "memoria_lembrar", "agentes_listar", "rotinas_listar", "notificacoes_listar"].map((name) => ({ name, description: name, inputSchema: { type: "object" } }));
   const memory = { isEnabled: async () => true, list: async () => [], remember: async () => ({}) };
-  const agentService = { list: async () => [], get: async () => null };
-  const permissions = { listAccessible: async () => [], access: async () => "none" };
+  const agentService = { list: async () => [], get: async (id: string) => ({ id, name: id, description: "", instructions: "" }) };
+  const permissions = { listAccessible: jest.fn(async (principal: { role: string }) => principal.role === "admin" ? [{ id: "agent-system", access: "owner" as const }] : [{ id: "agent-shared", access: "user" as const }]), access: jest.fn(async (_id: string, principal: { role: string }) => principal.role === "admin" ? "owner" : "user") };
   const routines = { list: async () => [] };
   const notifications = { listUnread: async () => [] };
   const redis = { checkConnection: async () => false };
@@ -85,7 +87,9 @@ describe("mcp-server.e2e — tokens pessoais, ferramentas e revogação", () => 
       const authorization = request.headers.authorization ?? "";
       const session = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
       if (session === "session-a" || session === "session-b") {
-        (request as import("express").Request & { principal?: { id: string; name: string; role: "operator" } }).principal = { id: session === "session-a" ? "person-a" : "person-b", name: session === "session-a" ? "Pessoa A" : "Pessoa B", role: "operator" };
+        const userId = session === 'session-a' ? 'person-a' : 'person-b';
+        const user = users.get(userId)!;
+        (request as import('express').Request & { principal?: { id: string; name: string; role: 'admin' | 'operator' | 'viewer' } }).principal = { id: userId, name: user.name, role: user.role };
       }
       next();
     });
@@ -111,9 +115,20 @@ describe("mcp-server.e2e — tokens pessoais, ferramentas e revogação", () => 
     const createdB = await responseB.json() as { token: string; record: { id: string } };
 
     const rpc = (token: string, id: number, method: string, params?: unknown) => fetch(baseUrl, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id, method, ...(params === undefined ? {} : { params }) }) });
+    users.set("person-a", { name: "Pessoa A", role: "admin", active: false });
+    expect((await rpc(createdA.token, 100, "initialize")).status).toBe(401);
+    users.set("person-a", { name: "Pessoa A", role: "admin", active: true });
     const initialize = await rpc(createdA.token, 1, "initialize");
     expect(initialize.status).toBe(200);
     expect(await initialize.text()).not.toContain(createdA.token);
+    await rpc(createdA.token, 11, "resources/list");
+    await rpc(createdA.token, 12, "resources/read", { uri: "agente://agent-system" });
+    await rpc(createdB.token, 13, "resources/list");
+    await rpc(createdB.token, 14, "resources/read", { uri: "agente://agent-shared" });
+    expect(permissions.listAccessible).toHaveBeenCalledWith(expect.objectContaining({ id: "person-a", name: "Pessoa A", role: "admin" }));
+    expect(permissions.listAccessible).toHaveBeenCalledWith(expect.objectContaining({ id: "person-b", name: "Pessoa B", role: "viewer" }));
+    expect(permissions.access).toHaveBeenCalledWith("agent-system", expect.objectContaining({ role: "admin" }));
+    expect(permissions.access).toHaveBeenCalledWith("agent-shared", expect.objectContaining({ role: "viewer" }));
     const toolList = await (await rpc(createdA.token, 2, "tools/list")).json() as { result: { tools: Array<{ name: string }> } };
     expect(toolList.result.tools.map((tool) => tool.name)).toEqual(toolDefinitions.map((tool) => tool.name));
     expect(await (await rpc(createdA.token, 3, "tools/call", { name: "tarefas_criar", arguments: { title: "Tarefa reservada da pessoa A" } })).json()).toMatchObject({ result: { isError: false } });

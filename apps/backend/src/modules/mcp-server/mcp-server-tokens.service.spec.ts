@@ -26,11 +26,14 @@ describe("McpServerTokensService", () => {
   });
 
   it("resolves only active tokens by their digest", async () => {
-    const query = jest.fn().mockResolvedValueOnce({ rows: [{ ownerId: "person-a", tokenId: "token-abcdef" }] }).mockResolvedValueOnce({ rows: [] });
+    const query = jest.fn().mockResolvedValueOnce({ rows: [{ ownerId: "person-a", tokenId: "token-abcdef", name: "Pessoa A", role: "viewer" }] }).mockResolvedValueOnce({ rows: [] });
     const service = new McpServerTokensService({ getPool: () => ({ query }) } as unknown as DatabaseService);
     const first = "gjm_test-value";
-    await expect(service.resolve(first)).resolves.toEqual({ ownerId: "person-a", tokenId: "token-abcdef" });
+    await expect(service.resolve(first)).resolves.toEqual({ ownerId: "person-a", tokenId: "token-abcdef", name: "Pessoa A", role: "viewer" });
     expect(query.mock.calls[0]?.[1]).toEqual([createHash("sha256").update(first).digest("hex")]);
+    expect(query.mock.calls[0]?.[0]).toContain("u.id::text=t.owner_id");
+    expect(query.mock.calls[0]?.[0]).toContain("u.active=true");
+    expect(query.mock.calls[0]?.[0]).toContain("last_used_at=now()");
     await expect(service.resolve("not-mcp")).resolves.toBeNull();
   });
 });

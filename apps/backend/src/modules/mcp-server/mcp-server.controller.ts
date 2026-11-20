@@ -34,18 +34,19 @@ export class McpServerController {
     const token = authorization.startsWith("Bearer ") ? authorization.slice(7) : "";
     const resolved = token ? await this.tokens.resolve(token) : null;
     if (!resolved) throw new UnauthorizedException({ code: "UNAUTHORIZED", message: "Token MCP ausente ou inválido." });
+    const principal: Principal = { id: resolved.ownerId, name: resolved.name, role: resolved.role };
     let size: number;
     try { size = (request as AuthedRequest).rawBodyLength ?? Buffer.byteLength(JSON.stringify(body) ?? "", "utf8"); } catch { size = 65_537; }
     if (size > 65_536) return response.status(413).json({ error: { code: "PAYLOAD_TOO_LARGE", message: "O corpo excede 64 KB." } });
     const protocol = await handleJsonRpc(body, {
       tools: {
         definitions: () => this.tools.definitions(),
-        resources: () => this.tools.resources(resolved.ownerId),
-        readAgentResource: (uri) => this.tools.readAgentResource(uri, resolved.ownerId),
+        resources: () => this.tools.resources(principal),
+        readAgentResource: (uri) => this.tools.readAgentResource(uri, principal),
         invalidCall: () => this.audit.record({ actor: resolved.ownerId, action: "mcp.call", subject: "(inválida)", details: { token: `…${resolved.tokenId.slice(-6)}`, result: -32602 } }),
         call: async (name, args) => {
           try {
-            const result = await this.tools.call(name, args, resolved.ownerId);
+            const result = await this.tools.call(name, args, principal);
             await this.audit.record({ actor: resolved.ownerId, action: "mcp.call", subject: name, details: { token: `…${resolved.tokenId.slice(-6)}`, result: "ok" } });
             return result;
           } catch (error) {

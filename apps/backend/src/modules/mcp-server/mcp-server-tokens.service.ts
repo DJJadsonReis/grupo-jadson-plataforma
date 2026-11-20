@@ -33,12 +33,12 @@ export class McpServerTokensService {
     return (result.rowCount ?? 0) > 0;
   }
 
-  async resolve(token: string): Promise<{ ownerId: string; tokenId: string } | null> {
+  async resolve(token: string): Promise<{ ownerId: string; tokenId: string; name: string; role: "admin" | "operator" | "viewer" } | null> {
     if (!token.startsWith("gjm_") || token.length > 100) return null;
     const result = await this.database.getPool().query(
-      `UPDATE mcp_server_tokens SET last_used_at=now() WHERE token_hash=$1 AND revoked_at IS NULL RETURNING owner_id AS "ownerId",id AS "tokenId"`,
+      `UPDATE mcp_server_tokens t SET last_used_at=now() FROM users u WHERE t.token_hash=$1 AND t.revoked_at IS NULL AND u.id::text=t.owner_id AND u.active=true RETURNING t.owner_id AS "ownerId",t.id AS "tokenId",u.name,u.role`,
       [hashMcpToken(token)],
     );
-    return result.rows[0] as { ownerId: string; tokenId: string } | undefined ?? null;
+    return result.rows[0] as { ownerId: string; tokenId: string; name: string; role: "admin" | "operator" | "viewer" } | undefined ?? null;
   }
 }

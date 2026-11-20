@@ -10,33 +10,35 @@ describe("McpServerTools", () => {
   const database = { checkConnection: jest.fn(async () => true), isVectorReady: jest.fn(() => true) };
   const redis = { checkConnection: jest.fn(async () => false) };
   const queue = { getDriver: jest.fn(() => "process-memory") };
+  const principal = { id: "person-b", name: "Pessoa B", role: "viewer" as const };
   const service = new McpServerTools(tasks as never, memory as never, agents as never, permissions as never, routines as never, notifications as never, database as never, redis as never, queue as never);
 
   it("routes every tool to the caller owner and respects disabled memory", async () => {
     const owner = "person-b";
-    await expect(service.call("tarefas_listar", {}, owner)).resolves.toEqual([{ owner }]);
-    await expect(service.call("tarefas_criar", { title: "Ação" }, owner)).resolves.toMatchObject({ owner });
-    await expect(service.call("memoria_listar", {}, owner)).resolves.toEqual([{ owner }]);
-    await expect(service.call("memoria_lembrar", { content: "texto" }, owner)).resolves.toEqual({ content: "texto", owner });
-    const visibleAgents = await service.call("agentes_listar", {}, owner) as Array<Record<string, unknown>>;
+    await expect(service.call("tarefas_listar", {}, principal)).resolves.toEqual([{ owner }]);
+    await expect(service.call("tarefas_criar", { title: "Ação" }, principal)).resolves.toMatchObject({ owner });
+    await expect(service.call("memoria_listar", {}, principal)).resolves.toEqual([{ owner }]);
+    await expect(service.call("memoria_lembrar", { content: "texto" }, principal)).resolves.toEqual({ content: "texto", owner });
+    const visibleAgents = await service.call("agentes_listar", {}, principal) as Array<Record<string, unknown>>;
+    expect(permissions.listAccessible).toHaveBeenCalledWith(principal);
     expect(visibleAgents).toHaveLength(1);
     expect(visibleAgents[0]).toMatchObject({ id: "a", name: "A" });
     expect(visibleAgents[0]).not.toHaveProperty("instructions");
     expect(visibleAgents[0]).not.toHaveProperty("endpointUrl");
-    await expect(service.call("rotinas_listar", {}, owner)).resolves.toEqual([{ owner }]);
-    await expect(service.call("notificacoes_listar", {}, owner)).resolves.toEqual([{ owner }]);
-    await expect(service.call("plataforma_status", {}, owner)).resolves.toMatchObject({ services: { postgres: "connected" } });
+    await expect(service.call("rotinas_listar", {}, principal)).resolves.toEqual([{ owner }]);
+    await expect(service.call("notificacoes_listar", {}, principal)).resolves.toEqual([{ owner }]);
+    await expect(service.call("plataforma_status", {}, principal)).resolves.toMatchObject({ services: { postgres: "connected" } });
     expect(tasks.list).toHaveBeenCalledWith(owner);
     expect(memory.remember).toHaveBeenCalledWith("texto", owner);
     memory.isEnabled.mockResolvedValueOnce(false);
-    await expect(service.call("memoria_listar", {}, owner)).resolves.toEqual([]);
+    await expect(service.call("memoria_listar", {}, principal)).resolves.toEqual([]);
     expect(memory.list).toHaveBeenCalledTimes(1);
   });
 
   it("limits agent metadata resources to visible records and hides internal instructions", async () => {
-    await expect(service.resources("person-b")).resolves.toEqual([{ uri: "agente://a", name: "Agent", description: "Visible", mimeType: "application/json" }]);
-    await expect(service.readAgentResource("agente://a", "person-b")).resolves.toMatchObject({ id: "a", name: "Agent" });
-    expect(await service.readAgentResource("agente://a", "person-b")).not.toHaveProperty("instructions");
-    expect(await service.readAgentResource("arquivo://privado", "person-b")).toBeNull();
+    await expect(service.resources(principal)).resolves.toEqual([{ uri: "agente://a", name: "Agent", description: "Visible", mimeType: "application/json" }]);
+    await expect(service.readAgentResource("agente://a", principal)).resolves.toMatchObject({ id: "a", name: "Agent" });
+    expect(await service.readAgentResource("agente://a", principal)).not.toHaveProperty("instructions");
+    expect(await service.readAgentResource("arquivo://privado", principal)).toBeNull();
   });
 });

@@ -3,7 +3,7 @@ import { McpServerController } from "./mcp-server.controller";
 
 describe("McpServerController autenticação e limite", () => {
   const tokens = { resolve: jest.fn(), list: jest.fn(), create: jest.fn(), revoke: jest.fn() };
-  const tools = { definitions: () => [], resources: async () => [], readAgentResource: async () => null, call: jest.fn(async () => ({ ok: true })) };
+  const tools = { definitions: () => [], resources: jest.fn(async () => []), readAgentResource: jest.fn(async () => null), call: jest.fn(async () => ({ ok: true })) };
   const audit = { record: jest.fn(async () => undefined) };
   const controller = new McpServerController(tokens as never, tools as never, audit as never);
   const response = () => ({ status: jest.fn().mockReturnThis(), json: jest.fn(), end: jest.fn() });
@@ -19,7 +19,7 @@ describe("McpServerController autenticação e limite", () => {
   });
 
   it("retorna 413 acima de 64 KB e audita chamada sem guardar argumentos livres", async () => {
-    tokens.resolve.mockResolvedValue({ ownerId: "person-a", tokenId: "id-abcdef" });
+    tokens.resolve.mockResolvedValue({ ownerId: "person-a", tokenId: "id-abcdef", name: "Pessoa Admin", role: "admin" });
     const large = response();
     await controller.rpc({ headers: { authorization: "Bearer gjm_falso_para_teste" }, rawBodyLength: 65_537 } as never, {}, large as never);
     expect(large.status).toHaveBeenCalledWith(413);

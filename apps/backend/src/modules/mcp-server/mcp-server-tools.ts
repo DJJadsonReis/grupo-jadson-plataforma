@@ -32,8 +32,8 @@ export class McpServerTools {
 
   definitions() { return MCP_TOOL_DEFINITIONS; }
 
-  async resources(ownerId: string): Promise<Array<{ uri: string; name: string; description: string; mimeType: string }>> {
-    const principal: Principal = { id: ownerId, name: "Cliente MCP", role: "operator" };
+  async resources(principal: Principal): Promise<Array<{ uri: string; name: string; description: string; mimeType: string }>> {
+    const ownerId = principal.id;
     const accessible = await this.permissions.listAccessible(principal);
     const records = await Promise.all(accessible.map(async ({ id }) => this.agents.get(id)));
     return records.filter((agent): agent is NonNullable<typeof agent> => Boolean(agent)).map((agent) => ({
@@ -41,7 +41,8 @@ export class McpServerTools {
     }));
   }
 
-  async call(name: string, args: Record<string, unknown>, ownerId: string): Promise<unknown> {
+  async call(name: string, args: Record<string, unknown>, principal: Principal): Promise<unknown> {
+    const ownerId = principal.id;
     switch (name) {
       case "plataforma_status": {
         const [postgres, redis] = await Promise.all([this.database.checkConnection(), this.redis.checkConnection()]);
@@ -52,7 +53,7 @@ export class McpServerTools {
       case "memoria_listar": return (await this.memory.isEnabled(ownerId)) ? this.memory.list(ownerId) : [];
       case "memoria_lembrar": return this.memory.remember(String(args.content ?? ""), ownerId);
       case "agentes_listar": {
-        const principal: Principal = { id: ownerId, name: "Cliente MCP", role: "operator" };
+        const ownerId = principal.id;
         const allowed = new Set((await this.permissions.listAccessible(principal)).map((item) => item.id));
         return (await this.agents.list()).filter((agent) => allowed.has(agent.id)).map(({ instructions: _instructions, toolsAllowed: _tools, endpointUrl: _url, ...agent }) => agent);
       }
@@ -62,10 +63,10 @@ export class McpServerTools {
     }
   }
 
-  async readAgentResource(uri: string, ownerId: string): Promise<unknown | null> {
+  async readAgentResource(uri: string, principal: Principal): Promise<unknown | null> {
     if (!uri.startsWith("agente://")) return null;
     const id = uri.slice("agente://".length);
-    const principal: Principal = { id: ownerId, name: "Cliente MCP", role: "operator" };
+    const ownerId = principal.id;
     if ((await this.permissions.access(id, principal)) === "none") return null;
     const agent = await this.agents.get(id);
     if (!agent) return null;
