@@ -10,7 +10,7 @@ describe("workspace serialization", () => {
   it("preserves conversations and agents across a serialization round trip", () => {
     const workspace = {
       conversations: [{ id: "conversation-1", title: "Teste", messages: [{ role: "user" as const, content: "Olá" }], updatedAt: 100 }],
-      agents: [{ id: "agent-1", name: "Pesquisador", description: "", instructions: "Use fontes", model: "", enabled: true, specialties: [], toolsAllowed: [] }],
+      agents: [{ id: "agent-1", name: "Pesquisador", description: "", instructions: "Use fontes", model: "", enabled: true, specialties: [], toolsAllowed: [], modelRouting: { fallbacks: [] } }],
       groups: [],
     };
     expect(parseWorkspace(serializeWorkspace(workspace))).toEqual(workspace);

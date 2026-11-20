@@ -83,7 +83,8 @@ export class OpenAiProvider implements LanguageModelProvider {
           ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
         }),
       });
-    } catch {
+    } catch (error) {
+      if (signal?.aborted) throw signal.reason ?? error;
       throw new ServiceUnavailableException({
         code: "AI_PROVIDER_REQUEST_FAILED",
         message: "NÃ£o foi possÃ­vel conectar ao provedor de IA. Confira o endereÃ§o e tente novamente.",

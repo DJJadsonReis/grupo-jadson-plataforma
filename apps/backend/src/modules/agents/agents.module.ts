@@ -7,6 +7,7 @@ import { GroupsService } from "./groups.service";
 import { AgentPermissionsService } from "./agent-permissions.service";
 import { TeamsController } from "./teams.controller";
 import { PersonalEditionGuard } from "../../common/personal-edition.guard";
+import { ProvidersModule } from "../providers/providers.module";
 
-@Module({ imports: [DatabaseModule], controllers: [AgentsController, GroupsController, TeamsController], providers: [AgentsService, GroupsService, AgentPermissionsService, PersonalEditionGuard], exports: [AgentsService, GroupsService, AgentPermissionsService] })
+@Module({ imports: [DatabaseModule, ProvidersModule], controllers: [AgentsController, GroupsController, TeamsController], providers: [AgentsService, GroupsService, AgentPermissionsService, PersonalEditionGuard], exports: [AgentsService, GroupsService, AgentPermissionsService] })
 export class AgentsModule {}

@@ -10,6 +10,7 @@
     "test": "jest --runInBand"
   },
   "dependencies": {
+    "@huggingface/transformers": "^4.3.2",
     "@modelcontextprotocol/sdk": "1.32.2",
     "@modelcontextprotocol/server-filesystem": "2.2.0",
     "@nestjs/common": "^10.4.15",

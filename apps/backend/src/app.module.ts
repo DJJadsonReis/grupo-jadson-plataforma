@@ -18,6 +18,7 @@ import { ResponsibilitiesModule } from "./modules/responsibilities/responsibilit
 import { EditionModule } from "./modules/edition/edition.module";
 import { TeamRoomsModule } from "./modules/team-rooms/team-rooms.module";
 import { ConnectionSharesModule } from "./modules/connection-shares/connection-shares.module";
+import { DictationModule } from "./modules/dictation/dictation.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule, EditionModule, TeamRoomsModule, ConnectionSharesModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule, EditionModule, TeamRoomsModule, ConnectionSharesModule, DictationModule] })
 export class AppModule {}

@@ -23,11 +23,16 @@ import { NotificationsPanel } from "./components/notifications/NotificationsPane
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
+import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
+import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
+import { addFallback, moveFallback, removeFallback, type AgentModelTarget } from "./lib/agent-model-routing";
 import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
-import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
+import { DictationHttpClient } from "./lib/dictation-api";
+import { MicrophoneRecorder } from "./lib/dictation-capture";
+import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -338,6 +343,8 @@ function Workspace({ edition }: { edition: Edition }) {
   const [configuredProviders, setConfiguredProviders] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
+  const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
+  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
@@ -478,6 +485,13 @@ function Workspace({ edition }: { edition: Edition }) {
   }, []);
 
   useEffect(() => {
+    const client = new ModelProvidersApi(apiFetch, API_URL);
+    const controller = new AbortController();
+    void Promise.all([client.list(), client.selectable()]).then(([items, selectable]) => { if (!controller.signal.aborted) { setManagedProviders(items); setSelectableProviders(selectable); } }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
@@ -599,7 +613,7 @@ function Workspace({ edition }: { edition: Edition }) {
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -650,8 +664,12 @@ function Workspace({ edition }: { edition: Edition }) {
           reader.onerror = () => reject(new Error("Não foi possível ler o anexo.")); reader.readAsDataURL(file);
         })
       })));
-      if (attachments.some((attachment) => !["image/png", "image/jpeg", "image/webp"].includes(attachment.type) || attachment.size > 5 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
-        throw new Error("Anexe até 5 MB de imagens PNG, JPEG ou WebP por mensagem.");
+      if (attachments.some((attachment) => {
+        const image = ["image/png", "image/jpeg", "image/webp"].includes(attachment.type);
+        const code = isCodeFileName(attachment.name);
+        return (!image && !code) || (code && attachment.size > 1024 * 1024) || attachment.size > 5 * 1024 * 1024;
+      }) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
+        throw new Error("Anexe até 5 MB de imagens ou arquivos de código UTF-8 (máximo 1 MB por arquivo).");
       }
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
       const response = await apiFetch(`${API_URL}/chat/completions`, {
@@ -663,7 +681,8 @@ function Workspace({ edition }: { edition: Edition }) {
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
           messages: [...prior, userMessage],
-          ...(model.trim() ? { model: model.trim() } : {})
+          ...(model.trim() ? { model: model.trim() } : {}),
+          ...(modelProviderId ? { modelProviderId } : {})
         }),
       });
       if (!response.ok) {
@@ -728,7 +747,9 @@ function Workspace({ edition }: { edition: Edition }) {
         })),
       });
       if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
-      const saved = await response.json() as Agent;
+      const savedAgent = normalizeAgent(await response.json());
+      if (!savedAgent) throw new Error("Resposta inválida ao salvar agente.");
+      const saved = savedAgent;
       setRemoteAgentIds((ids) => ids.includes(saved.id) ? ids : [...ids, saved.id]);
       setAgents((items) => items.map((item) => item.id === agent.id ? saved : item));
       setAgentPersistence("connected");
@@ -1011,6 +1032,7 @@ function Workspace({ edition }: { edition: Edition }) {
           <ChatPage
             conversation={active}
             modelCatalogue={modelCatalogue ?? []}
+            selectableProviders={selectableProviders}
             autoReadEnabled={autoReadEnabled}
             autoReadSupported={autoReadSupported}
             onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
@@ -1071,7 +1093,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
-        {page === "models" && <ModelsPage catalogue={modelCatalogue} onOpenChat={() => changePage("chat")} />}
+        {page === "models" && <ModelsPage providers={managedProviders} legacyExists={hasLegacyProviderKey(managedProviders)} onModelsTested={(providerId, providerName, models) => setSelectableProviders((current) => [...current.filter((provider) => provider.providerId !== providerId), { providerId, providerName, models }])} onRefresh={async () => { const client = new ModelProvidersApi(apiFetch, API_URL); const [items, selectable] = await Promise.all([client.list(), client.selectable()]); setManagedProviders(items); setSelectableProviders(selectable); }} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
@@ -1091,7 +1113,7 @@ function Workspace({ edition }: { edition: Edition }) {
 
       <StarterTour onNavigate={(pageId) => changePage(pageId)} />
       {agentEditor && (
-        <AgentModal agent={agentEditor} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
+        <AgentModal agent={agentEditor} providers={selectableProviders} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
       )}
     </div>
   );
@@ -1350,123 +1372,33 @@ function ReadAloudButton({ text }: { text: string }) {
   );
 }
 
-/** Ditado: só inicia quando o WebView garante processamento local do áudio. */
-function DictateButton({ onText }: { onText: (text: string) => void }) {
-  const Recognition = getSpeechRecognitionConstructor(window as SpeechRecognitionWindow);
-  const onDeviceSupported = supportsOnDeviceSpeech(Recognition);
-  const [listening, setListening] = useState(false);
-  const [preparing, setPreparing] = useState(false);
+/** Captura o microfone e envia trechos somente ao backend local. */
+function DictateButton({ draft, onText, onSendText }: { draft: string; onText: (text: string) => void; onSendText: (text: string) => void }) {
+  const [state, setState] = useState<DictationState>("idle");
+  const [status, setStatus] = useState<ModelStatus | undefined>();
   const [error, setError] = useState<string | null>(null);
-  const [readyNotice, setReadyNotice] = useState<string | null>(null);
-  const [languageStatus, setLanguageStatus] = useState<OnDeviceSpeechStatus>(onDeviceSupported ? "checking" : "unsupported");
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      recognitionRef.current?.stop();
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (!onDeviceSupported) {
-      setLanguageStatus("unsupported");
-      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
-      return () => { active = false; };
-    }
-    void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-      if (!active) return;
-      setLanguageStatus(status);
-      if (status === "unavailable") setError("O reconhecimento local em português não está disponível neste computador.");
-    });
-    return () => { active = false; };
-  }, [Recognition, onDeviceSupported]);
-
-  function toggle() {
-    if (listening) { recognitionRef.current?.stop(); return; }
-    setError(null);
-    setReadyNotice(null);
-    if (!Recognition || !onDeviceSupported || languageStatus === "unsupported") {
-      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
-      return;
-    }
-    if (languageStatus === "unavailable") {
-      setError("O reconhecimento local em português não está disponível neste computador. Nenhum áudio foi enviado.");
-      return;
-    }
-    if (languageStatus === "checking") {
-      setError("Verificando o pacote local de português. Tente novamente em instantes.");
-      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-        if (mountedRef.current) setLanguageStatus(status);
-      });
-      return;
-    }
-    if (languageStatus === "downloading") {
-      setError("O pacote local de português ainda está sendo preparado. Verifique novamente em instantes.");
-      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-        if (mountedRef.current) setLanguageStatus(status);
-      });
-      return;
-    }
-    if (languageStatus === "downloadable") {
-      setPreparing(true);
-      // install() is called directly from this click; it prepares only the local language pack.
-      void installOnDeviceSpeech(Recognition, "pt-BR").then((ready) => {
-        if (!mountedRef.current) return;
-        setPreparing(false);
-        if (ready) {
-          setLanguageStatus("available");
-          setReadyNotice("Pacote local de português pronto. Clique no microfone novamente para começar a ditar.");
-        } else {
-          setError("Não foi possível preparar o pacote local de português. Nenhum áudio foi enviado.");
-        }
-      });
-      return;
-    }
-    const recognition = new Recognition();
-    if (!requireOnDeviceRecognition(recognition)) {
-      setError("Este WebView não garante reconhecimento no dispositivo. O ditado foi desativado para manter seu áudio local.");
-      return;
-    }
-    recognition.lang = "pt-BR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const text = Array.from(event.results).map((result) => result[0]?.transcript ?? "").join(" ").trim();
-      if (text) onText(text);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      recognitionRef.current = null;
-    };
-    recognition.onerror = (event) => {
-      setListening(false);
-      setError(speechRecognitionErrorMessage(event.error));
-    };
-    recognitionRef.current = recognition;
-    setListening(true);
-    try { recognition.start(); }
-    catch {
-      setListening(false);
-      recognitionRef.current = null;
-      setError("O ditado local não pôde iniciar. Verifique o microfone e tente novamente.");
-    }
-  }
-
-  return (
-    <>
-      <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "") + (!onDeviceSupported ? " is-unavailable" : "")} onClick={toggle} disabled={preparing} title={listening ? "Parar ditado" : languageStatus === "checking" ? "Verificando reconhecimento local" : languageStatus === "downloadable" ? "Preparar pacote local de português" : languageStatus === "unsupported" || languageStatus === "unavailable" ? "Ditado local indisponível; clique para ver o motivo" : "Ditar mensagem localmente"} aria-label={listening ? "Parar ditado" : preparing ? "Preparando pacote local" : languageStatus === "checking" ? "Verificando pacote local" : "Ditar mensagem localmente"} aria-pressed={listening || preparing}>
-        {preparing ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{(listening || preparing) && <span>{preparing ? "Preparando…" : "Escutando…"}</span>}
-      </button>
-      {error && <small className="speech-dictation-error" role="alert">{error}</small>}
-      {readyNotice && <small className="speech-dictation-ready" role="status">{readyNotice}</small>}
-    </>
-  );
+  const callbacks = useRef({ onText, onSendText, draft });
+  callbacks.current = { onText, onSendText, draft };
+  const local = isLoopbackBackend(API_URL);
+  const sessionRef = useRef<DictationSession | null>(null);
+  if (!sessionRef.current) sessionRef.current = new DictationSession(new MicrophoneRecorder(), new DictationHttpClient(API_URL, apiFetch), {
+    state: (next, modelStatus) => { setState(next); setStatus(modelStatus); },
+    text: (text) => callbacks.current.onText(text),
+    error: (message) => setError(message),
+  }, local, (text) => callbacks.current.onSendText(text));
+  const session = sessionRef.current;
+  useEffect(() => () => { void session.cancel(); }, [session]);
+  const recording = state === "recording" || state === "stopping" || state === "sending";
+  return <>
+    <button type="button" className={"toolbar-btn" + (recording ? " is-listening" : "") + (!local ? " is-unavailable" : "")} disabled={!local || state !== "idle"} onClick={() => { setError(null); void session.begin(callbacks.current.draft); }} title={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."} aria-label={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."}>
+      {state === "checking" || state === "downloading" ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{recording && <span>Escutando…</span>}
+    </button>
+    {recording && <div className="dictation-controls"><button type="button" onClick={() => void session.stop()}>Parar</button><button type="button" onClick={() => void session.sendText()}>Enviar</button><button type="button" onClick={() => void session.cancel()}>Cancelar</button></div>}
+    {state === "confirm-download" && <div className="dictation-confirm" role="dialog" aria-label="Baixar modelo de voz"><span>O reconhecimento de voz precisa baixar um modelo de cerca de {status?.sizeMb ?? 82} MB, uma vez, para este computador. Nenhum áudio sai do computador.</span><button type="button" onClick={() => void session.confirmDownload()}>Baixar</button><button type="button" onClick={() => session.cancelDownload()}>Cancelar</button></div>}
+    {state === "downloading" && <small className="speech-dictation-ready" role="status">Baixando modelo local: {Math.round(status?.progress ?? 0)}%</small>}
+    {error && <small className="speech-dictation-error" role="alert">{error}</small>}
+  </>;
 }
-
 /** Busca rápida (Ctrl+K): bots, conversas, ações e telas. */
 function CommandPalette({ open, onClose, agents, conversations, onOpenConversation, onChatWithAgent, onNewConversation, onNavigate }: {
   open: boolean; onClose: () => void; agents: Agent[]; conversations: Conversation[];
@@ -1523,22 +1455,24 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, autoReadEnabled, autoReadSupported, onToggleAutoRead,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[];
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
-  const [model, setModel] = useState("");
-  const suggestedModels = modelCatalogue.flatMap((provider) => provider.models);
+  const [modelSelection, setModelSelection] = useState("");
+  const modelOptions = groupSelectableProviders(selectableProviders);
+  const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
+  const model = selectedModelOption?.model ?? "";
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1685,7 +1619,7 @@ function ChatPage({
       )}
 
       {/* FLUXO DA CONVERSA: coluna central de leitura */}
-      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
+      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name)); setFiles([...files, ...images]); }}>
         <div className="gx-column">
           {!conversation?.messages.length ? (
             <div className="gx-empty">
@@ -1713,7 +1647,7 @@ function ChatPage({
                 if (message.role === "user") {
                   return (
                     <div className="gx-turn gx-turn-user" key={index + "-user"}>
-                      {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
+                      {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && (attachment.type.startsWith("image/") ? <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} /> : <span key={attachment.id} className="gx-chip"><FileText size={14} />{attachment.name}</span>))}
                       <div className="gx-user-bubble">{message.content}</div>
                     </div>
                   );
@@ -1801,7 +1735,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId);
               setPdfDocs([]);
             }}
           >
@@ -1828,22 +1762,24 @@ function ChatPage({
                   hidden
                   type="file"
                   multiple
-                  accept="image/png,image/jpeg,image/webp,application/pdf"
+                  accept="image/png,image/jpeg,image/webp,.c,.cc,.cpp,.cs,.go,.h,.java,.js,.jsx,.php,.py,.rb,.rs,.sh,.sql,.ts,.tsx,.json,.yaml,.yml,.toml,.md,application/pdf"
                   onChange={(event) => {
                     const chosen = Array.from(event.target.files ?? []);
-                    setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))]);
+                    setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name))]);
                     void attachPdfs(chosen.filter((file) => file.type === "application/pdf"));
                     event.target.value = "";
                   }}
                 />
-                <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
+                <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem, código ou PDF" aria-label="Anexar imagem, código ou PDF">
                   <Paperclip size={16} />
                 </button>
-                <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
+                <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text, selectedModelOption?.providerId)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <input className="gx-pill-input" aria-label="ID do modelo" list="model-suggestions" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
-                  <datalist id="model-suggestions">{suggestedModels.map((item) => <option key={`${item.provider}:${item.id}`} value={item.id}>{item.label}</option>)}</datalist>
+                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
+                    <option value="">Modelo padrão</option>
+                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{item.label}</option>)}</optgroup>)}
+                  </select>
                 </label>
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
@@ -2328,33 +2264,60 @@ function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversat
   );
 }
 
-function ModelsPage({ catalogue, onOpenChat }: { catalogue: CatalogueProvider[] | null; onOpenChat: () => void }) {
+function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpenChat }: { providers: ManagedProvider[]; legacyExists: boolean; onModelsTested: (providerId: string, providerName: string, models: { id: string; label: string }[]) => void; onRefresh: () => Promise<void>; onOpenChat: () => void }) {
+  const [draft, setDraft] = useState<ProviderDraft>({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [models, setModels] = useState<Record<string, { id: string; label: string }[]>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const api = new ModelProvidersApi(apiFetch, API_URL);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setError(null); setNotice(null);
+    const validation = validateProviderDraft(draft, Boolean(editing));
+    if (validation) { setError(validation); return; }
+    try {
+      const body = { ...(editing ? {} : { kind: draft.kind }), name: draft.name, ...(draft.kind === "custom" ? { baseUrl: draft.baseUrl, allowLocal: draft.allowLocal } : {}), ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
+      if (editing) await api.patch(editing, body); else await api.create(body);
+      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice("Provedor salvo com segurança."); await onRefresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar o provedor."); }
+  }
+  async function test(id: string) {
+    setTesting(id); setError(null); setNotice(null);
+    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; setModels((current) => ({ ...current, [id]: discovered })); const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
+    finally { setTesting(null); }
+  }
+  async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
+  async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
     <div className="page-content">
       <div className="page-header-row">
         <div>
           <span className="section-label">GATEWAY DE INTELIGÊNCIA</span>
           <h1>Modelos & Provedores</h1>
-          <p className="page-subtitle">Modelos de linguagem suportados pelo controlador Grupo Jadson.</p>
+          <p className="page-subtitle">Cadastre provedores e escolha modelos no chat. As chaves ficam cifradas no banco.</p>
         </div>
         <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
       </div>
-      <div className="provider-grid">
-        {catalogue === null ? (
-          <EmptyState title="Modo Local Ativo" text="O aplicativo opera em modo local isolado enquanto o backend não está ativo." />
-        ) : (
-          catalogue.map((p) => (
-            <article className="provider-card-box" key={p.id}>
-              <div className="provider-card-top">
-                <BrainCircuit size={22} className="text-gold" />
-                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Sem chave"}</span>
-              </div>
-              <h2>{p.name}</h2>
-              <p>{p.models.length ? p.models.map((model) => <span key={model.id} style={{ display: "block" }}>{model.label} ({model.id}){p.defaultModel === model.id ? " · Padrão" : ""}</span>) : "Os modelos deste endpoint dependem da configuração do provedor."}</p>
-            </article>
-          ))
-        )}
+      {legacyExists && <div className="model-provider-notice"><strong>Configuração anterior</strong><span>A chave legada continua ativa e não pode ser exibida nem editada nesta tela.</span></div>}
+      {error && <div className="gx-notice" role="alert">{error}</div>}{notice && <div className="model-provider-notice" role="status">{notice}</div>}
+      <div className="model-provider-grid">
+        {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
+          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
+          <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          {models[provider.id] && <ul>{models[provider.id]?.map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>}
+        </article>)}
       </div>
+      <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
+        <h2>{editing ? "Editar provedor" : "Cadastrar provedor"}</h2>
+        <label>Tipo<select value={draft.kind} disabled={Boolean(editing)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ProviderDraft["kind"], baseUrl: "" })}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="xai">xAI</option><option value="custom">Custom compatível com OpenAI</option></select></label>
+        <label>Nome<input value={draft.name} maxLength={80} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        {draft.kind === "custom" && <><label>URL base<input value={draft.baseUrl} maxLength={500} placeholder="https://provedor.invalid/v1" onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} /></label><label className="model-provider-local"><input type="checkbox" checked={draft.allowLocal} onChange={(event) => setDraft({ ...draft, allowLocal: event.target.checked })} /> Este endpoint é local (localhost)</label></>}
+        <label>Chave de API<input type="password" autoComplete="new-password" value={draft.apiKey} placeholder={editing ? "Deixe vazio para manter a chave atual" : "Chave do provedor"} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} /></label>
+        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button>{editing && <button type="button" onClick={() => { setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar edição</button>}</div>
+      </form>
     </div>
   );
 }
@@ -3578,8 +3541,37 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
 /* =========================================================================
    MODAIS & HELPERS
    ========================================================================= */
-function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string }[] };
+function isCodeFileName(name: string): boolean { return /\.(?:c|cc|cpp|cs|go|h|java|js|jsx|php|py|rb|rs|sh|sql|ts|tsx|json|yaml|yml|toml|md)$/i.test(name); }
+
+function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, label }: { value?: AgentModelTarget | undefined; providers: AgentModelProviderOption[]; onChange: (value?: AgentModelTarget) => void; allowPrimary?: boolean; label: string }) {
+  const selected = value ? `${value.providerId}|${value.model}` : "";
+  const missingProvider = value && !providers.some((provider) => provider.providerId === value.providerId);
+  const selectedProvider = value && providers.find((provider) => provider.providerId === value.providerId);
+  const missingModel = value && selectedProvider && !selectedProvider.models.some((model) => model.id === value.model);
+  return <label><span>{label}</span><select value={selected} onChange={(event) => {
+    if (!event.target.value) { onChange(undefined); return; }
+    const [providerId, model] = event.target.value.split("|");
+    if (providerId && model) onChange({ providerId, model });
+  }}>
+    {!allowPrimary && <option value="">Selecione um provedor e modelo</option>}
+    {allowPrimary && <option value="">Usar o principal</option>}
+    {missingProvider && <option value={selected}>Provedor desabilitado ou indisponível: {value?.providerId}</option>}
+    {missingModel && <option value={selected}>Modelo atual: {value?.model}</option>}
+    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
+  </select>{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
+}
+
+function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: Agent; providers: AgentModelProviderOption[]; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const endpoint = (agent as Agent & { providerKind?: string }).providerKind === "endpoint";
+  const rawRouting = agent.modelRouting;
+  const routing = rawRouting && Array.isArray(rawRouting.fallbacks) ? rawRouting : { fallbacks: [] };
+  const fallbacks = routing.fallbacks;
+  const setRouting = (next: NonNullable<Agent["modelRouting"]>) => onChange({ ...agent, modelRouting: next });
+  const primaryProvider = providers.find((provider) => provider.providerId === agent.provider);
+  const primaryModelValue = agent.provider && agent.model && primaryProvider
+    ? { providerId: agent.provider, model: agent.model } : undefined;
+  const updatePrimary = (target?: AgentModelTarget) => onChange({ ...agent, provider: target?.providerId ?? "openai", model: target?.model ?? "" });
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <form className="bot-create-dialog" onSubmit={onSubmit}>
@@ -3604,7 +3596,6 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
               <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
-              <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
@@ -3619,10 +3610,25 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
                 <span>Instruções de Sistema (Prompt Base)</span>
                 <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
               </label>
-              {!endpoint && <label>
-                <span>Modelo Específico (Opcional)</span>
-                <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
-              </label>}
+              {!endpoint && <>
+                <ModelTargetSelect label="Modelo principal" providers={providers} value={primaryModelValue} onChange={updatePrimary} />
+                {agent.provider && /^[0-9a-f-]{36}$/i.test(agent.provider) && !primaryProvider && <p role="alert">O provedor do modelo principal foi desabilitado ou removido. Selecione um provedor ativo antes de salvar.</p>}
+                {primaryProvider && !primaryProvider.models.some((item) => item.id === agent.model) && <label><span>Modelo principal personalizado</span><input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="ID do modelo" /></label>}
+                <section className="modal-fields" aria-label="Roteamento de modelos">
+                  <h3>Modelos reserva</h3>
+                  {fallbacks.map((target, index) => <div key={`${target.providerId}:${target.model}:${index}`} className="modal-fields">
+                    <ModelTargetSelect label={`Reserva ${index + 1}`} providers={providers} value={target} onChange={(next) => next && setRouting({ ...routing, fallbacks: fallbacks.map((item, itemIndex) => itemIndex === index ? next : item) })} />
+                    {!providers.some((item) => item.providerId === target.providerId) && <p role="alert">O provedor desta reserva foi desabilitado ou removido. Escolha outro antes de salvar.</p>}
+                    <div><button type="button" disabled={index === 0} onClick={() => setRouting({ ...routing, fallbacks: moveFallback(fallbacks, index, -1) })}>Subir</button><button type="button" disabled={index === fallbacks.length - 1} onClick={() => setRouting({ ...routing, fallbacks: moveFallback(fallbacks, index, 1) })}>Descer</button><button type="button" onClick={() => setRouting({ ...routing, fallbacks: removeFallback(fallbacks, index) })}>Remover</button></div>
+                  </div>)}
+                  <button type="button" disabled={fallbacks.length >= 5 || !providers.some((item) => item.models.length)} onClick={() => {
+                    const candidate = providers.flatMap((provider) => provider.models.map((model) => ({ providerId: provider.providerId, model: model.id }))).find((target) => !fallbacks.some((item) => item.providerId === target.providerId && item.model === target.model) && !(target.providerId === agent.provider && target.model === agent.model));
+                    if (candidate) { try { setRouting({ ...routing, fallbacks: addFallback(fallbacks, candidate) }); } catch { /* disabled when limit is reached */ } }
+                  }}>Adicionar modelo reserva</button>
+                  <ModelTargetSelect label="Imagem/visão" providers={providers} value={routing.taskModels?.vision} allowPrimary onChange={(vision) => { const taskModels = { ...routing.taskModels, ...(vision ? { vision } : {}) }; if (!vision) delete taskModels.vision; setRouting({ ...routing, taskModels }); }} />
+                  <ModelTargetSelect label="Código" providers={providers} value={routing.taskModels?.code} allowPrimary onChange={(code) => { const taskModels = { ...routing.taskModels, ...(code ? { code } : {}) }; if (!code) delete taskModels.code; setRouting({ ...routing, taskModels }); }} />
+                </section>
+              </>}
               {!endpoint && <><label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
               <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label></>}
             </div>

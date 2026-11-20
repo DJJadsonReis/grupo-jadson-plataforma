@@ -44,6 +44,7 @@ export interface Agent {
   endpointUrl?: string | null;
   hasEndpointToken?: boolean;
   endpointToken?: string;
+  modelRouting?: import("./agent-model-routing").AgentModelRouting;
 }
 
 export interface Group {
@@ -84,10 +85,19 @@ export function toStringList(value: unknown): string[] {
 export function normalizeAgent(raw: unknown): Agent | null {
   if (!raw || typeof raw !== "object") return null;
   const agent = raw as Agent;
+  const routing = agent.modelRouting && typeof agent.modelRouting === "object" ? agent.modelRouting : { fallbacks: [] };
+  const taskModels = routing.taskModels && typeof routing.taskModels === "object" ? routing.taskModels : undefined;
   return {
     ...agent,
     specialties: toStringList(agent.specialties),
     toolsAllowed: toStringList(agent.toolsAllowed),
+    modelRouting: {
+      fallbacks: Array.isArray(routing.fallbacks) ? routing.fallbacks.filter((item) => item && typeof item.providerId === "string" && typeof item.model === "string") : [],
+      ...(taskModels ? { taskModels: {
+        ...(taskModels.vision && typeof taskModels.vision.providerId === "string" && typeof taskModels.vision.model === "string" ? { vision: taskModels.vision } : {}),
+        ...(taskModels.code && typeof taskModels.code.providerId === "string" && typeof taskModels.code.model === "string" ? { code: taskModels.code } : {}),
+      } } : {}),
+    },
   };
 }
 
