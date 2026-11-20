@@ -25,6 +25,7 @@ import { migrationId as botSharingMigrationId, up as addBotSharing } from "./mig
 import { migrationId as conversationOwnerMigrationId, up as addConversationOwner } from "./migrations/022-conversation-owner";
 import { migrationId as skillsMigrationId, up as addSkills } from "./migrations/023-skills";
 import { migrationId as agentSkillsMigrationId, up as addAgentSkills } from "./migrations/024-agent-skills";
+import { migrationId as tasksMigrationId, up as addTasks } from "./migrations/025-tasks";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -71,6 +72,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: conversationOwnerMigrationId, apply: async () => addConversationOwner(this.pool!) },
         { id: skillsMigrationId, apply: async () => addSkills(this.pool!) },
         { id: agentSkillsMigrationId, apply: async () => addAgentSkills(this.pool!) },
+        { id: tasksMigrationId, apply: async () => addTasks(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);
