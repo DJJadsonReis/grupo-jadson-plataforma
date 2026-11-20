@@ -153,6 +153,12 @@ export class ChatController {
   async complete(@Body() body: unknown, @Req() request: ChatRequest, @Res() res: Response) {
     const clientMessages = this.parseMessages(body);
     const model = this.parseModel(body);
+    const modelProviderId = this.parseUuidField(body, "modelProviderId");
+    if (modelProviderId && !model) throw new BadRequestException("Informe também o modelo correspondente ao provedor selecionado.");
+    if (modelProviderId) {
+      try { await this.providers.validateManagedProvider(modelProviderId); }
+      catch { throw new BadRequestException({ code: "PROVIDER_UNAVAILABLE", message: "O provedor selecionado está indisponível." }); }
+    }
     const conversationId = this.parseUuidField(body, "conversationId");
     let agentId = this.parseUuidField(body, "agentId");
     const groupId = this.parseUuidField(body, "groupId");
@@ -249,6 +255,7 @@ export class ChatController {
     const found = new Set<string>();
     const completion = {
       provider: agent?.provider === "anthropic" ? "anthropic" as const : "openai" as const,
+      ...(modelProviderId ? { providerId: modelProviderId } : {}),
       ...(effectiveModel === undefined ? {} : { model: effectiveModel }),
       ...(agent?.generationConfig ? { generationConfig: agent.generationConfig } : {}),
     };
@@ -457,7 +464,7 @@ export class ChatController {
     if (typeof model !== "string" || model.length > 100 || !/^[a-zA-Z0-9._:-]+$/.test(model)) throw new BadRequestException("Identificador de modelo inválido.");
     return model;
   }
-  private parseUuidField(body: unknown, field: "agentId" | "conversationId" | "groupId"): string | undefined {
+  private parseUuidField(body: unknown, field: "agentId" | "conversationId" | "groupId" | "modelProviderId"): string | undefined {
     if (!body || typeof body !== "object") return undefined;
     const id = (body as Record<string, unknown>)[field];
     if (id === undefined) return undefined;

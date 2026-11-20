@@ -23,6 +23,8 @@ import { NotificationsPanel } from "./components/notifications/NotificationsPane
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
+import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
+import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
 import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
@@ -340,6 +342,8 @@ function Workspace({ edition }: { edition: Edition }) {
   const [configuredProviders, setConfiguredProviders] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
+  const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
+  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
@@ -480,6 +484,13 @@ function Workspace({ edition }: { edition: Edition }) {
   }, []);
 
   useEffect(() => {
+    const client = new ModelProvidersApi(apiFetch, API_URL);
+    const controller = new AbortController();
+    void Promise.all([client.list(), client.selectable()]).then(([items, selectable]) => { if (!controller.signal.aborted) { setManagedProviders(items); setSelectableProviders(selectable); } }).catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
+  useEffect(() => {
     if (postgresHealth !== "connected") return;
     const controller = new AbortController();
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
@@ -601,7 +612,7 @@ function Workspace({ edition }: { edition: Edition }) {
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -665,7 +676,8 @@ function Workspace({ edition }: { edition: Edition }) {
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
           messages: [...prior, userMessage],
-          ...(model.trim() ? { model: model.trim() } : {})
+          ...(model.trim() ? { model: model.trim() } : {}),
+          ...(modelProviderId ? { modelProviderId } : {})
         }),
       });
       if (!response.ok) {
@@ -1013,6 +1025,7 @@ function Workspace({ edition }: { edition: Edition }) {
           <ChatPage
             conversation={active}
             modelCatalogue={modelCatalogue ?? []}
+            selectableProviders={selectableProviders}
             autoReadEnabled={autoReadEnabled}
             autoReadSupported={autoReadSupported}
             onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
@@ -1073,7 +1086,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
-        {page === "models" && <ModelsPage catalogue={modelCatalogue} onOpenChat={() => changePage("chat")} />}
+        {page === "models" && <ModelsPage providers={managedProviders} legacyExists={hasLegacyProviderKey(managedProviders)} onModelsTested={(providerId, providerName, models) => setSelectableProviders((current) => [...current.filter((provider) => provider.providerId !== providerId), { providerId, providerName, models }])} onRefresh={async () => { const client = new ModelProvidersApi(apiFetch, API_URL); const [items, selectable] = await Promise.all([client.list(), client.selectable()]); setManagedProviders(items); setSelectableProviders(selectable); }} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
@@ -1435,22 +1448,24 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, autoReadEnabled, autoReadSupported, onToggleAutoRead,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[];
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
-  const [model, setModel] = useState("");
-  const suggestedModels = modelCatalogue.flatMap((provider) => provider.models);
+  const [modelSelection, setModelSelection] = useState("");
+  const modelOptions = groupSelectableProviders(selectableProviders);
+  const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
+  const model = selectedModelOption?.model ?? "";
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1713,7 +1728,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId);
               setPdfDocs([]);
             }}
           >
@@ -1751,11 +1766,13 @@ function ChatPage({
                 <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
                   <Paperclip size={16} />
                 </button>
-                <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text)} />
+                <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text, selectedModelOption?.providerId)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <input className="gx-pill-input" aria-label="ID do modelo" list="model-suggestions" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
-                  <datalist id="model-suggestions">{suggestedModels.map((item) => <option key={`${item.provider}:${item.id}`} value={item.id}>{item.label}</option>)}</datalist>
+                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
+                    <option value="">Modelo padrão</option>
+                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{item.label}</option>)}</optgroup>)}
+                  </select>
                 </label>
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
@@ -2240,33 +2257,60 @@ function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversat
   );
 }
 
-function ModelsPage({ catalogue, onOpenChat }: { catalogue: CatalogueProvider[] | null; onOpenChat: () => void }) {
+function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpenChat }: { providers: ManagedProvider[]; legacyExists: boolean; onModelsTested: (providerId: string, providerName: string, models: { id: string; label: string }[]) => void; onRefresh: () => Promise<void>; onOpenChat: () => void }) {
+  const [draft, setDraft] = useState<ProviderDraft>({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false });
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [testing, setTesting] = useState<string | null>(null);
+  const [models, setModels] = useState<Record<string, { id: string; label: string }[]>>({});
+  const [editing, setEditing] = useState<string | null>(null);
+  const api = new ModelProvidersApi(apiFetch, API_URL);
+  async function submit(event: FormEvent) {
+    event.preventDefault(); setError(null); setNotice(null);
+    const validation = validateProviderDraft(draft, Boolean(editing));
+    if (validation) { setError(validation); return; }
+    try {
+      const body = { ...(editing ? {} : { kind: draft.kind }), name: draft.name, ...(draft.kind === "custom" ? { baseUrl: draft.baseUrl, allowLocal: draft.allowLocal } : {}), ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
+      if (editing) await api.patch(editing, body); else await api.create(body);
+      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice("Provedor salvo com segurança."); await onRefresh();
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar o provedor."); }
+  }
+  async function test(id: string) {
+    setTesting(id); setError(null); setNotice(null);
+    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; setModels((current) => ({ ...current, [id]: discovered })); const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
+    finally { setTesting(null); }
+  }
+  async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
+  async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
     <div className="page-content">
       <div className="page-header-row">
         <div>
           <span className="section-label">GATEWAY DE INTELIGÊNCIA</span>
           <h1>Modelos & Provedores</h1>
-          <p className="page-subtitle">Modelos de linguagem suportados pelo controlador Grupo Jadson.</p>
+          <p className="page-subtitle">Cadastre provedores e escolha modelos no chat. As chaves ficam cifradas no banco.</p>
         </div>
         <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
       </div>
-      <div className="provider-grid">
-        {catalogue === null ? (
-          <EmptyState title="Modo Local Ativo" text="O aplicativo opera em modo local isolado enquanto o backend não está ativo." />
-        ) : (
-          catalogue.map((p) => (
-            <article className="provider-card-box" key={p.id}>
-              <div className="provider-card-top">
-                <BrainCircuit size={22} className="text-gold" />
-                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Sem chave"}</span>
-              </div>
-              <h2>{p.name}</h2>
-              <p>{p.models.length ? p.models.map((model) => <span key={model.id} style={{ display: "block" }}>{model.label} ({model.id}){p.defaultModel === model.id ? " · Padrão" : ""}</span>) : "Os modelos deste endpoint dependem da configuração do provedor."}</p>
-            </article>
-          ))
-        )}
+      {legacyExists && <div className="model-provider-notice"><strong>Configuração anterior</strong><span>A chave legada continua ativa e não pode ser exibida nem editada nesta tela.</span></div>}
+      {error && <div className="gx-notice" role="alert">{error}</div>}{notice && <div className="model-provider-notice" role="status">{notice}</div>}
+      <div className="model-provider-grid">
+        {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
+          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
+          <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          {models[provider.id] && <ul>{models[provider.id]?.map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>}
+        </article>)}
       </div>
+      <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
+        <h2>{editing ? "Editar provedor" : "Cadastrar provedor"}</h2>
+        <label>Tipo<select value={draft.kind} disabled={Boolean(editing)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ProviderDraft["kind"], baseUrl: "" })}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="xai">xAI</option><option value="custom">Custom compatível com OpenAI</option></select></label>
+        <label>Nome<input value={draft.name} maxLength={80} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
+        {draft.kind === "custom" && <><label>URL base<input value={draft.baseUrl} maxLength={500} placeholder="https://provedor.invalid/v1" onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} /></label><label className="model-provider-local"><input type="checkbox" checked={draft.allowLocal} onChange={(event) => setDraft({ ...draft, allowLocal: event.target.checked })} /> Este endpoint é local (localhost)</label></>}
+        <label>Chave de API<input type="password" autoComplete="new-password" value={draft.apiKey} placeholder={editing ? "Deixe vazio para manter a chave atual" : "Chave do provedor"} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} /></label>
+        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button>{editing && <button type="button" onClick={() => { setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar edição</button>}</div>
+      </form>
     </div>
   );
 }

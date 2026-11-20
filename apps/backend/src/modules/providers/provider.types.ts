@@ -30,6 +30,7 @@ export interface CompletionTool {
 export interface CompletionInput {
   messages: ProviderMessage[];
   provider?: "openai" | "anthropic";
+  providerId?: string;
   tools?: CompletionTool[];
   model?: string;
   generationConfig?: { temperature?: number; maxTokens?: number };

@@ -356,6 +356,7 @@
 .gx-chat .gx-pill-input { width: 110px; }
 .gx-chat .gx-pill-select { max-width: 140px; }
 .gx-chat .gx-pill-select option { background: #161616; color: var(--gx-ink); }
+.gx-chat .gx-pill-select { max-width: 190px; background: transparent; color: var(--gx-ink-2); border: 0; font: inherit; font-size: 12px; }
 .gx-chat .gx-pill:focus-within { border-color: #3a3a3a; color: var(--gx-ink-2); }
 
 .gx-chat .gx-send {
@@ -376,6 +377,18 @@
 .gx-chat .gx-send.is-stop { background: #2a2a2a; color: var(--gx-ink); }
 
 .gx-chat .gx-disclaimer { margin: 8px 0 0; text-align: center; font-size: 11px; color: var(--gx-ink-3); }
+
+.model-provider-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; margin: 20px 0; }
+.model-provider-notice { display: flex; flex-direction: column; gap: 4px; margin: 14px 0; padding: 12px 14px; border: 1px solid #66512a; border-radius: 10px; color: var(--gx-ink); background: #211b10; }
+.model-provider-notice span { color: var(--gx-ink-2); font-size: 13px; }
+.model-provider-form { display: grid; gap: 12px; max-width: 650px; margin: 24px 0; padding: 18px; border: 1px solid var(--gx-line); border-radius: 12px; background: var(--gx-panel); }
+.model-provider-form h2 { margin: 0 0 4px; }
+.model-provider-form label { display: grid; gap: 6px; color: var(--gx-ink-2); font-size: 13px; }
+.model-provider-form input:not([type="checkbox"]), .model-provider-form select { padding: 10px 12px; border: 1px solid var(--gx-line); border-radius: 8px; color: var(--gx-ink); background: #111; font: inherit; }
+.model-provider-form .model-provider-local { display: flex; align-items: center; }
+.model-provider-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.model-provider-actions button { padding: 8px 11px; border: 1px solid var(--gx-line); border-radius: 8px; color: var(--gx-ink); background: #191919; cursor: pointer; }
+.model-provider-actions button:disabled { opacity: .6; cursor: progress; }
 
 /* Telas estreitas: a coluna ocupa a largura e o botão de menu não cobre o cabeçalho. */
 @media (max-width: 860px) {

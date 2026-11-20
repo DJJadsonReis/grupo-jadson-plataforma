@@ -18,10 +18,10 @@ export function validateAgentEndpoint(raw: unknown): string {
   }
 }
 
-function privateIp(address: string): boolean {
+export function isPrivateAgentAddress(address: string): boolean {
   const ip = address.toLowerCase().replace(/^\[|\]$/g, "");
   if (ip === "::" || ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || /^fe[89ab]/.test(ip)) return true;
-  if (ip.startsWith("::ffff:")) return privateIp(ip.slice(7));
+  if (ip.startsWith("::ffff:")) return isPrivateAgentAddress(ip.slice(7));
   if (isIP(ip) !== 4) return false;
   const [a = 0, b = 0] = ip.split(".").map(Number);
   return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a >= 224;
@@ -61,7 +61,7 @@ export async function callAgentEndpoint(input: {
     const target = new URL(url);
     const lookupHost = input.lookupHost ?? (async (host) => (await lookup(host, { all: true })).map((entry) => entry.address));
     const addresses = isIP(target.hostname) ? [target.hostname] : await lookupHost(target.hostname);
-    if (!addresses.length || addresses.some(privateIp)) throw new Error("invalid destination");
+    if (!addresses.length || addresses.some(isPrivateAgentAddress)) throw new Error("invalid destination");
     const fetcher = input.fetcher ?? pinnedFetch;
     const response = await fetcher(url, {
       signal: controller.signal, redirect: "manual", address: addresses[0]!, method: "POST", body: JSON.stringify({ conversationId: input.conversationId, messages: input.messages, agent: input.agent }),

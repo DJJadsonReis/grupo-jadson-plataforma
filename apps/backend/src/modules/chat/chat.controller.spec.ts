@@ -84,6 +84,24 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 }
 
 describe("ChatController tool loop", () => {
+  it("valida e encaminha modelProviderId ao roteador", async () => {
+    const { controller, inputs, providers } = setup();
+    const validateManagedProvider = jest.fn(async () => undefined);
+    (providers as any).validateManagedProvider = validateManagedProvider;
+    const response = new FakeResponse();
+    const modelProviderId = "123e4567-e89b-42d3-a456-426614174010";
+    await controller.complete({ modelProviderId, model: "modelo-falso", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(validateManagedProvider).toHaveBeenCalledWith(modelProviderId);
+    expect(inputs[0]).toMatchObject({ providerId: modelProviderId, model: "modelo-falso" });
+  });
+
+  it("recusa provedor inválido ou indisponível antes de chamar modelo", async () => {
+    const { controller, providers } = setup();
+    (providers as any).validateManagedProvider = jest.fn(async () => { throw new Error("unavailable"); });
+    await expect(controller.complete({ modelProviderId: "123e4567-e89b-42d3-a456-426614174010", model: "modelo-falso", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response)).rejects.toMatchObject({ response: { code: "PROVIDER_UNAVAILABLE" } });
+    await expect(controller.complete({ modelProviderId: "inválido", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response)).rejects.toBeDefined();
+  });
+
   it("orienta componentes ricos e preserva o bloco na resposta e no histórico", async () => {
     const generated = 'Resumo\n```componente\n{"tipo":"cartao","titulo":"Resumo","corpo":"Tudo certo"}\n```';
     const { controller, inputs } = setup({ streams: [sseUsageResponse(generated)] });
