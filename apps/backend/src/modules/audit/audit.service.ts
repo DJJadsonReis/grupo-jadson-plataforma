@@ -3,6 +3,7 @@ import { MaskedLogger } from "../../common/masked-logger";
 import { randomUUID } from "node:crypto";
 import { PoolClient } from "pg";
 import { DatabaseService } from "../database/database.service";
+import { AuditEventFilters, decodeAuditCursor, encodeAuditCursor } from "./audit-events.query";
 
 export interface AuditEvent {
   id: string;
@@ -147,6 +148,31 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
       [safeLimit],
     );
     return result.rows as AuditEvent[];
+  }
+
+  async search(filters: AuditEventFilters): Promise<{ items: AuditEvent[]; nextCursor: string | null }> {
+    const conditions: string[] = [];
+    const values: unknown[] = [];
+    const add = (sql: (position: number) => string, value: unknown) => { values.push(value); conditions.push(sql(values.length)); };
+    if (filters.action) add((n) => `action = $${n}`, filters.action);
+    if (filters.actor) add((n) => `actor = $${n}`, filters.actor);
+    if (filters.from) add((n) => `created_at >= $${n}::timestamptz`, filters.from);
+    if (filters.to) add((n) => `created_at < $${n}::timestamptz`, filters.to);
+    if (filters.cursor) {
+      const cursor = decodeAuditCursor(filters.cursor);
+      values.push(cursor.createdAt, cursor.id);
+      conditions.push(`(created_at, id) < ($${values.length - 1}::timestamptz, $${values.length}::uuid)`);
+    }
+    values.push(filters.limit + 1);
+    const result = await this.database.getPool().query(
+      `SELECT id, actor, action, subject, details, to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "createdAt" FROM audit_events${conditions.length ? ` WHERE ${conditions.join(" AND ")}` : ""} ORDER BY created_at DESC, id DESC LIMIT $${values.length}`,
+      values,
+    );
+    const rows = result.rows as AuditEvent[];
+    const hasMore = rows.length > filters.limit;
+    const items = rows.slice(0, filters.limit);
+    const last = items.at(-1);
+    return { items, nextCursor: hasMore && last ? encodeAuditCursor({ createdAt: last.createdAt, id: last.id }) : null };
   }
 }
 

@@ -2,6 +2,7 @@ import { BadRequestException, Body, Controller, ForbiddenException, Get, Param, 
 import { ApprovalStatus, ApprovalsService } from "./approvals.service";
 import { AuditService } from "./audit.service";
 import { AdminOnly } from "../auth/roles";
+import { AuditQueryError, parseAuditFilters } from "./audit-events.query";
 
 type PrincipalRequest = { principal?: { id: string; name: string; role: string } };
 
@@ -43,8 +44,25 @@ export class AuditController {
   }
 
   @Get()
-  list(@Query("limit") limit?: string) {
+  @AdminOnly()
+  list(@Query("limit") limit?: string, @Req() request?: PrincipalRequest) {
+    this.requireAuditAdmin(request ?? {});
     return this.audit.list(Number(limit ?? 50));
+  }
+
+  @Get("events")
+  @AdminOnly()
+  events(@Query() query: Record<string, unknown>, @Req() request: PrincipalRequest) {
+    this.requireAuditAdmin(request);
+    try { return this.audit.search(parseAuditFilters(query)); }
+    catch (error) {
+      if (error instanceof AuditQueryError) throw new BadRequestException({ code: error.code, message: error.message });
+      throw error;
+    }
+  }
+
+  private requireAuditAdmin(request: PrincipalRequest) {
+    if (request.principal?.role !== "admin") throw new ForbiddenException({ code: "FORBIDDEN", message: "Somente administradores podem acessar a auditoria." });
   }
 }
 
