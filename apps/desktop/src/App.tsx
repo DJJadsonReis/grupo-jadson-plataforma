@@ -6,6 +6,7 @@ import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
+import { TasksPage } from "./components/tasks/TasksPage";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
@@ -16,7 +17,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -193,6 +194,7 @@ export default function App() {
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
+  { id: "tasks", label: "Tarefas", icon: ListTodo },
   { id: "dashboard", label: "Início", icon: Gauge },
   { id: "agents", label: "Galeria de Agentes", icon: Bot },
   { id: "conversations", label: "Conversas", icon: MessageSquare },
@@ -932,6 +934,7 @@ function Workspace() {
           />
         )}
         {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
+        {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} />}
         {page === "monitoring" && (
