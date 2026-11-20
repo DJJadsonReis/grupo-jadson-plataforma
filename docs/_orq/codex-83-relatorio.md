@@ -4,7 +4,7 @@
 
 Corrigi o bloco de status e a fila autorizada no topo de `docs/FALTA_OPENBOT.md`, alinhei as linhas de escalonamento, exclusão de conversa, disponibilidade de modelo e ditado, corrigi os acentos no trecho mapeado e recalculei a contagem da tabela. Registrei a causa observada na sessão: `setup.json` estava ausente, então a reprodução autenticada no exe do dono continua pendente. Não afirmei que a reprodução local passou.
 
-Em relação ao relatório 82, corrigi a classificação do escalonamento para Feito; acrescentei a evidência de exclusão definitiva (76–78); atualizei a evidência de disponibilidade de modelo (79); mantive o ditado como Parcial e explicitei a reprodução pendente; removi mascaramento e medição da lista de itens Feitos e os coloquei na fila como itens 8 e 9; e corrigi ordem, acentos e contagem.
+Em relação ao relatório 82, corrigi a classificação do escalonamento para Feito; acrescentei a evidência de exclusão definitiva (76–78); atualizei a evidência de disponibilidade de modelo (79); mantive o recurso de ditado como Parcial, explicitei que o diagnóstico está Feito no código e registrei a reprodução pendente; removi mascaramento e medição da lista de itens Feitos e os coloquei na fila como itens 8 e 9; e corrigi ordem, acentos e contagem.
 
 ## Arquivos incluídos
 
@@ -30,7 +30,7 @@ Nenhum código, `.env`, teste, `decisoes.md`, `status.md`, `build.rs`, `Cargo.lo
 ## Commit
 
 Commit principal solicitado: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`.
-Hash real do commit principal: `c0a2ab4` (mensagem: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`). A revisão deste campo ocorre em um commit documental subsequente.
+Hash real do commit principal: `c0a2ab4` (mensagem: `docs: corrigir lista do OpenBot e refazer fila (tarefa 83)`). A revisão deste campo e o ajuste de status detalhado foram registrados em commits documentais subsequentes.
 Autor solicitado: Jadson Reis <jrdesign9@gmail.com>, sem `Co-Authored-By`.
 
 ## Pendente

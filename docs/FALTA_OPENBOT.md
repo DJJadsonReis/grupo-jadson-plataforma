@@ -28,7 +28,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 
 ### Parcial
 
-- **Ditado por voz (entrada):** o código agora propaga a causa da falha. Nesta sessão, a configuração `setup.json` estava ausente, então não foi possível reproduzir as chamadas autenticadas no exe do dono; essa reprodução está pendente (ação do dono). Evidências: `apps/backend/src/modules/dictation/dictation.service.ts`, `apps/desktop/src/lib/dictation-session.ts` e `apps/desktop/src/lib/dictation-api.ts`.
+- **Ditado por voz (entrada):** a propagação da causa real da tarefa 81 está Feita no código; o recurso continua Parcial até a reprodução autenticada no exe. Nesta sessão, `setup.json` estava ausente, então essa reprodução está pendente (ação do dono). Evidências: `apps/backend/src/modules/dictation/dictation.service.ts`, `apps/desktop/src/lib/dictation-session.ts` e `apps/desktop/src/lib/dictation-api.ts`.
 - **Mascaramento de segredos em saídas e logs:** permanece Parcial; mascarar segredos nos logs é o item 8 da fila.
 - **Medição de uso e custo:** permanece Parcial; medir uso e custo é o item 9 da fila.
 
