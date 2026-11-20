@@ -12,6 +12,7 @@ export interface ChatMessage {
   timestamp?: number;
   /** Falha do envio, mostrada dentro da conversa. Não é enviada ao modelo. */
   error?: string;
+  kind?: "handoff";
 }
 
 export interface Conversation {
