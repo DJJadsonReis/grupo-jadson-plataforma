@@ -1,145 +1,158 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes). Nada foi implementado nesta revisão. Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
-- **OpenBot:** caminhos conferidos no disco. Os caminhos são relativos a `OpenBot/`.
-- **Nosso lado:** conferido por leitura de código (`apps/backend/src`, `apps/desktop/src`) e busca por palavras-chave. Não rodei o app nem testei o comportamento de cada item.
+- **OpenBot:** caminhos relativos a `OpenBot/`, conferidos no disco na auditoria de 2026-11-12.
+- **Nosso lado:** conferido por leitura de código (`apps/backend/src`, `apps/desktop/src`, `apps/desktop/src-tauri`) e busca por palavras-chave. Em 2026-11-20 o backend foi testado: `jest --runInBand` com 71 suítes passando e 8 puladas (as que exigem PostgreSQL via `TEST_DATABASE_URL`); `tsc --noEmit` sem erros. Não rodei o app nem testei cada item na interface.
 - **Status:**
-  - **Feito:** existe no código e cobre o caso básico.
+  - **Feito:** existe no código e cobre o caso básico. A coluna "O que falta" pode listar lacunas que não impedem o uso básico.
   - **Parcial:** existe só em parte; a lacuna está descrita na coluna.
   - **Falta:** não encontrado no código.
-- **Esforço:** P (até 2 dias), M (1 a 2 semanas), G (mais de 2 semanas ou depende de infraestrutura). Estimativa grosseira, sem medição.
-- **Prioridade:** Alta, Média ou Baixa. Leva em conta valor para o usuário, risco de segurança e custo. Como o usuário não tem verba, só entram na lista de 10 os itens que podem ser feitos sem serviço pago.
+- **Tipo** (só para o que falta):
+  - **INTERNO:** dá para fazer só com código local.
+  - **EXTERNO/PESADO:** depende de serviço de fora, publicação, conta, hardware, suporte do WebView ou esforço muito grande.
+- **Tamanho:** P (até 2 dias), M (1 a 2 semanas), G (mais de 2 semanas ou depende de infraestrutura). Estimativa grosseira.
+- **Fora da lista por decisão do dono** (`docs/_orq/decisoes.md`, decisões 9 e 11): assinatura de código e de instaladores do Windows, e telemetria transparente. Não são pendências.
+- **Prioridade:** não foi reavaliada nesta revisão. A lista de 10 da seção de histórico abaixo é anterior a esta auditoria.
 
+## Atualizado em 2026-11-20 (tarefa 75)
+
+Fila restante dos itens INTERNOS não cortados, ordenada por tamanho:
+
+- **P:** Escalonamento para pessoa; retenção e limpeza da auditoria; mascaramento de segredos em saídas e logs; checagem de disponibilidade e rejeição de modelo; medição de uso e custo.
+- **M:** Handoff e subagentes entre bots; trazer agente próprio (AG-UI ou endpoint); tarefas e fila de trabalho; painel administrativo; tela de status e encerramento.
+- **G:** Gráficos interativos e galeria de componentes; check-ins proativos.
 ## Tabela
 
 ### Bots e agentes
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Bots com perfil durável (criar, editar, ligar/desligar) | `server/src/agents/profile-store.ts`, `profile-types.ts`; `docs/coworkers.md` | Feito (básico): `backend/src/modules/agents` | — | — |
-| Grupos com vários bots numa conversa | `server/src/channels/group.ts`; `app/src/routes/_authed/_app/group/$channelId.tsx` | Parcial: `agents/groups.service.ts`, `chat/group-routing.ts`; sem canais por pessoa | M | Média |
-| Handoff e subagentes entre bots | `server/src/agents/handoff*.ts`, `subagent.ts` | Parcial: `handoffs.service` (limite de 3 por conversa, auditado) | M | Baixa |
-| Escalonamento para pessoa | `server/src/agents/escalation.ts` | Falta | P | Baixa |
-| Trazer agente próprio (AG-UI ou endpoint) | `server/src/agents/endpoint.ts`, `registry.ts`, `managed-endpoint.ts` | Falta: só há provedores de modelo | M | Baixa |
-| Compartilhar bot com pessoas e times | `server/src/team-bots/`, `server/src/people/`; `app/.../bots.$agentId.sharing.tsx` | Feito (básico): permissões, API, compartilhamento direto/por time e gestão de times | M | Média |
-| Alcance do bot (onde a pessoa pode falar com ele) | `app/src/routes/_authed/_app/reachability.tsx`, `bots.$agentId.reach.tsx` | Falta | G | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Bots com perfil durável (criar, editar, ligar/desligar) | `server/src/agents/profile-store.ts` | Feito | `apps/backend/src/modules/agents/agents.service.ts` (CRUD persistido) | — | — | — |
+| Grupos com vários bots numa conversa | `server/src/channels/group.ts` | Feito | `apps/backend/src/modules/agents/groups.service.ts`, `apps/desktop/src/lib/groups.ts` | — | — | — |
+| Handoff e subagentes entre bots | `server/src/agents/handoff*.ts`, `subagent.ts` | Parcial | `apps/backend/src/modules/chat/subagents.service.ts` (até 3 subagentes por turno) | Handoff geral entre bots além da ferramenta de subagente | INTERNO | M |
+| Escalonamento para pessoa | `server/src/agents/escalation.ts` | Parcial | `apps/backend/src/modules/tools/tools.registry.ts`, `apps/backend/src/modules/tools/tools.service.ts`: aprovação e registro interno | Aviso a um atendente real (fila ou tela) | INTERNO | P |
+| Trazer agente próprio (AG-UI ou endpoint) | `server/src/agents/endpoint.ts`, `registry.ts` | Parcial | `apps/backend/src/modules/agents/agent-endpoint.ts` (endpoint HTTPS; 30 s; 64 KB) | Protocolo AG-UI e registro de endpoints | INTERNO | M |
+| Compartilhar bot com pessoas e times | `server/src/team-bots/`, `server/src/people/` | Feito | `apps/backend/src/modules/agents/agent-permissions.service.ts`, `apps/desktop/src/lib/agent-access.ts` | — | — | — |
+| Alcance do bot (onde a pessoa pode falar com ele) | `reachability.tsx`, `bots.$agentId.reach.tsx` | Falta | Não encontrado | Canais de entrega fora do app, que ainda não existem | EXTERNO/PESADO | G |
 
 ### Conversa e interface
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Respostas em streaming | `server/src/channels/socket.ts`, `events.ts` | Feito: `chat/chat.controller.ts` (SSE) | — | — |
-| Título de conversa gerado automaticamente | `server/src/channels/titler.ts` | Parcial: título vem da criação (`conversations.service.ts`); sem gerador | P | Baixa |
-| Prévia de conversa sem markdown | `server/src/channels/summary.ts` | Feito: `desktop/src/lib/preview.ts` | — | — |
-| Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito: `chat/image-attachments.ts` | — | — |
-| Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `server/src/channels/attachment-parts.ts` | Parcial: só PDF (`documents`, `pdf-parse`) | M | Média |
-| Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Feito (básico): cartão, tabela e barras em respostas; sem interatividade | G | Baixa |
-| Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | P | Baixa |
-| Ditado por voz (entrada) | `server/src/dictation/`, `shared/dictation.ts`, `shared/on-device-speech.ts` | Parcial: Web Speech API com processamento local obrigatório; depende de suporte do WebView e pacote pt-BR instalado | M | Média |
-| Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Parcial: `speechSynthesis` em `desktop/src/App.tsx` | P | Baixa |
-| Tour inicial e dicas | `app/src/routes/_authed/_app/start.$startId.tsx`; `shared/starter-tour.ts` | Falta | P | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Respostas em streaming | `server/src/channels/socket.ts`, `events.ts` | Feito | `apps/backend/src/modules/chat/chat.controller.ts` (SSE), `apps/backend/src/common/masked-text-stream.ts` | — | — | — |
+| Título de conversa gerado automaticamente | `server/src/channels/titler.ts` | Feito | `apps/backend/src/modules/chat/conversation-title.ts` (após a 1ª resposta, máx. 48 tokens) | — | — | — |
+| Prévia de conversa sem markdown | `server/src/channels/summary.ts` | Feito | `apps/desktop/src/lib/preview.ts` | — | — | — |
+| Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito | `apps/backend/src/modules/chat/image-attachments.ts` (limite de 5 MB por mensagem) | — | — | — |
+| Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `attachment-parts.ts` | Feito | `apps/backend/src/modules/documents/office-text.ts`, `apps/backend/src/modules/documents/office-zip.ts` (DOCX e XLSX) | — | — | — |
+| Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Parcial | `apps/desktop/src/components/RichComponent.tsx` (cartão, tabela, barras) | Gráficos interativos e galeria de componentes | INTERNO | G |
+| Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | Não encontrado | Geração local ou serviço externo de geração de imagem | EXTERNO/PESADO | M |
+| Ditado por voz (entrada) | `server/src/dictation/`, `shared/on-device-speech.ts` | Feito | `apps/backend/src/modules/dictation/transcriber.ts` (Whisper local pt; modelo sob demanda), `apps/desktop/src/lib/dictation-session.ts` (parciais e controles) | Teste em WebView e dispositivo real ainda não realizado | EXTERNO/PESADO | P |
+| Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Feito | `apps/desktop/src/lib/read-aloud.ts`, `apps/desktop/src/App.tsx` (speechSynthesis) | Depende de voz pt-BR instalada no WebView | — | — |
+| Tour inicial e dicas | `start.$startId.tsx`, `shared/starter-tour.ts` | Feito | `apps/desktop/src/lib/starter-tour.ts` | — | — | — |
 
 ### Ferramentas e segurança
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Registro de ferramentas com nível de risco | `server/src/plugins/tools.ts`, `shared/tool-name.ts` | Feito: `tools/tools.registry.ts` (`read` e `sensitive`) | — | — |
-| Busca de ferramentas quando há muitas | `shared/tool-search.ts`, `server/src/agents/tool-search.ts` | Falta (pouco útil com poucas ferramentas) | P | Baixa |
-| Limite de ferramentas por turno | `server/src/agents/tool-limit.ts`, `shared/model-tool-limit.ts` | Parcial: política em `tools/agent-policy.service.ts`, sem limite por turno confirmado | P | Alta |
-| Aprovação humana antes de ação sensível | `server/src/approvals/`; `docs/approvals.md` | Feito para as ações atuais: `audit/approvals.service.ts`, aba Atividades | — | — |
-| Trilha de auditoria | `server/src/audit.ts` | Feito: `audit/audit.service.ts` | — | — |
-| Retenção e limpeza da auditoria | `server/src/audit-retention.ts` | Falta | P | Baixa |
-| Tratamento de conteúdo não confiável (contra injeção de instruções) | `server/src/untrusted-content.ts`, `shared/user-content.ts`, `shared/user-content-hardening.test.ts` | Falta | M | Alta |
-| Mascaramento de segredos em saídas e logs | `agent-computer/src/secret-masking.ts`; mascaramento no gravador | Parcial: mascarador próprio em `apps/backend/src/common/secret-masking.ts`, aplicado às saídas, erros e logs cobertos; formatos proprietários ainda dependem de lista conhecida | P | Média |
-| Assinar requisições de navegação (web-bot-auth) | `server/src/web-bot-auth.ts`, `agent-computer/src/web-bot-auth.ts` | Falta | M | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Telemetria transparente | Decisão 11 | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Registro de ferramentas com nível de risco | `server/src/plugins/tools.ts` | Feito | `apps/backend/src/modules/tools/tools.registry.ts` | — | — | — |
+| Busca de ferramentas quando há muitas | `shared/tool-search.ts`, `agents/tool-search.ts` | Feito | `apps/backend/src/modules/tools/tool-search.ts`, usada em `apps/backend/src/modules/chat/chat.controller.ts` | — | — | — |
+| Limite de ferramentas por turno | `server/src/agents/tool-limit.ts` | Feito | `apps/backend/src/modules/chat/subagents.service.ts` (máx. 4 iterações e 3 subagentes) | — | — | — |
+| Aprovação humana antes de ação sensível | `server/src/approvals/`; `docs/approvals.md` | Feito | `apps/backend/src/modules/audit/approvals.service.ts`, `apps/backend/src/modules/tools/tools.approval.spec.ts` | — | — | — |
+| Trilha de auditoria | `server/src/audit.ts` | Feito | `apps/backend/src/modules/audit/audit.service.ts` | — | — | — |
+| Retenção e limpeza da auditoria | `server/src/audit-retention.ts` | Parcial | `apps/backend/src/modules/audit/audit.service.ts` (retenção configurável, lotes e advisory lock) | Sem tela de configuração | INTERNO | P |
+| Tratamento de conteúdo não confiável (contra injeção) | `server/src/untrusted-content.ts` | Feito | `apps/backend/src/modules/tools/untrusted-content.ts`, `apps/backend/src/modules/chat/chat.controller.ts` | — | — | — |
+| Mascaramento de segredos em saídas e logs | `agent-computer/src/secret-masking.ts` | Parcial | `apps/backend/src/common/secret-masking.ts`, `apps/backend/src/common/masked-text-stream.ts` | Formatos proprietários sem valor conhecido não são detectados | INTERNO | P |
+| Assinar requisições de navegação (web-bot-auth) | `server/src/web-bot-auth.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 
 ### Computador e navegador do bot
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Navegador próprio do bot em contêiner, com tela ao vivo | `agent-computer/src/browser-host.ts`, `screencast.ts`, `live-page.ts`; `supervisor/` | Falta | G | Baixa |
-| Assumir o navegador para entrar numa conta e devolver ao bot | `agent-computer/src/sign-in.ts`, `viewer.ts`, `control.ts` | Falta | G | Baixa |
-| Pasta de trabalho do bot | `agent-computer/src/workspace.ts`, `workspaces.ts` | Parcial: ferramentas `computador.*` sobre a pasta `workspace` | P | — |
-| Gravar uma demonstração no navegador | `extension/`; `agent-computer/src/recorder.ts`; `server/src/recorder/` | Falta | G | Baixa |
-| Extensão do navegador | `extension/` | Falta | G | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Navegador próprio do bot em contêiner, com tela ao vivo | `agent-computer/src/browser-host.ts`, `screencast.ts`; `supervisor/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Navegador em contêiner e login assistido | `agent-computer/src/sign-in.ts`, `viewer.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Pasta de trabalho do bot | `agent-computer/src/workspace.ts` | Feito | `apps/backend/src/modules/tools/workspace-files.ts` (listar, ler e escrever com aprovação) | — | — | — |
+| Gravar uma demonstração no navegador | `extension/`; `agent-computer/src/recorder.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Extensão do navegador | `extension/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 
 ### Plugins e integrações
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Servidores MCP | `server/src/plugins/mcp.ts`; `plugin-store/servers.ts` | Parcial: `mcp/mcp.service.ts`, só o servidor de arquivos (stdio) | M | Média |
-| Catálogo de conectores (Composio, Arcade) | `server/src/plugins/composio.ts`, `arcade.ts`, `catalogue.ts`, `broker.ts`; `docs/plugins/composio.md` | Falta | G | Baixa |
-| Google Agenda e Drive | `server/src/plugins/google-drive-rest.ts`; `docs/plugins/google-drive.md` | Parcial: `google/` (Drive só lê; criar evento pede aprovação) | P | Média |
-| Notion | `docs/plugins/notion.md` | Parcial: `tools/notion.ts` (buscar e criar página) | P | Baixa |
-| Compartilhar conexões entre pessoas | `server/src/plugins/shared-accounts.ts`, `shared-use.ts` | Falta | M | Baixa |
-| Cofre de credenciais | `server/src/credentials.ts`; `app/.../settings/passwords.tsx` | Parcial: aba Cofre e `integrations/` | P | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Servidores MCP | `server/src/plugins/mcp.ts` | Feito | `apps/backend/src/modules/mcp/mcp.service.ts` (stdio, Streamable HTTP e SSE); `apps/desktop/src/components/mcp/McpServersPanel.tsx` | Nenhuma lacuna interna conhecida | — | — |
+| Catálogo de conectores (Composio, Arcade) | `server/src/plugins/composio.ts`, `arcade.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Google Agenda e Drive | `server/src/plugins/google-drive-rest.ts` | Feito | `apps/backend/src/modules/google/google.service.ts` e `apps/backend/src/modules/tools/tools.registry.ts` (agenda e criar Google Doc mediante aprovação) | — | — | — |
+| Notion | `docs/plugins/notion.md` | Feito | `apps/backend/src/modules/tools/notion.ts` (buscar, ler, criar página e anexar texto) | — | — | — |
+| Compartilhar conexões entre pessoas | `server/src/plugins/shared-accounts.ts` | Feito | `apps/backend/src/modules/connection-shares/connection-shares.service.ts`, `apps/desktop/src/components/connections/ConnectionSharesPanel.tsx` | — | — | — |
+| Cofre de credenciais | `server/src/credentials.ts` | Feito | `apps/backend/src/modules/integrations/secret-box.ts`, `apps/backend/src/modules/integrations/integrations.service.ts` | — | — | — |
 
 ### Rotinas e proatividade
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts`, `sweep.ts`; `docs/routines.md` | Feito (básico): intervalo e horário fixo; claim distribuído; timer persistido | M | Alta |
-| Responsabilidades contínuas (o bot cuida de algo recorrente) | `server/src/responsibilities/` | Falta | G | Média |
-| Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | G | Baixa |
-| Notificações | `mobile/src/notifications.ts`; `server/src/delivery/` | Falta | M | Baixa |
-| Tarefas e fila de trabalho | `server/src/tasks/`, `server/src/work/` | Falta (a palavra "tarefa" no desktop é só o lançador de texto) | M | Baixa |
-| Aplicativo móvel | `mobile/` | Falta | G | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts` | Feito | `apps/backend/src/modules/routines/routines.service.ts` (agenda, persistência e claim) | — | — | — |
+| Responsabilidades contínuas | `server/src/responsibilities/` | Feito | `apps/backend/src/modules/responsibilities/responsibilities.service.ts`, `apps/desktop/src/components/responsibilities/ResponsibilitiesPage.tsx` | — | — | — |
+| Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | Não encontrado | Mensagens iniciadas pelo bot dentro do app | INTERNO | G |
+| Notificações | `server/src/delivery/` | Feito | `apps/backend/src/modules/notifications/notifications.service.ts`, `apps/desktop/src/components/notifications/NotificationsPanel.tsx` | Entrega ao celular não existe (app móvel CORTADO) | — | — |
+| Tarefas e fila de trabalho | `server/src/tasks/`, `server/src/work/` | Parcial | `apps/backend/src/modules/tasks/tasks.service.ts`, `apps/desktop/src/components/tasks/TasksPage.tsx` | Fila de trabalho integrada (`work/`) | INTERNO | M |
+| Aplicativo móvel | `mobile/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 
 ### Memória, preferências e aprendizado
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Memória por pessoa (lembrar, listar, apagar) | `server/src/memory/` (`store`, `ingestion`, `tools`) | Parcial: `memory/memory.service.ts`, escopo autenticado e opt-out respeitado; preferências simples em tabela | P | Média |
-| Preferências e instruções do usuário | `server/src/user-preferences.ts`, `user-instructions.ts` | Parcial: opt-out individual da memória; instruções/preferências gerais ainda faltam | P | Média |
-| Habilidades reutilizáveis (skills) | `server/src/plugins/route-groups/skills.ts`; `app/.../skills` | Falta | M | Média |
-| Aprendizado automático compartilhado (Learning) | `server/src/learning/`; `docs/automatic-learning.md` | Falta (depende do serviço Intelligence; plano gratuito a verificar) | G | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Memória por pessoa (lembrar, listar, apagar) | `server/src/memory/` | Feito | `apps/backend/src/modules/memory/memory.service.ts`, `apps/backend/src/modules/tools/tools.registry.ts` | — | — | — |
+| Preferências e instruções do usuário | `server/src/user-preferences.ts` | Feito | `apps/backend/src/modules/preferences/user-preferences.service.ts`, `apps/desktop/src/components/preferences/PreferencesPanel.tsx` | — | — | — |
+| Habilidades reutilizáveis (skills) | `server/src/plugins/route-groups/skills.ts` | Feito | `apps/backend/src/modules/skills/skills.service.ts`, `apps/desktop/src/components/skills/SkillsPage.tsx` | — | — | — |
+| Aprendizado automático compartilhado (Learning) | `server/src/learning/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 
 ### Pesquisa na web
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Busca na web | `shared/research.ts`; `docs/web-research.md` | Parcial: `tools/web-search.ts` (Wikipédia sem chave; Tavily com chave) | P | Média |
-| Leitura do conteúdo de uma página | `shared/research.ts` | Parcial: ferramenta `pagina.ler`, texto envelopado e limites/bloqueios; conexão fixa o IP validado (pinnedFetch, sem nova resolução DNS; anti DNS rebinding) | M | Alta |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Busca na web paga | `shared/research.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
+| Leitura do conteúdo de uma página | `shared/research.ts` | Feito | `apps/backend/src/modules/tools/page-reader.ts` (leitura com pinagem ao IP validado e bloqueio de endereços privados) | Sem teste contra a internet real | — | — |
+| Busca web gratuita (Wikipédia) | `shared/research.ts` | Feito | `apps/backend/src/modules/tools/web-search.ts` | — | — | — |
 
 ### Modelos e custos
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Provedores de modelo | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Parcial: OpenAI, Gemini, Ollama e endpoint compatível (`providers/`); sem catálogo | — | — |
-| Anthropic | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Falta | P | Média |
-| Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts`, `model-rejection.ts` | Falta | P | Baixa |
-| Medição de uso e custo | `server/src/model-billing.ts` | Parcial: `chat/usage.service.ts`, aba Uso; granularidade por conversa não confirmada | P | — |
-| Entrar com Google ou xAI no app (OAuth do provedor) | `server/src/provider-oauth.ts`; `desktop/PROVIDER_OAUTH.md` | Falta | G | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Provedores de modelo | `shared/model-providers.json`; `server/src/model-catalogue.ts` | Feito | `apps/backend/src/modules/providers/model-providers.service.ts` (chaves múltiplas, descoberta de modelos) e `apps/desktop/src/App.tsx` (cadastro/teste) | — | — | — |
+| Anthropic | `shared/model-providers.json` | Feito | `apps/backend/src/modules/providers/anthropic.provider.ts` (Messages API, tool_use, SSE) | API real não testada | — | — |
+| Checagem de disponibilidade e rejeição de modelo | `server/src/model-availability-check.ts` | Parcial | `apps/backend/src/modules/providers/providers.service.ts` (consulta disponibilidade OpenAI/Anthropic) | Endpoints compatíveis e Gemini sem checagem | INTERNO | P |
+| Medição de uso e custo | `server/src/model-billing.ts` | Parcial | `apps/backend/src/modules/chat/usage.service.ts`, `apps/desktop/src/App.tsx` (relatórios por pessoa/agente/conversa) | Cobertura de preços ainda é parcial; itens sem preço ficam sem custo calculado | INTERNO | P |
+| Entrar com Google ou xAI (OAuth do provedor) | `server/src/provider-oauth.ts` | Falta | Não encontrado | OAuth dos provedores; contas e apps externos | EXTERNO/PESADO | G |
 
 ### Pessoas, acesso e administração
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Entrada por provedor de identidade (OIDC) | `server/src/identity/`; `app/.../admin/identity-providers.tsx` | Parcial: `auth/oidc.service.ts`; sem tela de administração | P | — |
-| Papéis e usuários | `server/src/people/`, `server/src/passwords/` | Parcial: papéis admin, operador e leitor (`auth/users.service.ts`) | — | — |
-| Modo pessoal, sem login | `server/src/edition.ts`; `docs/personal-edition.md` | Falta (o app exige login) | M | Média |
-| Painel administrativo | `app/src/routes/_authed/admin/*` | Parcial: abas de Configurações (geral, computador, permissões, cofre, uso, atualizações) | — | — |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Entrada por provedor de identidade (OIDC) | `server/src/identity/` | Feito | `apps/backend/src/modules/auth/oidc.service.ts`, `apps/desktop/src/App.tsx` (login Google e configurações de provedores) | — | — | — |
+| Papéis e usuários | `server/src/people/`, `server/src/passwords/` | Feito | `apps/backend/src/modules/auth/roles.ts`, `apps/backend/src/modules/auth/users.service.ts` | — | — | — |
+| Modo pessoal, sem login | `server/src/edition.ts` | Feito | `apps/backend/src/common/edition.ts`, `apps/backend/src/common/personal-edition.guard.ts`, `apps/desktop/src/lib/edition.ts` | — | — | — |
+| Painel administrativo | `app/src/routes/_authed/admin/*` | Parcial | `apps/desktop/src/App.tsx` (configurações, uso, acessos e provedores) | Administração não cobre todos os recursos e fluxos de equipe | INTERNO | M |
 
 ### Aplicativo desktop e instalação
 
-| Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
-|---|---|---|---|---|
-| Atualização automática do app | `desktop/src/UpdateOffer.tsx`, `ShellUpdates.tsx`; `docs/desktop-updates.md` | Parcial: plugin Tauri 2.14.1, artefatos assinados e checagem/aviso/instalação; endpoint ainda é exemplo `.invalid` | M | Alta |
-| Primeira execução guiada | `desktop/src/Welcome.tsx`, `SetupProgress.tsx`, `StartFresh.tsx`; `server/src/setup/`; `app/.../onboarding.tsx` | Parcial: assistente local salva URL PostgreSQL e token; backend/DB ainda precisam ser iniciados/reiniciados manualmente | M | Alta |
-| Telemetria transparente | `desktop/src/telemetry.ts`, `desktop/TELEMETRY.md`; `server/src/telemetry/` | Falta | M | Baixa |
-| Assinatura de código do Windows | `docs/windows-signing.md` (usa Azure Key Vault, que é pago) | Falta. Não há alternativa gratuita verificada | G | Média |
-| Verificação de requisitos do Windows | `desktop/src/WindowsBlocker.tsx` | Falta | P | Baixa |
-| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Parcial: estado do PostgreSQL na barra lateral | P | Baixa |
+| Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
+|---|---|---|---|---|---|---|
+| Atualização automática do app | `desktop/src/UpdateOffer.tsx`; `docs/desktop-updates.md` | Parcial | `apps/desktop/src/lib/updates.ts`, `apps/desktop/src-tauri/tauri.conf.json` | Configurar repositório público de releases e publicar manifesto e artefatos | EXTERNO/PESADO | P |
+| Primeira execução guiada | `desktop/src/Welcome.tsx`, `SetupProgress.tsx`; `server/src/setup/` | Feito | `apps/desktop/src/Welcome.tsx`, `apps/desktop/src-tauri/src/lib.rs` (instala PostgreSQL portátil com confirmação; início de serviços também confirmado) | — | — | — |
+| Verificação de requisitos do Windows | `desktop/src/WindowsBlocker.tsx` | Feito | `apps/desktop/src/lib/windows-requirements.ts`, `apps/desktop/src/Welcome.tsx` | — | — | — |
+| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Parcial | `apps/desktop/src/components/status/StatusPanel.tsx` | Encerramento ordenado dos serviços locais pelo app | INTERNO | P |
 
 ## Resumo da tabela
 
-- **Feito:** 7 itens. Bots com perfil, streaming, prévia de conversa, anexos de imagem, registro de ferramentas, aprovações e auditoria.
-- **Parcial:** 21 itens.
-- **Falta:** 36 itens. Os de maior peso são o computador do bot em contêiner, o catálogo de conectores e o Learning.
-- Total: 64 linhas. A contagem foi feita pela própria tabela.
+- **Total:** 64 itens, incluindo telemetria transparente e busca web paga como CORTADO.
+- **Feito:** 38; **Parcial:** 12; **Falta:** 4; **CORTADO:** 10.
+- A fila ativa de itens INTERNOS está no topo deste documento; itens EXTERNO/PESADO permanecem na tabela para referência.
+## Histórico anterior à auditoria de 2026-11-20
+
+As seções abaixo são o registro de rodadas anteriores, mantido como histórico. Onde conflitarem com a tabela acima, vale a tabela.
 
 ## As 10 próximas a implementar
 
