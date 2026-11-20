@@ -50,7 +50,7 @@ Depois dos itens 1–6, Decisão 30:
 10. **Handoff geral entre bots** — INTERNO, M.
 11. **Agente próprio por endpoint (AG-UI)** — INTERNO, M.
 12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
-13. **Painel administrativo completo** — INTERNO, M.
+13. **Painel administrativo completo** — Feito na tarefa 112; evidências: `apps/backend/src/modules/team-rooms/team-rooms.service.ts` e testes `team-rooms.service.spec.ts`/`team-rooms.e2e.spec.ts` (criação de sala e mudanças de membros auditadas), além de `apps/desktop/src/lib/audit-labels.ts` (rótulos pt-BR; filtro por ação aceita texto livre).
 14. **Tela de status e encerramento ordenado** — Feito na tarefa 111; evidências: `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs` (`stop_local_services`), `scripts/stop.ps1` e testes `apps/desktop/src/lib/shutdown-plan.test.ts`.
 15. **Gráficos interativos e galeria de componentes** — INTERNO, G.
 16. **Check-ins proativos** — INTERNO, G.
@@ -179,7 +179,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Entrada por provedor de identidade (OIDC) | `server/src/identity/` | Feito | `apps/backend/src/modules/auth/oidc.service.ts`, `apps/desktop/src/App.tsx` (login Google e configurações de provedores) | — | — | — |
 | Papéis e usuários | `server/src/people/`, `server/src/passwords/` | Feito | `apps/backend/src/modules/auth/roles.ts`, `apps/backend/src/modules/auth/users.service.ts` | — | — | — |
 | Modo pessoal, sem login | `server/src/edition.ts` | Feito | `apps/backend/src/common/edition.ts`, `apps/backend/src/common/personal-edition.guard.ts`, `apps/desktop/src/lib/edition.ts` | — | — | — |
-| Painel administrativo | `app/src/routes/_authed/admin/*` | Parcial | `apps/desktop/src/App.tsx` (configurações, uso, acessos e provedores) | Administração não cobre todos os recursos e fluxos de equipe | INTERNO | M |
+| Painel administrativo | `app/src/routes/_authed/admin/*` | Feito (tarefa 112) | `apps/desktop/src/App.tsx`, `apps/backend/src/modules/team-rooms/team-rooms.service.ts` | Auditoria de criação de sala e mudanças de membros; eventos disponíveis com filtro administrativo | INTERNO | M |
 
 ### Aplicativo desktop e instalação
 
