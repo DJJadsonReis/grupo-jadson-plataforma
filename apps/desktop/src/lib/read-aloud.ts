@@ -7,6 +7,7 @@ const AUTO_READ_KEY = "grupo-jadson.leitura-automatica";
 
 export function cleanForSpeech(text: string): string {
   const cleaned = text
+    .replace(/```componente\s*\n([\s\S]*?)```/g, (_block, json: string) => ` ${componentSpeech(json)} `)
     .replace(/```[\s\S]*?```/g, " (bloco de código omitido) ")
     .replace(/```[\s\S]*$/g, " (bloco de código omitido) ")
     .replace(/`([^`\n]*)`/g, "$1")
@@ -25,6 +26,21 @@ export function cleanForSpeech(text: string): string {
   if (sentenceEnd >= 0) return prefix.slice(0, sentenceEnd + 1).trimEnd();
   const space = prefix.lastIndexOf(" ");
   return (space >= 0 ? prefix.slice(0, space) : "").trimEnd();
+}
+
+function componentSpeech(json: string): string {
+  let value: unknown;
+  try { value = JSON.parse(json); } catch { return "componente"; }
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "componente";
+  const item = value as Record<string, unknown>;
+  if (item.tipo === "cartao") return [item.titulo, item.corpo].filter((part): part is string => typeof part === "string").join(". ");
+  if (item.tipo === "tabela" && Array.isArray(item.linhas) && Array.isArray(item.colunas)) return `Tabela com ${item.linhas.length} linhas e colunas ${item.colunas.filter((part): part is string => typeof part === "string").join(", ")}`;
+  if (item.tipo === "barras" && Array.isArray(item.itens)) return item.itens.map((entry) => {
+    if (!entry || typeof entry !== "object") return "";
+    const row = entry as Record<string, unknown>;
+    return `${typeof row.rotulo === "string" ? row.rotulo : ""}: ${typeof row.valor === "number" ? row.valor : ""}`;
+  }).filter(Boolean).join(". ");
+  return "componente";
 }
 
 export function choosePtBrVoice(voices: { lang: string }[]): number | null {

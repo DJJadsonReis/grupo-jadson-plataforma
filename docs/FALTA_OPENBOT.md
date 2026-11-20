@@ -36,7 +36,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 | Prévia de conversa sem markdown | `server/src/channels/summary.ts` | Feito: `desktop/src/lib/preview.ts` | — | — |
 | Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito: `chat/image-attachments.ts` | — | — |
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `server/src/channels/attachment-parts.ts` | Parcial: só PDF (`documents`, `pdf-parse`) | M | Média |
-| Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Falta | G | Baixa |
+| Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Feito (básico): cartão, tabela e barras em respostas; sem interatividade | G | Baixa |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | P | Baixa |
 | Ditado por voz (entrada) | `server/src/dictation/`, `shared/dictation.ts`, `shared/on-device-speech.ts` | Parcial: Web Speech API com processamento local obrigatório; depende de suporte do WebView e pacote pt-BR instalado | M | Média |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Parcial: `speechSynthesis` em `desktop/src/App.tsx` | P | Baixa |

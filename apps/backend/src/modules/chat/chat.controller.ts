@@ -27,6 +27,7 @@ import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/to
 import { effectiveSkillTools } from "../skills/skill-tools";
 import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
+import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -178,6 +179,7 @@ export class ChatController {
     let promptSkills: Awaited<ReturnType<AgentSkillsService["loadPromptSkills"]>> = [];
     // Keep the safety guidance server-owned and directly after the profile instructions.
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
+    messages.unshift({ role: "system", content: RICH_COMPONENTS_GUIDANCE });
     if (agent?.providerKind !== "endpoint" && agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
     if (agent?.providerKind !== "endpoint" && agentId && this.database) {
       promptSkills = await new AgentSkillsService(this.database).loadPromptSkills(agentId).catch(() => []);

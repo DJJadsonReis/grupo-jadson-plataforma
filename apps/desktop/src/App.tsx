@@ -8,6 +8,8 @@ import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
+import { splitRichComponents } from "./lib/rich-components";
+import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -1713,7 +1715,9 @@ function ChatPage({
                       <ReadAloudButton text={message.content} />
                     </div>
                     <div className="gx-turn-body">
-                      <MarkdownContent content={message.content} />
+                      {splitRichComponents(message.content).map((part, partIndex) => part.kind === "component"
+                        ? <RichComponent key={`rich-${partIndex}`} component={part.component} />
+                        : <MarkdownContent key={`text-${partIndex}`} content={part.text} />)}
                     </div>
                   </div>
                 );

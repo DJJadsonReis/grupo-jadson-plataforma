@@ -22,6 +22,14 @@ describe("cleanForSpeech", () => {
     expect(cleanForSpeech(`${"a".repeat(1990)}. ${"b".repeat(30)}`)).toBe(`${"a".repeat(1990)}.`);
     expect(cleanForSpeech(`${"palavra ".repeat(250)}fim`).length).toBeLessThanOrEqual(2000);
   });
+  it("converte blocos componente em fala legível", () => {
+    const text = cleanForSpeech('```componente\n{"tipo":"cartao","titulo":"Resumo","corpo":"Tudo certo"}\n```\n```componente\n{"tipo":"tabela","colunas":["Nome"],"linhas":[["Ana"]]}\n```\n```componente\n{"tipo":"barras","itens":[{"rotulo":"Vendas","valor":4}]}\n```');
+    expect(text).toContain("Resumo");
+    expect(text).toContain("Tudo certo");
+    expect(text).toContain("1 linhas");
+    expect(text).toContain("Vendas: 4");
+    expect(text).not.toMatch(/[{}\"]/);
+  });
 });
 
 describe("choosePtBrVoice", () => {
