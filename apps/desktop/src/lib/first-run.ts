@@ -36,3 +36,20 @@ export function summarizeProcessOutput(stdout: string, stderr: string, limit = 1
   if (!output) return "O script terminou sem emitir saída.";
   return output.length > limit ? `${output.slice(0, limit)}\n… (saída resumida)` : output;
 }
+
+export function isSha256(value: string): boolean {
+  return /^[a-fA-F0-9]{64}$/.test(value);
+}
+
+export function plainWindowsPath(path: string): string {
+  if (path.startsWith("\\\\?\\UNC\\")) return `\\\\${path.slice(8)}`;
+  return path.startsWith("\\\\?\\") ? path.slice(4) : path;
+}
+
+export function describePostgresInstallCommand(scriptPath: string, archivePath: string, sha256: string, destination: string): string {
+  return `powershell -NoProfile -ExecutionPolicy Bypass -File "${scriptPath}" -ArchivePath "${archivePath}" -ExpectedSha256 ${sha256}\nDestino: ${destination}`;
+}
+
+export async function confirmPostgresInstall<T>(confirmed: boolean, install: () => Promise<T>): Promise<T | undefined> {
+  return confirmed ? install() : undefined;
+}

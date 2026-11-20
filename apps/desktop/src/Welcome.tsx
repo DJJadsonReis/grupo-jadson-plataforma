@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { Check, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
-import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput, type FirstRunHealth } from "./lib/first-run";
+import { confirmPostgresInstall, createLocalApiToken, describeLocalServicesCommand, describePostgresInstallCommand, isPostgresUrl, isSha256, shouldAskServicesConsent, summarizeProcessOutput, type FirstRunHealth } from "./lib/first-run";
 import { evaluateWindowsBuild, type WindowsBuildEvaluation } from "./lib/windows-requirements";
 
 type Props = { apiUrl: string; onComplete: () => void };
@@ -18,6 +18,12 @@ export function Welcome({ apiUrl, onComplete }: Props) {
   const [showServicesDialog, setShowServicesDialog] = useState(false);
   const [startingServices, setStartingServices] = useState(false);
   const [servicesOutput, setServicesOutput] = useState<string | null>(null);
+  const [postgresInstallInfo, setPostgresInstallInfo] = useState<{ downloadsDir: string; destination: string; destinationEmpty: boolean } | null>(null);
+  const [archivePath, setArchivePath] = useState("");
+  const [archiveSha256, setArchiveSha256] = useState("");
+  const [showPostgresDialog, setShowPostgresDialog] = useState(false);
+  const [installingPostgres, setInstallingPostgres] = useState(false);
+  const [postgresInstallOutput, setPostgresInstallOutput] = useState<string | null>(null);
   const [windowsRequirement, setWindowsRequirement] = useState<WindowsBuildEvaluation | null>(null);
 
   useEffect(() => {
@@ -49,6 +55,35 @@ export function Welcome({ apiUrl, onComplete }: Props) {
   }, [apiUrl]);
 
   useEffect(() => { void check(); }, [check]);
+
+  useEffect(() => {
+    let active = true;
+    void invoke<{ downloadsDir: string; destination: string; destinationEmpty: boolean }>("get_postgres_install_info")
+      .then((info) => { if (active) setPostgresInstallInfo(info); })
+      .catch(() => { if (active) setPostgresInstallInfo(null); });
+    return () => { active = false; };
+  }, []);
+
+  async function installPostgres() {
+    setShowPostgresDialog(false);
+    if (!isSha256(archiveSha256)) { setError("SHA-256 inválido: informe exatamente 64 caracteres hexadecimais."); return; }
+    setInstallingPostgres(true);
+    setError(null);
+    setPostgresInstallOutput(null);
+    try {
+      const result = await invoke<{ exitCode: number; stdout: string; stderr: string }>("install_postgresql_portable", { archivePath: archivePath.trim(), expectedSha256: archiveSha256.trim() });
+      const output = summarizeProcessOutput(result.stdout, result.stderr);
+      setPostgresInstallOutput(`Código do instalador: ${result.exitCode}\n${output}`);
+      if (result.exitCode !== 0) throw new Error(output || `O instalador terminou com código ${result.exitCode}.`);
+      await check();
+      const updated = await invoke<{ downloadsDir: string; destination: string; destinationEmpty: boolean }>("get_postgres_install_info");
+      setPostgresInstallInfo(updated);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : typeof cause === "string" ? cause : "Falha ao instalar PostgreSQL. Confira o ZIP e o SHA-256 e tente novamente.");
+    } finally {
+      setInstallingPostgres(false);
+    }
+  }
 
   async function save(event: FormEvent) {
     event.preventDefault();
@@ -134,6 +169,27 @@ export function Welcome({ apiUrl, onComplete }: Props) {
           <small>Para iniciar o PostgreSQL de desenvolvimento do projeto, execute <code>docker compose up -d postgres</code> na pasta do projeto.</small>
           <button className="btn-primary-gold" type="submit" disabled={saving || !databaseUrl.trim()}>{saving ? "Salvando…" : "Salvar configuração local"}</button>
         </form>}
+
+        {!databaseReady && postgresInstallInfo?.destinationEmpty && <section className="welcome-setup-form" aria-label="Instalação portátil do PostgreSQL">
+          <strong>Instalar PostgreSQL portátil</strong>
+          <small>Coloque o ZIP oficial em <code>{postgresInstallInfo.downloadsDir}</code> e informe o SHA-256 conferido na fonte oficial. O aplicativo não baixa arquivos.</small>
+          <label htmlFor="postgres-archive-path">Caminho do ZIP</label>
+          <input id="postgres-archive-path" value={archivePath} onChange={(event) => setArchivePath(event.target.value)} placeholder={`${postgresInstallInfo.downloadsDir}\\postgresql.zip`} autoComplete="off" spellCheck={false} />
+          <label htmlFor="postgres-archive-sha">SHA-256 do ZIP</label>
+          <input id="postgres-archive-sha" value={archiveSha256} onChange={(event) => setArchiveSha256(event.target.value)} autoComplete="off" spellCheck={false} />
+          <button type="button" className="btn-primary-gold" onClick={() => { setError(null); setShowPostgresDialog(true); }} disabled={installingPostgres || !archivePath.trim() || !archiveSha256.trim()}>{installingPostgres ? <><LoaderCircle className="spin" size={16} /> Instalando PostgreSQL…</> : "Instalar PostgreSQL"}</button>
+        </section>}
+        {(databaseReady || postgresInstallInfo?.destinationEmpty === false) && <div className="welcome-restart" role="status"><strong>PostgreSQL já instalado</strong><span>O assistente não oferece substituição da instalação existente.</span></div>}
+        {installingPostgres && <div className="welcome-restart" role="status"><LoaderCircle className="spin" size={16} /> Instalando PostgreSQL. Aguarde a validação e extração do ZIP…</div>}
+        {postgresInstallOutput && <pre className="welcome-restart" role="status" style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{postgresInstallOutput}</pre>}
+
+        {showPostgresDialog && postgresInstallInfo && <div className="modal-backdrop" role="presentation">
+          <section className="agent-modal" role="dialog" aria-modal="true" aria-labelledby="postgres-dialog-title">
+            <div className="modal-heading"><h2 id="postgres-dialog-title">Confirmar instalação do PostgreSQL?</h2></div>
+            <div className="modal-fields"><p>Este comando só será executado depois da confirmação. Nenhum serviço será iniciado.</p><pre style={{ whiteSpace: "pre-wrap", overflowWrap: "anywhere" }}>{describePostgresInstallCommand("scripts\\install-postgresql-portable.ps1", archivePath.trim(), archiveSha256.trim(), "tools\\postgresql")}</pre></div>
+            <div className="modal-footer"><button type="button" className="btn-outline-sm" onClick={() => { setShowPostgresDialog(false); void confirmPostgresInstall(false, installPostgres); }}>Cancelar</button><button type="button" className="btn-primary-gold" onClick={() => void confirmPostgresInstall(true, installPostgres)}>Confirmar e instalar</button></div>
+          </section>
+        </div>}
 
         {saved && <div className="welcome-restart" role="status">
           <strong>Configuração salva.</strong>
