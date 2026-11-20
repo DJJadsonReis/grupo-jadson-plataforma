@@ -2,7 +2,7 @@ import { runSubagent, SUBAGENT_APPROVAL_MESSAGE } from "./subagents.service";
 import { isMarkedUntrusted } from "../tools/untrusted-content";
 import { ToolDefinition } from "../tools/tools.registry";
 
-const readTool: ToolDefinition = { name: "notion.buscar", description: "Pesquisa no Notion", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Consulta" } }, required: ["consulta"] } };
+const readTool: ToolDefinition = { name: "notion.buscar", description: "Pesquisa no Notion", risk: "read", category: "rede", parameters: { properties: { consulta: { type: "string", description: "Consulta" } }, required: ["consulta"] } };
 
 describe("runSubagent", () => {
   it("envia somente instruções e tarefa, sem delegação recursiva, e devolve resposta marcada", async () => {
@@ -26,7 +26,7 @@ describe("runSubagent", () => {
       { id: "1", type: "function", function: { name: "memoria__apagar_tudo", arguments: "{}" } },
       { id: "2", type: "function", function: { name: "subagente__delegar", arguments: "{}" } },
     ] }).mockResolvedValueOnce({ content: "fim", toolCalls: [] });
-    const result = await runSubagent({ task: "leia", bot: {}, grantedTools: [{ name: "memoria.apagar_tudo", description: "apaga", risk: "sensitive" }], runTurn, limits: { invokeTool, mask: (text) => text } });
+    const result = await runSubagent({ task: "leia", bot: {}, grantedTools: [{ name: "memoria.apagar_tudo", description: "apaga", risk: "sensitive", category: "sensivel" }], runTurn, limits: { invokeTool, mask: (text) => text } });
     expect(invokeTool).not.toHaveBeenCalled();
     expect(runTurn.mock.calls[1][0].messages.at(-2).content).toBe(SUBAGENT_APPROVAL_MESSAGE);
     expect(JSON.stringify(runTurn.mock.calls[1][0].messages)).toContain("Ferramenta indisponível.");

@@ -14,7 +14,7 @@ function providerResponse(title: string): Promise<Response> {
 describeWithPostgres("título de conversa no PostgreSQL", () => {
   let database: DatabaseService;
   let conversations: ConversationsService;
-  beforeAll(async () => { process.env.DATABASE_URL = databaseUrl; database = new DatabaseService(); await database.onModuleInit(); conversations = new ConversationsService(database); });
+  beforeAll(async () => { process.env.DATABASE_URL = databaseUrl; database = new DatabaseService(); await database.onModuleInit(); conversations = new ConversationsService(database, { record: async () => undefined } as never); });
   afterAll(async () => { await database.onModuleDestroy(); });
 
   it("grava título gerado pelo provider simulado", async () => {

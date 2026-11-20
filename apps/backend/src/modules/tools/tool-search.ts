@@ -8,7 +8,7 @@ export const SEARCH_RESULTS = 8;
 export const searchToolDefinition: ToolDefinition = {
   name: SEARCH_TOOL_NAME,
   description: "Procura ferramentas disponíveis pelo nome ou pelo que fazem. Use antes de dizer que não há ferramenta para algo.",
-  risk: "read",
+  risk: "read", category: "leitura",
   parameters: {
     properties: { consulta: { type: "string", description: "Palavras sobre o que se quer fazer." } },
     required: ["consulta"],

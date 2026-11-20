@@ -26,6 +26,7 @@ import { buildSkillsSystemMessage } from "../skills/skill-prompt";
 import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 import { effectiveSkillTools } from "../skills/skill-tools";
+import { decisionForOperationMode } from "../tools/operation-modes";
 import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
@@ -183,6 +184,15 @@ export class ChatController {
     const agent = agentId ? await this.agents.get(agentId) : null;
     if (agentId && !agent) throw new BadRequestException("O agente associado não foi encontrado.");
     if (agent && !agent.enabled) throw new BadRequestException("O agente está inativo.");
+    const conversationOwner = request.principal?.id ?? "sistema";
+    const alreadyPersisted = conversationId && typeof this.conversations.isPersisted === "function"
+      ? await this.conversations.isPersisted(conversationId, conversationOwner).catch(() => false)
+      : false;
+    const requestedMode = body && typeof body === "object" ? (body as { operationMode?: unknown }).operationMode : undefined;
+    const validatedRequestedMode = requestedMode === "manual" || requestedMode === "aceitar_edicoes" || requestedMode === "planejamento" || requestedMode === "automatico" ? requestedMode : undefined;
+    const activeOperationMode = conversationId && alreadyPersisted && typeof this.toolsService.operationModeForChat === "function"
+      ? await this.toolsService.operationModeForChat(conversationId, conversationOwner, agentId).catch(() => agent?.defaultOperationMode ?? "automatico" as const)
+      : validatedRequestedMode ?? agent?.defaultOperationMode ?? "automatico";
     const requestedModel = model ?? (agent?.model || undefined);
     if (agent?.providerKind !== "endpoint" && agent && requestedModel && UUID.test(agent.provider) && typeof this.providers.validateManagedModel === "function") {
       try { await this.providers.validateManagedModel(agent.provider, requestedModel); } catch (error) { throw this.modelUnavailableException(error); }
@@ -234,26 +244,35 @@ export class ChatController {
     res.on("close", () => abort.abort());
     if (conversationId) {
       try {
-        const conversationOwner = request.principal?.id ?? "sistema";
         await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined, conversationOwner);
+        if (!alreadyPersisted) {
+          const initialMode = validatedRequestedMode ?? agent?.defaultOperationMode ?? "automatico";
+          if (initialMode === "ignorar_permissoes") throw new BadRequestException("Ative Ignorar permissões pelo seletor com confirmação de administrador.");
+          if (typeof this.conversations.setOperationMode === "function") await this.conversations.setOperationMode(conversationId, conversationOwner, initialMode, request.principal?.role ?? "admin", request.principal?.name ?? "Administrador");
+        }
         await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
-      } catch (error) { this.logger.warn(`Histórico não persistido: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
+      } catch (error) { throw error; }
     }
 
     const toolCatalog = this.toolsService.catalog();
-    const searchActive = searchEnabled(toolCatalog);
-    const allAvailableTools = providerTools(toolCatalog);
+    const modeVisibleTools = await Promise.all(toolCatalog.map(async (tool) => {
+      const policy = agentId ? await (this.toolsService as unknown as { policies: AgentPolicyService }).policies.decisionFor(agentId, tool.name) : null;
+      return decisionForOperationMode(activeOperationMode, tool.category, policy) !== "block" ? tool : null;
+    }));
+    const operationToolCatalog = modeVisibleTools.filter((tool): tool is NonNullable<typeof tool> => tool !== null);
+    const searchActive = searchEnabled(operationToolCatalog);
+    const allAvailableTools = providerTools(operationToolCatalog);
     let grantedSkillTools: ReturnType<typeof providerTools> = providerTools([]);
     if (agentId && promptSkills.length) {
       try {
         const grantedNames = new Set(promptSkills.flatMap((skill) => skill.tools));
-        const candidateTools = toolCatalog.filter((tool) => grantedNames.has(tool.name));
+        const candidateTools = operationToolCatalog.filter((tool) => grantedNames.has(tool.name));
         const policies = (this.toolsService as unknown as { policies: AgentPolicyService }).policies;
         const allowed = new Set((await Promise.all(candidateTools.map(async (tool) =>
           (await policies.decisionFor(agentId, tool.name)) !== "deny" ? tool.name : null,
         ))).filter((name): name is string => name !== null));
         const effectiveNames = new Set(effectiveSkillTools(promptSkills, allowed));
-        const grantedDefinitions = toolCatalog.filter((tool) => effectiveNames.has(tool.name));
+        const grantedDefinitions = operationToolCatalog.filter((tool) => effectiveNames.has(tool.name));
         const providerGranted = providerTools(grantedDefinitions);
         const offeredNames = new Set(providerGranted.tools.map((tool) => tool.function.name));
         const sensitiveGranted = grantedDefinitions.filter((tool) => tool.risk === "sensitive").map((tool) => ({
@@ -315,7 +334,7 @@ export class ChatController {
       let attemptIndex = 0;
       let usedFallback: { providerId: string; model: string; reason: string } | null = null;
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
-        const visible = providerTools(visibleTools(toolCatalog, found));
+        const visible = providerTools(visibleTools(operationToolCatalog, found));
         const availableTools = {
           tools: [...visible.tools, ...grantedSkillTools.tools.filter((tool) => !visible.names.has(tool.function.name))],
           names: new Map([...visible.names, ...grantedSkillTools.names]),
@@ -407,7 +426,7 @@ export class ChatController {
               workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Informe a consulta da busca." }) });
               continue;
             }
-            const results = searchTools(input.consulta, toolCatalog);
+            const results = searchTools(input.consulta, operationToolCatalog);
             for (const name of foundFrom(results)) {
               found.delete(name);
               found.add(name);
@@ -427,10 +446,10 @@ export class ChatController {
             }
             subagentCalls += 1;
             const grantedNames = new Set([
-              ...visibleTools(toolCatalog, found).filter((tool) => !["subagente.delegar", "ferramentas.buscar"].includes(tool.name)).map((tool) => tool.name),
+              ...visibleTools(operationToolCatalog, found).filter((tool) => !["subagente.delegar", "ferramentas.buscar"].includes(tool.name)).map((tool) => tool.name),
               ...[...grantedSkillTools.names.values()],
             ]);
-            const grantedTools = toolCatalog.filter((tool) => grantedNames.has(tool.name) && tool.name !== "subagente.delegar");
+            const grantedTools = operationToolCatalog.filter((tool) => grantedNames.has(tool.name) && tool.name !== "subagente.delegar");
             try {
               const result = await runSubagent({
                 task: input.tarefa,
@@ -473,12 +492,7 @@ export class ChatController {
             const toolInput = canonicalName === "atendimento.humano"
               ? { ...input, ...(conversationId ? { conversationId } : {}), ...(agentId ? { agentId } : {}) }
               : input;
-            if (allAvailableTools.risks.get(call.function.name) === "sensitive") {
-              const pending = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", undefined, request.principal?.id);
-              workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, pending) });
-              continue;
-            }
-            const run = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", agentId, request.principal?.id);
+          const run = await this.toolsService.invoke(canonicalName, { ...toolInput, ...(conversationId ? { conversationId } : {}) }, request.principal?.name ?? "sistema", agentId, request.principal?.id);
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, run) });
           } catch (error) {
             const message = await this.toolsService.maskSecretText(error instanceof Error ? error.message : "Ferramenta recusada.");

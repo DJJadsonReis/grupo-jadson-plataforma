@@ -42,6 +42,7 @@ import { migrationId as providerModelsMigrationId, up as addProviderModels } fro
 import { migrationId as mcpHttpMigrationId, up as addMcpHttp } from "./migrations/039-mcp-http";
 import { migrationId as modelAvailabilityMigrationId, up as addModelAvailability } from "./migrations/040-model-availability";
 import { migrationId as humanSupportMigrationId, up as addHumanSupport } from "./migrations/041-human-support";
+import { migrationId as operationModesMigrationId, up as addOperationModes } from "./migrations/042-operation-modes";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -105,6 +106,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: mcpHttpMigrationId, apply: async () => addMcpHttp(this.pool!) },
         { id: modelAvailabilityMigrationId, apply: async () => addModelAvailability(this.pool!) },
         { id: humanSupportMigrationId, apply: async () => addHumanSupport(this.pool!) },
+        { id: operationModesMigrationId, apply: async () => addOperationModes(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

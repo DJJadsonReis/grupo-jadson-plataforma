@@ -10,7 +10,7 @@ describe("AgentsService local UUID persistence", () => {
     const result = await new AgentsService(database).create(profile);
 
     expect(result).toEqual(profile);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema", "model", null, null, {}]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema", "model", null, null, {}, "automatico"]);
   });
 
   it("saves and returns model routing as a JSON value", async () => {

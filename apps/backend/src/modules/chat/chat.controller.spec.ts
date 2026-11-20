@@ -55,6 +55,7 @@ function setup(options: {
     secretsForMasking: async () => [] as string[],
     maskSecretText: async (text: string) => maskSecrets(text),
     policies: options.policies ?? { decisionFor: jest.fn(async () => null) },
+    operationModeForChat: jest.fn(async () => "automatico"),
     invoke: options.invoke ?? jest.fn(async (name: string) => ({
       id: "run-1", tool: name, requestedBy: "Jadson", status: "done", input: {},
       output: withUntrustedNotice({ resultados: [{ titulo: "resultado externo" }] }, name),
@@ -65,7 +66,7 @@ function setup(options: {
   const audit = { record: jest.fn(async () => undefined) };
   const controller = new ChatController(
     providers as never,
-    {} as never,
+    { isPersisted: jest.fn(async () => false), create: jest.fn(async () => undefined), setOperationMode: jest.fn(async () => undefined), addMessage: jest.fn(async () => undefined) } as never,
     { get: jest.fn(async () => options.agent === null ? null : { instructions: "", enabled: true, model: null, generationConfig: null, providerKind: options.providerKind ?? "model", id: "123e4567-e89b-42d3-a456-426614174000", name: "Agente Endpoint", ...options.agent }), endpointCredentials: jest.fn(async () => options.endpointCredentials ?? null) } as never,
     {} as never,
     { record: jest.fn() } as never,
@@ -224,6 +225,15 @@ describe("ChatController tool loop", () => {
     expect(inputs[1]).toMatchObject({ providerId: codeProvider, model: "code-model", messages: expect.arrayContaining([expect.objectContaining({ role: "user", content: expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining("print(1)") })]) })]) });
   });
 
+  it("usa o modo solicitado na primeira mensagem ao filtrar ferramentas", async () => {
+    const { controller, tools } = setup();
+    const response = new FakeResponse();
+    const id = "123e4567-e89b-42d3-a456-426614174024";
+    await controller.complete({ conversationId: id, operationMode: "planejamento", messages: [{ role: "user", content: "planeje" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(tools.operationModeForChat).not.toHaveBeenCalled();
+    expect((controller as any).conversations.setOperationMode).toHaveBeenCalledWith(id, "pessoa-1", "planejamento", "operator", "Jadson");
+  });
+
   it("valida e encaminha modelProviderId ao roteador", async () => {
     const { controller, inputs, providers } = setup();
     const validateManagedProvider = jest.fn(async () => undefined);
@@ -321,7 +331,7 @@ describe("ChatController tool loop", () => {
 
   it("responde à busca localmente e expõe a ferramenta encontrada na rodada seguinte", async () => {
     const catalog = [...TOOL_DEFINITIONS, ...Array.from({ length: 45 }, (_, index) => ({
-      name: `mcp.arquivos_${index}`, description: "Lista arquivos da pasta", risk: "read" as const,
+      name: `mcp.arquivos_${index}`, description: "Lista arquivos da pasta", risk: "read" as const, category: "leitura" as const,
     }))];
     const invoke = jest.fn();
     const { controller, inputs, tools } = setup({ invoke, streams: [
@@ -346,7 +356,7 @@ describe("ChatController tool loop", () => {
     ] });
     (controller as any).audit = audit;
     (controller as any).audit = audit;
-    tools.catalog = () => [...TOOL_DEFINITIONS, { name: "teste.leitura", description: "Leitura falsa", risk: "read" as const }];
+    tools.catalog = () => [...TOOL_DEFINITIONS, { name: "teste.leitura", description: "Leitura falsa", risk: "read" as const, category: "leitura" as const }];
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "mensagem original confidencial" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
     expect(providers.stream).toHaveBeenCalledTimes(3);
     const subagentInput = inputs[2];
@@ -500,7 +510,7 @@ describe("ChatController tool loop", () => {
 
   it("omits a granted skill tool when the agent policy denies it", async () => {
     const policies = { decisionFor: jest.fn(async () => "deny") };
-    const catalog = [...TOOL_DEFINITIONS, ...Array.from({ length: 45 }, (_, index) => ({ name: `mcp.arquivos_${index}`, description: "Lista arquivos", risk: "read" as const }))];
+    const catalog = [...TOOL_DEFINITIONS, ...Array.from({ length: 45 }, (_, index) => ({ name: `mcp.arquivos_${index}`, description: "Lista arquivos", risk: "read" as const, category: "leitura" as const }))];
     const { controller, inputs, tools } = setup({ agent: { instructions: "", enabled: true, model: null, generationConfig: null }, policies, skills: [{ tools: ["mcp.arquivos_0"], instructions: "" }] });
     tools.catalog = () => catalog;
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
@@ -514,7 +524,7 @@ describe("ChatController tool loop", () => {
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
     expect(inputs[0].tools.some((tool: any) => tool.function.name === "memoria__apagar_tudo")).toBe(true);
     expect(invoke).toHaveBeenCalledTimes(1);
-    expect(invoke).toHaveBeenCalledWith("memoria.apagar_tudo", {}, "Jadson", undefined, "pessoa-1");
+    expect(invoke).toHaveBeenCalledWith("memoria.apagar_tudo", { conversationId: undefined }, "Jadson", "123e4567-e89b-42d3-a456-426614174000", "pessoa-1");
   });
   it("coloca a política do agente antes da guidance de segurança", async () => {
     const { controller, inputs } = setup({ agent: { instructions: "Política do agente", enabled: true, model: null, generationConfig: null } });

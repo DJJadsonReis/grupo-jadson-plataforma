@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, Res, UseGuards } from "@nestjs/common";
+import { Controller, Get, Param, Query, Req, Res, UseGuards } from "@nestjs/common";
 import { Response } from "express";
 import { Public } from "./public.decorator";
 import { OidcService } from "./oidc.service";
@@ -19,6 +19,10 @@ export class AuthController {
   @Get("providers")
   providers() {
     return this.oidc.providers();
+  }
+
+  @Get("me") me(@Req() request: { principal?: { id: string; name: string; role: string } }) {
+    return request.principal ?? { id: "sistema", name: "Administrador", role: "admin" };
   }
 
   /** `return` é o endereço loopback do desktop (http://127.0.0.1:<porta>/cb). Outro endereço é recusado. */

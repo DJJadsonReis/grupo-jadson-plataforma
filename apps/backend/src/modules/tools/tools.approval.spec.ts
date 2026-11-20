@@ -12,6 +12,11 @@ function fakeDatabase() {
         runs.set(id, row);
         return { rows: [row], rowCount: 1 };
       }
+      if (text.startsWith("UPDATE tool_runs SET input")) {
+        const row = runs.get(values[0] as string);
+        if (row) row.input = JSON.parse(values[1] as string);
+        return { rows: [], rowCount: 1 };
+      }
       if (text.startsWith("UPDATE tool_runs")) {
         const row = runs.get(values[0] as string);
         if (row) row.status = values[2];
@@ -74,5 +79,30 @@ describe("ToolsService — ação sensível com aprovação", () => {
     const completed = await service.executeApproved(pending.id, "Admin");
     expect(completed.status).toBe("done");
     expect(auditCalls).toContainEqual(expect.objectContaining({ action: "human_support.requested", subject: "c-1" }));
+  });
+
+  it("Planejamento bloqueia escrita sem executar a ferramenta", async () => {
+    const { service, memoryCalls, auditCalls } = build("approved");
+    const database = (service as any).database;
+    database.getPool().query = async (sql: string) => sql.includes("COALESCE(c.operation_mode") ? { rows: [{ mode: "planejamento" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    await expect(service.invoke("memoria.apagar_tudo", { conversationId: "123e4567-e89b-42d3-a456-426614174000" }, "Jadson", undefined, "owner")).rejects.toMatchObject({ response: expect.objectContaining({ code: "OPERATION_MODE_BLOCKED" }) });
+    expect(memoryCalls).toEqual([]);
+    expect(auditCalls).toContainEqual(expect.objectContaining({ action: "tool.blocked" }));
+  });
+
+  it("registra Ignorar permissões em cada execução", async () => {
+    const { service, auditCalls } = build("approved");
+    const database = (service as any).database;
+    database.getPool().query = async (sql: string) => sql.includes("COALESCE(c.operation_mode") ? { rows: [{ mode: "ignorar_permissoes" }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    await service.invoke("tempo.agora", { conversationId: "123e4567-e89b-42d3-a456-426614174000" }, "Jadson", undefined, "owner");
+    expect(auditCalls).toContainEqual(expect.objectContaining({ action: "tool.run", details: expect.objectContaining({ operationMode: "ignorar_permissoes" }) }));
+  });
+
+  it("revalida deny antes de executar uma aprovação pendente", async () => {
+    const { service, memoryCalls } = build("approved");
+    const pending = await service.invoke("memoria.apagar_tudo", {}, "Jadson", "agent-1");
+    (service as any).policies.decisionFor = async () => "deny";
+    await expect(service.executeApproved(pending.id, "Admin")).rejects.toMatchObject({ response: expect.objectContaining({ code: "POLICY_DENIED" }) });
+    expect(memoryCalls).toEqual([]);
   });
 });

@@ -36,7 +36,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 
 Decisão 29, na ordem obrigatória:
 
-1. **Modos de operação por conversa/agente** (Decisão 27) — INTERNO.
+1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
 2. **Esforço por conversa** (Decisão 26) — INTERNO.
 3. **Troca de IA por conversa salva no servidor** (Decisão 26) — INTERNO.
 4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.

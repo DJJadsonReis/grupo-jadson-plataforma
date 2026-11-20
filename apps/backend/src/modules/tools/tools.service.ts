@@ -18,6 +18,7 @@ import { NotificationsService } from "../notifications/notifications.service";
 import { readPage } from "./page-reader";
 import { ConnectionSharesService } from "../connection-shares/connection-shares.service";
 import { HumanSupportService } from "../human-support/human-support.service";
+import { decisionForOperationMode, isOperationMode, OperationMode } from "./operation-modes";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -76,8 +77,29 @@ export class ToolsService {
   ) {}
 
   catalog(): ToolDefinition[] {
-    const fromMcp = this.mcp.catalog().map((tool) => ({ name: tool.name, description: tool.description, risk: tool.risk }));
+    const fromMcp = this.mcp.catalog().map((tool) => ({ name: tool.name, description: tool.description, risk: tool.risk, category: "sensivel" as const }));
     return [...TOOL_DEFINITIONS, ...fromMcp];
+  }
+
+  async operationModeForChat(conversationId: string | undefined, ownerId: string, agentId?: string): Promise<OperationMode> {
+    if (conversationId) {
+      const result = await this.database.getPool().query(
+        `SELECT COALESCE(c.operation_mode,a.default_operation_mode,'automatico') AS mode
+         FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id WHERE c.id=$1 AND c.owner_id=$2`, [conversationId, ownerId],
+      );
+      const mode = result.rows[0]?.mode;
+      if (mode !== undefined) return mode === "manual" || mode === "aceitar_edicoes" || mode === "planejamento" || mode === "ignorar_permissoes" ? mode : "automatico";
+    }
+    if (agentId) {
+      const result = await this.database.getPool().query("SELECT default_operation_mode AS mode FROM agents WHERE id=$1", [agentId]);
+      const mode = result.rows[0]?.mode;
+      return mode === "manual" || mode === "aceitar_edicoes" || mode === "planejamento" || mode === "ignorar_permissoes" ? mode : "automatico";
+    }
+    return "automatico";
+  }
+
+  offeredInMode(tool: ToolDefinition, mode: OperationMode, policy: "allow" | "ask" | "deny" | null): boolean {
+    return decisionForOperationMode(mode, tool.category, policy) !== "block";
   }
 
   /** Sanitiza texto de saída/erro usando integrações e ambiente, sem guardar os valores. */
@@ -109,9 +131,15 @@ export class ToolsService {
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
   async invoke(name: string, rawInput: Record<string, unknown>, requestedBy: string, agentId?: string, requesterId?: string): Promise<ToolRun> {
+    const operationMode = typeof rawInput.conversationId === "string"
+      ? await this.operationModeForConversation(rawInput.conversationId, requesterId ?? "sistema")
+      : "automatico";
+    const scopedInputValue = { ...rawInput };
+    delete scopedInputValue.conversationId;
+    delete scopedInputValue.agentId;
     const tool = this.catalog().find((item) => item.name === name) ?? findTool(name);
     if (!tool) throw new NotFoundException({ code: "NOT_FOUND", message: "Ferramenta não encontrada." });
-    const input = scopeInput(rawInput, requesterId);
+    const input = scopeInput(scopedInputValue, requesterId);
     if (name === "atendimento.humano" && typeof input.motivo === "string") input.motivo = (await this.maskSecretText(input.motivo)).slice(0, 1000);
     const id = randomUUID();
 
@@ -122,7 +150,14 @@ export class ToolsService {
       throw new ForbiddenException({ code: "POLICY_DENIED", message: "A regra deste agente recusa essa ferramenta." });
     }
 
-    if (tool.risk === "sensitive" && policy !== "allow") {
+    let decision = decisionForOperationMode(operationMode, "category" in tool ? tool.category : "sensivel", policy);
+    if (policy !== "allow" && operationMode !== "ignorar_permissoes" && tool.risk === "sensitive" && tool.category !== "envio" && tool.category !== "sensivel" && decision === "run") decision = "approve";
+    if (decision === "block") {
+      await this.audit.record({ actor: requestedBy, action: "tool.blocked", subject: tool.name, details: { agentId, conversationId: typeof rawInput.conversationId === "string" ? rawInput.conversationId : null, operationMode, category: "category" in tool ? tool.category : "sensivel", rule: operationMode } });
+      throw new ForbiddenException({ code: "OPERATION_MODE_BLOCKED", message: "Esta ferramenta está bloqueada pelo modo de operação ativo." });
+    }
+
+    if (decision === "approve") {
       const approval = await this.approvals.request({
         action: `tool.${tool.name}`,
         subject: id,
@@ -130,7 +165,14 @@ export class ToolsService {
         payload: input,
         requestedBy,
       });
-      const pending = await this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
+      const pending = await this.insert(id, tool.name, requestedBy, "pending_approval", {
+        ...input,
+        _operationMode: operationMode,
+        ...(agentId ? { _agentId: agentId } : {}),
+        ...(typeof rawInput.conversationId === "string" ? { _conversationId: rawInput.conversationId } : {}),
+        ...(requesterId ? { _requesterId: requesterId } : {}),
+        _requesterName: requestedBy,
+      }, null, approval.id);
       try {
         await this.notifications?.create({ owner: requesterId ?? requestedBy, kind: "approval.pending", title: "Ação aguardando aprovação", body: tool.description, details: { tool: tool.name, runId: id, approvalId: approval.id } });
       } catch { /* notification failure must not cancel a persisted approval */ }
@@ -138,8 +180,18 @@ export class ToolsService {
     }
 
     const output = await this.safeRun(tool.name, input);
-    await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk, ...(policy === "allow" ? { agentId, rule: "allow" } : {}) } });
+    await this.audit.record({ actor: requestedBy, action: "tool.run", subject: tool.name, details: { risk: tool.risk, operationMode, ...(policy === "allow" ? { agentId, rule: "allow" } : {}) } });
     return this.insert(id, tool.name, requestedBy, statusOf(output), input, output, null);
+  }
+
+  private async operationModeForConversation(conversationId: string, ownerId: string): Promise<OperationMode> {
+    const result = await this.database.getPool().query(
+      `SELECT COALESCE(c.operation_mode, a.default_operation_mode, 'automatico') AS mode
+       FROM conversations c LEFT JOIN agents a ON a.id=c.agent_id
+       WHERE c.id=$1 AND c.owner_id=$2`, [conversationId, ownerId],
+    );
+    const mode = result.rows[0]?.mode;
+    return mode === "manual" || mode === "aceitar_edicoes" || mode === "planejamento" || mode === "ignorar_permissoes" ? mode : "automatico";
   }
 
   /** Executa uma ação sensível já aprovada. Recusa se a aprovação não existir ou não foi concedida. */
@@ -153,8 +205,33 @@ export class ToolsService {
     if (!approval || approval.status !== "approved") {
       throw new BadRequestException({ code: "NOT_APPROVED", message: "A aprovação ainda não foi concedida." });
     }
-    const output = await this.safeRun(run.tool, run.input);
-    await this.audit.record({ actor, action: "tool.run", subject: run.tool, details: { approvalId: run.approvalId } });
+    const operationMode = typeof run.input._operationMode === "string" ? run.input._operationMode : "automatico";
+    const agentId = typeof run.input._agentId === "string" ? run.input._agentId : undefined;
+    const conversationId = typeof run.input._conversationId === "string" ? run.input._conversationId : undefined;
+    const policy = agentId ? await this.policies.decisionFor(agentId, run.tool) : null;
+    if (policy === "deny") {
+      await this.audit.record({ actor, action: "tool.refused", subject: run.tool, details: { agentId, rule: "deny", approvalId: run.approvalId } });
+      throw new ForbiddenException({ code: "POLICY_DENIED", message: "A regra deste agente recusa essa ferramenta." });
+    }
+    const currentMode = conversationId ? await this.operationModeForConversation(conversationId, typeof run.input._requesterId === "string" ? run.input._requesterId : "sistema") : operationMode;
+    if (!isOperationMode(currentMode)) throw new ForbiddenException({ code: "OPERATION_MODE_BLOCKED", message: "Esta ferramenta está bloqueada pelo modo de operação ativo." });
+    const currentTool = this.catalog().find((item) => item.name === run.tool) ?? findTool(run.tool);
+    const currentDecision = currentTool ? decisionForOperationMode(currentMode, currentTool.category, policy) : "block";
+    if (currentDecision === "block") {
+      throw new ForbiddenException({ code: "OPERATION_MODE_BLOCKED", message: "Esta ferramenta está bloqueada pelo modo de operação ativo." });
+    }
+    const requester = typeof run.input._requesterName === "string" ? run.input._requesterName : run.requestedBy;
+    const requesterId = typeof run.input._requesterId === "string" ? run.input._requesterId : undefined;
+    const cleanInput = { ...run.input };
+    delete cleanInput._operationMode;
+    delete cleanInput._agentId;
+    delete cleanInput._conversationId;
+    delete cleanInput._requesterId;
+    delete cleanInput._requesterName;
+    if (requesterId) cleanInput.pessoaId = requesterId;
+    cleanInput._requestedBy = requesterId ?? requester;
+    const output = await this.safeRun(run.tool, cleanInput);
+    await this.audit.record({ actor, action: "tool.run", subject: run.tool, details: { approvalId: run.approvalId, operationMode: currentMode } });
     await this.database.getPool().query(
       `UPDATE tool_runs SET status = $3, output = $2, finished_at = now() WHERE id = $1`,
       [runId, JSON.stringify(output), statusOf(output)],
@@ -277,11 +354,11 @@ export class ToolsService {
   /** Ferramentas do Google: usam a conexão da própria pessoa que pediu. */
   private async runGoogle(name: string, input: Record<string, unknown>): Promise<unknown> {
     let pessoaId = typeof input.pessoaId === "string" ? input.pessoaId : "";
-    if (!pessoaId) return { erro: true, mensagem: "Entre na sua conta para usar o Google." };
     if (typeof input.conexao_de === "string" && input.conexao_de.trim()) {
       if (!this.shares) throw new ForbiddenException({ code: "CONEXAO_NAO_LIBERADA", message: "Você não tem acesso a esta conexão." });
       pessoaId = await this.shares.resolveOwner(pessoaId, input.conexao_de.trim());
     }
+    if (!pessoaId) return { erro: true, mensagem: "Entre na sua conta para usar o Google." };
     if (name === "agenda.listar_eventos") return { eventos: await this.google.listEvents(pessoaId) };
     if (name === "drive.listar_arquivos") return { arquivos: await this.google.listFiles(pessoaId) };
     if (name === "agenda.criar_evento") return this.google.createEvent(pessoaId, input);

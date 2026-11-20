@@ -2,6 +2,7 @@ import { ConflictException, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { SecretBox } from "../integrations/secret-box";
+import { OperationMode } from "../tools/operation-modes";
 
 export interface AgentRecord {
   id: string; ownerId: string; name: string; description: string; instructions: string; model: string; enabled: boolean;
@@ -9,13 +10,14 @@ export interface AgentRecord {
   generationConfig: { temperature?: number; maxTokens?: number }; toolsAllowed: string[];
   providerKind: "model" | "endpoint"; endpointUrl: string | null; hasEndpointToken: boolean; endpointTokenSecret?: string | null;
   modelRouting: AgentModelRouting;
+  defaultOperationMode: OperationMode;
 }
 export interface AgentModelTarget { providerId: string; model: string }
 export interface AgentModelRouting { fallbacks?: AgentModelTarget[]; taskModels?: { vision?: AgentModelTarget; code?: AgentModelTarget } }
 export type AgentInput = Pick<AgentRecord, "name" | "description" | "instructions" | "model" | "enabled"> &
-  Partial<Pick<AgentRecord, "avatar" | "role" | "department" | "specialties" | "provider" | "generationConfig" | "toolsAllowed" | "providerKind" | "endpointUrl" | "modelRouting">> & { id?: string; endpointToken?: string };
+  Partial<Pick<AgentRecord, "avatar" | "role" | "department" | "specialties" | "provider" | "generationConfig" | "toolsAllowed" | "providerKind" | "endpointUrl" | "modelRouting" | "defaultOperationMode">> & { id?: string; endpointToken?: string };
 const COLUMNS = `id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,
-  generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId",provider_kind AS "providerKind",
+  generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId",provider_kind AS "providerKind",default_operation_mode AS "defaultOperationMode",
   endpoint_url AS "endpointUrl",(endpoint_token_secret IS NOT NULL) AS "hasEndpointToken",endpoint_token_secret AS "endpointTokenSecret",model_routing AS "modelRouting"`;
 
 @Injectable()
@@ -48,9 +50,9 @@ export class AgentsService {
   async create(input: AgentInput, ownerId = "sistema"): Promise<AgentRecord> {
     const id = input.id ?? randomUUID();
     const result = await this.database.getPool().query(
-      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed,owner_id,provider_kind,endpoint_url,endpoint_token_secret,model_routing)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
-      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? [],ownerId,input.providerKind ?? "model",input.endpointUrl ?? null,input.endpointToken ? this.secretBox.encrypt(input.endpointToken) : null,input.modelRouting ?? {}],
+      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed,owner_id,provider_kind,endpoint_url,endpoint_token_secret,model_routing,default_operation_mode)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
+      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? [],ownerId,input.providerKind ?? "model",input.endpointUrl ?? null,input.endpointToken ? this.secretBox.encrypt(input.endpointToken) : null,input.modelRouting ?? {},input.defaultOperationMode ?? "automatico"],
     );
     if (result.rows[0]) return this.public(result.rows[0] as AgentRecord);
     const existing = await this.get(id);
@@ -66,12 +68,12 @@ export class AgentsService {
        generation_config=COALESCE($12,generation_config),tools_allowed=COALESCE($13,tools_allowed),provider_kind=COALESCE($14,provider_kind),
        endpoint_url=CASE WHEN $14='model' THEN NULL ELSE COALESCE($15,endpoint_url) END,
        endpoint_token_secret=CASE WHEN $14='model' THEN NULL ELSE COALESCE($16,endpoint_token_secret) END,
-       model_routing=COALESCE($17,model_routing),updated_at=now()
+       model_routing=COALESCE($17,model_routing),default_operation_mode=COALESCE($18,default_operation_mode),updated_at=now()
        WHERE id=$1 RETURNING ${COLUMNS}`,
       [id,input.name ?? null,input.description ?? null,input.instructions ?? null,input.model ?? null,input.enabled ?? null,
         input.avatar ?? null,input.role ?? null,input.department ?? null,input.specialties ?? null,input.provider ?? null,
         input.generationConfig ?? null,input.toolsAllowed ?? null,input.providerKind ?? null,input.endpointUrl ?? null,
-        (input as Partial<AgentInput>).endpointToken ? this.secretBox.encrypt((input as Partial<AgentInput>).endpointToken!) : null,input.modelRouting ?? null],
+        (input as Partial<AgentInput>).endpointToken ? this.secretBox.encrypt((input as Partial<AgentInput>).endpointToken!) : null,input.modelRouting ?? null,input.defaultOperationMode ?? null],
     );
     return result.rows[0] ? this.public(result.rows[0] as AgentRecord) : null;
   }

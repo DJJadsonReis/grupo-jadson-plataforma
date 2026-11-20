@@ -34,6 +34,7 @@ import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
+import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
 import { reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -211,6 +212,7 @@ export default function App() {
   const [edition, setEdition] = useState<Edition>("equipe");
   const [editionLoaded, setEditionLoaded] = useState(false);
   const [session, setSession] = useState<string | null>(() => readSession());
+  const [isAdmin, setIsAdmin] = useState<boolean>(() => edition === "pessoal" || !readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
   const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
     try { return window.localStorage.getItem(FIRST_RUN_COMPLETE_KEY) === "1"; } catch { return false; }
@@ -231,6 +233,7 @@ export default function App() {
         setEditionLoaded(true);
         if (selectedEdition === "pessoal") {
           setSession(null);
+          setIsAdmin(true);
           setNeedsLogin(false);
           return;
         }
@@ -256,6 +259,17 @@ export default function App() {
     hasSession: Boolean(session),
   });
 
+  useEffect(() => {
+    if (!session || edition === "pessoal") { setIsAdmin(true); return; }
+    let active = true;
+    apiFetch(`${API_URL}/auth/me`).then(async (response) => {
+      if (!response.ok) throw new Error();
+      const principal = await response.json() as { role?: string };
+      if (active) setIsAdmin(principal.role === "admin");
+    }).catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, [session, edition]);
+
   if (initialScreen === "welcome") {
     return <Welcome apiUrl={API_URL} onComplete={() => {
       try { window.localStorage.setItem(FIRST_RUN_COMPLETE_KEY, "1"); } catch { /* verifica de novo na próxima abertura */ }
@@ -274,7 +288,7 @@ export default function App() {
       />
     );
   }
-  return <Workspace edition={edition} />;
+  return <Workspace edition={edition} isAdmin={isAdmin} />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -327,7 +341,7 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-function Workspace({ edition }: { edition: Edition }) {
+function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean }) {
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -555,7 +569,7 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
         serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
@@ -674,7 +688,7 @@ function Workspace({ edition }: { edition: Edition }) {
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -745,7 +759,8 @@ function Workspace({ edition }: { edition: Edition }) {
           attachments,
           messages: [...prior, userMessage],
           ...(model.trim() ? { model: model.trim() } : {}),
-          ...(modelProviderId ? { modelProviderId } : {})
+          ...(modelProviderId ? { modelProviderId } : {}),
+          ...(operationMode ? { operationMode } : {})
         }),
       });
       if (!response.ok) {
@@ -1126,6 +1141,10 @@ function Workspace({ edition }: { edition: Edition }) {
             onDismissError={() => setError(null)}
             onChooseFiles={() => inputRef.current?.click()}
             inputRef={inputRef}
+            isAdmin={isAdmin}
+            apiFetch={apiFetch}
+            apiUrl={API_URL}
+            persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
             onEditAgent={setAgentEditor}
@@ -1168,7 +1187,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
+        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={isAdmin} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={managedProviders} legacyExists={hasLegacyProviderKey(managedProviders)} onModelsTested={(providerId, providerName, models) => setSelectableProviders((current) => [...current.filter((provider) => provider.providerId !== providerId), { providerId, providerName, models }])} onRefresh={async () => { const client = new ModelProvidersApi(apiFetch, API_URL); const [items, selectable] = await Promise.all([client.list(), client.selectable()]); setManagedProviders(items); setSelectableProviders(selectable); }} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
@@ -1533,7 +1552,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
@@ -1541,12 +1560,20 @@ function ChatPage({
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
+  isAdmin: boolean;
+  apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
+  apiUrl: string;
+  persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [modelSelection, setModelSelection] = useState("");
+  const [operationMode, setOperationMode] = useState<DesktopOperationMode>(conversation?.operationMode ?? "automatico");
+  const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false);
+  const [ignoreConfirmation, setIgnoreConfirmation] = useState("");
+  const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const modelOptions = groupSelectableProviders(selectableProviders);
   const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
   const model = selectedModelOption?.model ?? "";
@@ -1623,6 +1650,33 @@ function ChatPage({
   }
 
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
+
+  useEffect(() => {
+    if (!conversation) { setOperationMode("automatico"); return; }
+    const localMode = conversation.operationMode ?? agents.find((item) => item.id === agentId)?.defaultOperationMode ?? "automatico";
+    setOperationMode(localMode);
+    if (conversation.operationMode || !isServerConversationId(conversation.id)) return;
+    void new OperationModesApi(apiFetch, apiUrl).get(conversation.id).then((state) => {
+      setOperationMode(state.mode);
+      persistLocalOperationMode(conversation.id, state.mode);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.operationMode, conversation?.agentId, agents, agentId]);
+
+  async function changeOperationMode(mode: DesktopOperationMode, confirmation?: string) {
+    if (conversation && isServerConversationId(conversation.id)) {
+      try { await new OperationModesApi(apiFetch, apiUrl).set(conversation.id, mode, confirmation); }
+      catch (cause) { setPdfError(cause instanceof Error ? cause.message : "Não foi possível salvar o modo."); return; }
+    }
+    setOperationMode(mode);
+    if (conversation) persistLocalOperationMode(conversation.id, mode);
+    setIgnoreDialogOpen(false);
+    setIgnoreConfirmation("");
+  }
+
+  useEffect(() => {
+    if (!conversation || conversation.operationMode || !selectedAgent?.defaultOperationMode) return;
+    setOperationMode(selectedAgent.defaultOperationMode);
+  }, [agentId]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -1812,17 +1866,24 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId);
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode);
               setPdfDocs([]);
             }}
           >
             <textarea
+              ref={messageTextareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
               placeholder="Mensagem para o Grupo Jadson"
               rows={1}
               aria-label="Mensagem"
               onKeyDown={(event) => {
+                const shortcutMode = operationModeForShortcut(event.key, event.altKey);
+                if (shortcutMode) {
+                  event.preventDefault();
+                  void changeOperationMode(shortcutMode);
+                  return;
+                }
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
                   event.currentTarget.form?.requestSubmit();
@@ -1851,6 +1912,20 @@ function ChatPage({
                   <Paperclip size={16} />
                 </button>
                 <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text, selectedModelOption?.providerId)} />
+                <label className="gx-pill" title="Modo de operação. Atalhos Alt+1 a Alt+4">
+                  <ShieldCheck size={13} />
+                  <select className="gx-pill-select" aria-label="Modo de operação" value={operationMode} onChange={(event) => {
+                    const next = event.target.value as DesktopOperationMode;
+                    if (next === "ignorar_permissoes") { setIgnoreDialogOpen(true); return; }
+                    void changeOperationMode(next);
+                  }}>
+                    <option value="automatico">Automático · Alt+1</option>
+                    <option value="manual">Manual · Alt+2</option>
+                    <option value="aceitar_edicoes">Aceitar edições · Alt+3</option>
+                    <option value="planejamento">Planejamento · Alt+4</option>
+                    {isAdmin && <option value="ignorar_permissoes">Ignorar permissões</option>}
+                  </select>
+                </label>
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
                   <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
@@ -1880,6 +1955,19 @@ function ChatPage({
               )}
             </div>
           </form>
+          {ignoreDialogOpen && (
+            <div className="delete-confirm-backdrop" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>
+              <section className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="ignore-mode-title" onClick={(event) => event.stopPropagation()}>
+                <h2 id="ignore-mode-title">Ignorar permissões?</h2>
+                <p>Este modo permite que o agente execute ferramentas sem pedir aprovação. A ativação e cada execução ficam registradas na auditoria.</p>
+                <label>Digite <b>IGNORAR PERMISSÕES</b> para confirmar<input autoFocus value={ignoreConfirmation} onChange={(event) => setIgnoreConfirmation(event.target.value)} /></label>
+                <div className="delete-confirm-actions">
+                  <button type="button" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>Cancelar</button>
+                  <button type="button" className="delete-confirm-danger" disabled={ignoreConfirmation !== "IGNORAR PERMISSÕES"} onClick={() => void changeOperationMode("ignorar_permissoes", ignoreConfirmation)}>Ativar</button>
+                </div>
+              </section>
+            </div>
+          )}
           <p className="gx-disclaimer">O histórico fica neste dispositivo. As respostas dependem do modelo configurado em Configurações.</p>
         </div>
       </div>
@@ -3707,6 +3795,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
               <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
+              <label><span>Modo padrão para conversas novas</span><select aria-label="Modo padrão do agente" value={agent.defaultOperationMode ?? "automatico"} onChange={(event) => onChange({ ...agent, defaultOperationMode: event.target.value as DesktopOperationMode })}><option value="automatico">Automático</option><option value="manual">Manual</option><option value="aceitar_edicoes">Aceitar edições</option><option value="planejamento">Planejamento</option></select></label>
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
