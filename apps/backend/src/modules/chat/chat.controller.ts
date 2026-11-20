@@ -19,6 +19,9 @@ import { UserPreferencesService } from "../preferences/user-preferences.service"
 import { NotificationsService } from "../notifications/notifications.service";
 import { AgentPermissionsService } from "../agents/agent-permissions.service";
 import { Principal } from "../auth/users.service";
+import { AgentSkillsService } from "../skills/agent-skills.service";
+import { buildSkillsSystemMessage } from "../skills/skill-prompt";
+import { DatabaseService } from "../database/database.service";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -130,7 +133,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 @Controller()
 export class ChatController {
   private readonly logger = new Logger(ChatController.name);
-  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService) {}
+  constructor(private readonly providers: ProvidersService, private readonly conversations: ConversationsService, private readonly agents: AgentsService, private readonly groups: GroupsService, private readonly usage: UsageService, private readonly audit: AuditService, private readonly memory: MemoryService, private readonly toolsService: ToolsService, private readonly agentPermissions: AgentPermissionsService, @Optional() private readonly preferences?: UserPreferencesService, @Optional() private readonly notifications?: NotificationsService, @Optional() private readonly database?: DatabaseService) {}
 
   @Get("providers") listProviders() { return this.providers.list(); }
 
@@ -164,6 +167,10 @@ export class ChatController {
     // Keep the safety guidance server-owned and directly after the profile instructions.
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
     if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
+    if (agentId && this.database) {
+      const skillsMessage = buildSkillsSystemMessage(await new AgentSkillsService(this.database).loadPromptSkills(agentId).catch(() => []));
+      if (skillsMessage) messages.splice(agent?.instructions.trim() ? 1 : 0, 0, { role: "system", content: skillsMessage });
+    }
     const userPreferences = await this.preferences?.read(request.principal?.id ?? "sistema").catch(() => null);
     if (userPreferences && (userPreferences.instructions || userPreferences.responseStyle !== "balanced")) {
       const guidance = messages.findIndex((message) => message.role === "system" && message.content === UNTRUSTED_GUIDANCE);
