@@ -80,7 +80,7 @@ export function TeamRoomsPage({ apiFetch, apiUrl }: Props) {
   return <section className="page-content" aria-labelledby="team-rooms-title">
     <h1 id="team-rooms-title">Equipe</h1>
     {error && <div role="alert"><p>{error}</p><button type="button" onClick={() => { setError(null); void (selected ? loadMessages(selected.id) : loadRooms()).catch((reason) => setError(reason instanceof Error ? reason.message : "Erro de rede.")); }}>Tentar de novo</button></div>}
-    <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 2fr", gap: 24 }}>
+    <div className="team-rooms-layout">
       <aside aria-label="Salas da equipe">
         <form onSubmit={(event) => void createRoom(event)}><label htmlFor="team-room-name">Nova sala</label><input id="team-room-name" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} /><button disabled={busy}>Criar sala</button></form>
         {loading ? <p>Carregando salas…</p> : rooms.length ? rooms.map((room) => <button key={room.id} type="button" onClick={() => { setSelected(room); setError(null); }}>{room.name}</button>) : <p>Ainda não há salas.</p>}

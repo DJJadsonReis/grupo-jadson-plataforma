@@ -415,6 +415,34 @@ fn run_local_services(app: &tauri::AppHandle) -> Result<LocalServicesResult, Str
     }
 }
 
+#[tauri::command]
+async fn stop_local_services() -> Result<LocalServicesResult, String> {
+    tauri::async_runtime::spawn_blocking(run_stop_local_services)
+        .await
+        .map_err(|_| "não foi possível acompanhar o encerramento dos serviços locais".to_string())?
+}
+
+fn run_stop_local_services() -> Result<LocalServicesResult, String> {
+    let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; não foi possível localizar o projeto".to_string())?;
+    let script = root.join("scripts").join("stop.ps1");
+    if !script.is_file() { return Err("script de encerramento dos serviços locais não encontrado".to_string()); }
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .current_dir(&root)
+        .output()
+        .map_err(|_| "não foi possível iniciar o script de encerramento dos serviços locais".to_string())?;
+    let result = LocalServicesResult {
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    };
+    if output.status.success() { Ok(result) }
+    else {
+        let detail = if result.stderr.trim().is_empty() { result.stdout.trim() } else { result.stderr.trim() };
+        Err(if detail.is_empty() { "o script de encerramento terminou com erro".to_string() } else { detail.chars().take(1200).collect() })
+    }
+}
+
 /// Persiste somente as configurações locais mínimas necessárias para o backend.
 #[tauri::command]
 fn save_first_run_config(database_url: String, api_token: String) -> Result<(), String> {
@@ -465,7 +493,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, ensure_desktop_setup, restart_local_backend, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, ensure_desktop_setup, restart_local_backend, get_first_run_api_token, get_local_services_info, start_local_services, stop_local_services, get_postgres_install_info, install_postgresql_portable])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }

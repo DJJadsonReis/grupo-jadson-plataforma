@@ -50,9 +50,9 @@ export function AuditRetentionSettings({ apiFetch, apiUrl }: Props) {
         {days !== "off" && <input aria-label="Dias de retenção" type="number" min={1} max={3650} step={1} value={days} disabled={busy} onChange={(event) => setDays(event.target.value)} />}
       </label>
       <p>Última limpeza: {settings?.lastSweepAt ? new Date(settings.lastSweepAt).toLocaleString("pt-BR") : "Ainda não executada"} · Eventos removidos: {settings?.lastSweepDeleted ?? "—"}</p>
-      <div className="model-provider-actions"><button type="button" disabled={busy} onClick={() => void save()}>Salvar</button><button type="button" disabled={busy} onClick={() => setConfirmSweep(true)}>Limpar agora</button></div>
+      <div className="model-provider-actions"><button type="button" className="primary-button" disabled={busy} onClick={() => void save()}>Salvar</button><button type="button" className="danger-button" disabled={busy} onClick={() => setConfirmSweep(true)}>Limpar agora</button></div>
     </>}
-    {confirmSweep && <div className="provider-dialog-backdrop" role="presentation"><section className="provider-remove-dialog" role="alertdialog" aria-modal="true" aria-labelledby="audit-sweep-title"><h2 id="audit-sweep-title">Limpar auditoria agora?</h2><p>Esta passagem vai aplicar o prazo selecionado e remover os eventos mais antigos.</p><div className="model-provider-actions"><button type="button" disabled={busy} onClick={() => void sweep()}>Confirmar limpeza</button><button type="button" disabled={busy} onClick={() => setConfirmSweep(false)}>Cancelar</button></div></section></div>}
+    {confirmSweep && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="audit-sweep-title"><h2 id="audit-sweep-title">Limpar auditoria agora?</h2><p>Esta passagem vai aplicar o prazo selecionado e remover os eventos mais antigos.</p><div className="modal-actions"><button type="button" className="danger-button" disabled={busy} onClick={() => void sweep()}>Confirmar limpeza</button><button type="button" className="secondary-button" disabled={busy} onClick={() => setConfirmSweep(false)}>Cancelar</button></div></section></div>}
     {message && <p role="status">{message}</p>}
   </section>;
 }

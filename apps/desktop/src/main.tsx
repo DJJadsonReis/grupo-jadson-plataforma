@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles/global.css";
 import "./styles/workspace.css";
 import "./styles/design-tokens.css";
+import "./styles/rich-components.css";
 import "./styles/shell-redesign.css";
 import "./styles/chat-grok.css";
 

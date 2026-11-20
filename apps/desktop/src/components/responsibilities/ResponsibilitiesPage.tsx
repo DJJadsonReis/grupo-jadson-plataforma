@@ -15,6 +15,7 @@ export function ResponsibilitiesPage({ apiFetch, apiUrl, agents }: Props) {
   const [instructions, setInstructions] = useState("");
   const [intervalMinutes, setIntervalMinutes] = useState(60);
   const [busy, setBusy] = useState(false);
+  const [deleteCandidate, setDeleteCandidate] = useState<ResponsibilityRecord | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true); setLoadError(null);
@@ -56,13 +57,12 @@ export function ResponsibilitiesPage({ apiFetch, apiUrl, agents }: Props) {
   }
 
   async function remove(item: ResponsibilityRecord) {
-    if (!window.confirm(`Excluir a responsabilidade “${item.name}”?`)) return;
     setActionError(null);
     try {
       const response = await apiFetch(`${apiUrl}/responsibilities/${encodeURIComponent(item.id)}`, { method: "DELETE" });
       const body: unknown = await response.json().catch(() => null);
       if (!response.ok) throw new Error(readErrorMessage(body, "Não foi possível excluir a responsabilidade."));
-      await load();
+      setDeleteCandidate(null); await load();
     } catch (error) { setActionError(error instanceof Error ? error.message : "Não foi possível excluir a responsabilidade."); }
   }
 
@@ -87,8 +87,8 @@ export function ResponsibilitiesPage({ apiFetch, apiUrl, agents }: Props) {
       {agents.length === 0 && <p>Nenhum bot acessível para selecionar.</p>}
     </form>
     {actionError && <p role="alert">{actionError}</p>}
-    {loading ? <p>Carregando responsabilidades...</p> : loadError ? <div role="alert"><p>{loadError}</p><button type="button" onClick={() => void load()}>Tentar de novo</button></div>
-      : items.length === 0 ? <p>Nenhuma responsabilidade ainda.</p> : <ul>{items.map((item) => {
+    {loading ? <p>Carregando responsabilidades…</p> : loadError ? <div role="alert"><p>{loadError}</p><button type="button" onClick={() => void load()}>Tentar de novo</button></div>
+      : items.length === 0 ? <p>Ainda não há responsabilidades.</p> : <ul>{items.map((item) => {
         const agent = agents.find((candidate) => candidate.id === item.agentId);
         return <li key={item.id}>
           <h2>{item.name}</h2>
@@ -100,8 +100,9 @@ export function ResponsibilitiesPage({ apiFetch, apiUrl, agents }: Props) {
           {item.lastResult && <p>{item.lastResult}</p>}
           {item.disabledReason && <p>Motivo: {item.disabledReason}</p>}
           <button type="button" onClick={() => void toggle(item)}>{canResumeResponsibility(item) ? "Retomar" : "Pausar"}</button>
-          <button type="button" onClick={() => void remove(item)}>Excluir</button>
+          <button type="button" className="danger-button" onClick={() => setDeleteCandidate(item)}>Excluir</button>
         </li>;
       })}</ul>}
+    {deleteCandidate && <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setDeleteCandidate(null); }}><section className="modal-card" role="alertdialog" aria-modal="true" aria-labelledby="responsibility-delete-title"><h2 id="responsibility-delete-title">Excluir responsabilidade?</h2><p>A responsabilidade “{deleteCandidate.name}” será excluída.</p><div className="modal-actions"><button type="button" className="secondary-button" onClick={() => setDeleteCandidate(null)}>Cancelar</button><button type="button" className="danger-button" onClick={() => void remove(deleteCandidate)}>Excluir</button></div></section></div>}
   </section>;
 }

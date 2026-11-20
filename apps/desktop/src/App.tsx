@@ -15,6 +15,7 @@ import { shellShortcut } from "./lib/shell-shortcuts";
 import { attachmentsForChatRequest, regenerationFields } from "./lib/chat-request";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
+import { ComponentsGallery } from "./components/rich/ComponentsGallery";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -27,6 +28,8 @@ import { McpAccessPanel } from "./components/mcp/McpAccessPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { AuditRetentionSettingsForRole } from "./components/audit/AuditRetentionSettings";
+import { auditErrorMessage, buildAuditQuery, validateAuditRange } from "./lib/audit-filters";
+import { auditActionLabel } from "./lib/audit-labels";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
@@ -1207,6 +1210,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
         </div>}
 
         {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
+        <div className={page !== "dashboard" && page !== "chat" ? "internal-screen" : undefined}>
         {page === "dashboard" && (
           <Dashboard
             health={health}
@@ -1308,10 +1312,11 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
           />
         )}
         {page === "status" && <StatusPanel apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "activity" && <ActivityPage />}
+        {page === "activity" && <ActivityPage isAdmin={isAdmin} />}
         {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities", "status"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
+        </div>
       </main>
 
       {setupNotice(setupStatus, setupFailed).action !== "none" && (
@@ -2725,7 +2730,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "auditoria" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "auditoria" | "atualizacoes" | "componentes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
@@ -2736,6 +2741,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
   { id: "auditoria", label: "Retenção de auditoria", icon: ShieldKeyholeBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
+  { id: "componentes", label: "Galeria de componentes", icon: ChartBoldIcon },
 ];
 
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
@@ -3014,6 +3020,7 @@ function SettingsPage({ providers, edition, isAdmin }: { providers: ProviderStat
             </>
           )}
           {tab === "uso" && <UsageSettings />}
+          {tab === "componentes" && <ComponentsGallery />}
           {tab === "auditoria" && <AuditRetentionSettingsForRole isAdmin={isAdmin} apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp-access" && <McpAccessPanel apiFetch={apiFetch} apiUrl={API_URL} />}
@@ -3710,19 +3717,17 @@ function MemorySettings({ apiFetch, apiUrl }: { apiFetch: (input: string, init?:
 type ApprovalItem = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; requestedBy: string; decidedBy: string | null; createdAt: string };
 type AuditItem = { id: string; actor: string; action: string; subject: string | null; createdAt: string };
 
-const AUDIT_LABELS: Record<string, string> = {
-  "chat.completion": "Resposta gerada",
-  "approval.requested": "Aprovação solicitada",
-  "approval.approved": "Aprovação concedida",
-  "approval.rejected": "Aprovação recusada",
-  "handoff.created": "Delegação entre agentes",
-  "tool.run": "Ferramenta executada",
-};
-
 /** Atividades: solicitações de aprovação pendentes e a trilha de auditoria recente. */
-function ActivityPage() {
+function ActivityPage({ isAdmin }: { isAdmin: boolean }) {
   const [pending, setPending] = useState<ApprovalItem[]>([]);
   const [audit, setAudit] = useState<AuditItem[]>([]);
+  const [auditAction, setAuditAction] = useState("");
+  const [auditActor, setAuditActor] = useState("");
+  const [auditFrom, setAuditFrom] = useState("");
+  const [auditTo, setAuditTo] = useState("");
+  const [auditCursor, setAuditCursor] = useState<string | null>(null);
+  const [auditError, setAuditError] = useState<string | null>(null);
+  const [auditLoading, setAuditLoading] = useState(false);
   const [usage, setUsage] = useState<{ agentId: string | null; totalTokens: number; calls: number }[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [version, setVersion] = useState(0);
@@ -3731,18 +3736,39 @@ function ActivityPage() {
     const controller = new AbortController();
     Promise.all([
       apiFetch(`${API_URL}/approvals?status=pending`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("approvals")))),
-      apiFetch(`${API_URL}/audit?limit=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("audit")))),
       apiFetch(`${API_URL}/usage/summary?days=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("usage")))),
     ])
-      .then(([approvals, events, summary]) => {
+      .then(([approvals, summary]) => {
         setPending(approvals as ApprovalItem[]);
-        setAudit(events as AuditItem[]);
         setUsage((summary as { agents: typeof usage }).agents);
         setLoadError(null);
       })
       .catch(() => { if (!controller.signal.aborted) setLoadError("Não foi possível carregar as atividades. Esta tela precisa do PostgreSQL ligado (DATABASE_URL)."); });
     return () => controller.abort();
   }, [version]);
+
+  async function loadAudit(append = false) {
+    if (!isAdmin) return;
+    const rangeError = validateAuditRange({ from: auditFrom, to: auditTo });
+    if (rangeError) { setAuditError(rangeError); return; }
+    setAuditLoading(true);
+    setAuditError(null);
+    try {
+      const query = buildAuditQuery({ action: auditAction, actor: auditActor, from: auditFrom, to: auditTo, limit: 30 }, append ? auditCursor : null);
+      const response = await apiFetch(`${API_URL}/audit/events?${query}`);
+      if (!response.ok) {
+        let code: string | undefined;
+        try { code = ((await response.json()) as { code?: string }).code; } catch { /* usa a mensagem padrão */ }
+        throw new Error(auditErrorMessage(code));
+      }
+      const page = await response.json() as { items: AuditItem[]; nextCursor: string | null };
+      setAudit((current) => append ? [...current, ...page.items] : page.items);
+      setAuditCursor(page.nextCursor);
+    } catch (error) { setAuditError(error instanceof Error ? error.message : auditErrorMessage()); }
+    finally { setAuditLoading(false); }
+  }
+
+  useEffect(() => { if (isAdmin) void loadAudit(false); }, [isAdmin]);
 
   async function decide(id: string, decision: "approved" | "rejected") {
     try {
@@ -3807,17 +3833,24 @@ function ActivityPage() {
       </section>
 
       <section className="settings-box">
-        <h3>Trilha de auditoria</h3>
-        {audit.length === 0 ? (
-          <p>Nenhum evento registrado ainda.</p>
-        ) : (
-          audit.map((event) => (
+        <h3>Auditoria</h3>
+        {!isAdmin ? <p>A auditoria fica disponível só para administradores.</p> : <>
+          <div className="audit-events-filters">
+            <label>Ação<input value={auditAction} maxLength={80} onChange={(event) => setAuditAction(event.target.value)} /></label>
+            <label>Pessoa<input value={auditActor} maxLength={80} onChange={(event) => setAuditActor(event.target.value)} /></label>
+            <label>De<input type="date" value={auditFrom} onChange={(event) => setAuditFrom(event.target.value)} /></label>
+            <label>Até<input type="date" value={auditTo} onChange={(event) => setAuditTo(event.target.value)} /></label>
+            <button type="button" onClick={() => { setAudit([]); setAuditCursor(null); void loadAudit(false); }} disabled={auditLoading}>Filtrar</button>
+          </div>
+          {auditError && <div role="alert">{auditError}<button type="button" onClick={() => void loadAudit(audit.length > 0)}>Tentar de novo</button></div>}
+          {audit.length === 0 && !auditLoading && !auditError ? <p>Nenhum evento registrado ainda.</p> : audit.map((event) => (
             <div className="workspace-fact" key={event.id}>
               <span>{new Date(event.createdAt).toLocaleString("pt-BR")} · {event.actor}</span>
-              <b>{AUDIT_LABELS[event.action] ?? event.action}</b>
+              <b>{auditActionLabel(event.action)}</b>
             </div>
-          ))
-        )}
+          ))}
+          {!auditError && <button type="button" onClick={() => void loadAudit(audit.length > 0)} disabled={auditLoading || (audit.length > 0 && !auditCursor)}>{auditLoading ? "Carregando…" : audit.length > 0 && !auditCursor ? "Fim dos resultados" : audit.length > 0 ? "Carregar mais" : "Carregar auditoria"}</button>}
+        </>}
       </section>
     </div>
   );

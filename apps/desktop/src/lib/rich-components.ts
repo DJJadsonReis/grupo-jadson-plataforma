@@ -1,7 +1,8 @@
 export type RichComponent =
   | { tipo: "cartao"; titulo: string; corpo: string }
   | { tipo: "tabela"; colunas: string[]; linhas: string[][] }
-  | { tipo: "barras"; titulo?: string; itens: { rotulo: string; valor: number }[] };
+  | { tipo: "barras"; titulo?: string; itens: { rotulo: string; valor: number }[] }
+  | { tipo: "grafico"; titulo?: string; formato: "linha" | "pizza"; rotulos: string[]; series: { nome: string; valores: number[] }[] };
 
 export type RichComponentPart = { kind: "text"; text: string } | { kind: "component"; component: RichComponent };
 
@@ -24,6 +25,15 @@ export function validateRichComponent(json: string): RichComponent | null {
   if (value.tipo === "barras" && (value.titulo === undefined || isText(value.titulo, 120)) && Array.isArray(value.itens) && value.itens.length >= 1 && value.itens.length <= 12 &&
       value.itens.every((item) => isRecord(item) && isText(item.rotulo, 60) && typeof item.valor === "number" && Number.isFinite(item.valor) && item.valor >= 0)) {
     return { tipo: "barras", ...(value.titulo === undefined ? {} : { titulo: value.titulo as string }), itens: value.itens as { rotulo: string; valor: number }[] };
+  }
+  if (value.tipo === "grafico" && (value.titulo === undefined || isText(value.titulo, 120)) &&
+      (value.formato === "linha" || value.formato === "pizza") && Array.isArray(value.rotulos) && value.rotulos.length >= 1 && value.rotulos.length <= 12 &&
+      value.rotulos.every((label) => typeof label === "string" && label.length <= 60) && Array.isArray(value.series) &&
+      value.series.length >= 1 && value.series.length <= (value.formato === "linha" ? 6 : 1) &&
+      value.series.every((series) => isRecord(series) && isText(series.nome, 60) && Array.isArray(series.valores) && series.valores.length === (value.rotulos as unknown[]).length &&
+        series.valores.every((number) => typeof number === "number" && Number.isFinite(number) && number >= 0)) &&
+      (value.formato !== "pizza" || (value.series.length === 1 && (value.series[0] as { valores: number[] }).valores.some((number) => number > 0)))) {
+    return { tipo: "grafico", ...(value.titulo === undefined ? {} : { titulo: value.titulo as string }), formato: value.formato, rotulos: value.rotulos as string[], series: value.series as { nome: string; valores: number[] }[] };
   }
   return null;
 }

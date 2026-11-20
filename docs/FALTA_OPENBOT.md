@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92, tela de provedores na tarefa 93 e servidor MCP na tarefa 94). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92, tela de provedores na tarefa 93, servidor MCP na tarefa 94 e encerramento ordenado na tarefa 111). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -29,6 +29,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Troca de IA por conversa (tarefa 92):** escolha de provedor/modelo salva no servidor, precedência sobre agente e fallback quando indisponível. Evidências: `docs/TROCA_DE_IA_POR_CHAT.md`, `apps/backend/src/modules/database/migrations/045-conversation-model.ts`, `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversation-model.e2e.spec.ts` e `apps/desktop/src/lib/conversation-model.test.ts`.
 - **Tela de provedores com lista sempre visível (tarefa 93):** status por chave, data do último teste, contagem de modelos, formulário independente e diálogo de remoção. Evidências: `apps/backend/src/modules/database/migrations/046-provider-test-status.ts`, `apps/backend/src/modules/providers/provider-key-status.ts`, `apps/backend/src/modules/providers/model-providers.service.ts`, `apps/backend/src/modules/providers/provider-status.e2e.spec.ts`, `apps/desktop/src/lib/provider-status.ts` e `apps/desktop/src/App.tsx` (`ModelsPage`).
 - **Servidor MCP do Grupo Jadson (tarefa 94):** transporte HTTP JSON-RPC com tokens individuais revogáveis, ferramentas limitadas às tarefas, memória, agentes, rotinas, notificações e status, recursos de agentes visíveis e prompts fixos. Evidências: `apps/backend/src/modules/mcp-server/`, migration `047-mcp-server-tokens`, painel `apps/desktop/src/components/mcp/McpAccessPanel.tsx` e `docs/MCP_GRUPO_JADSON.md`. O cliente MCP de terceiros continua em `apps/backend/src/modules/mcp/` e `apps/desktop/src/components/mcp/McpServersPanel.tsx`.
+- **Tela de status e encerramento ordenado (tarefa 111):** `StatusPanel.tsx` confirma antes de parar serviços locais registrados; `stop_local_services` executa `scripts/stop.ps1`, exibe o resultado e atualiza `/health`. A lógica pura está em `apps/desktop/src/lib/shutdown-plan.ts` e tem testes unitários.
 
 ### Parcial
 
@@ -49,9 +50,9 @@ Depois dos itens 1–6, Decisão 30:
 10. **Handoff geral entre bots** — INTERNO, M.
 11. **Agente próprio por endpoint (AG-UI)** — INTERNO, M.
 12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
-13. **Painel administrativo completo** — INTERNO, M.
-14. **Tela de status e encerramento ordenado** — INTERNO, P.
-15. **Gráficos interativos e galeria de componentes** — INTERNO, G.
+13. **Painel administrativo completo** — Feito na tarefa 112; evidências: `apps/backend/src/modules/team-rooms/team-rooms.service.ts` e testes `team-rooms.service.spec.ts`/`team-rooms.e2e.spec.ts` (criação de sala e mudanças de membros auditadas), além de `apps/desktop/src/lib/audit-labels.ts` (rótulos pt-BR; filtro por ação aceita texto livre).
+14. **Tela de status e encerramento ordenado** — Feito na tarefa 111; evidências: `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs` (`stop_local_services`), `scripts/stop.ps1` e testes `apps/desktop/src/lib/shutdown-plan.test.ts`.
+15. **Gráficos interativos e galeria de componentes** — Feito na tarefa 113. Evidências: `apps/desktop/src/components/RichComponent.tsx`, `apps/desktop/src/components/rich/ComponentsGallery.tsx`, `apps/desktop/src/lib/chart-geometry.ts`, `apps/backend/src/modules/chat/rich-components-guidance.ts`; testes de geometria, validação e guidance.
 16. **Check-ins proativos** — INTERNO, G.
 
 Nenhum item EXTERNO/PESADO está nesta fila.
@@ -89,7 +90,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Exclusão definitiva de conversa | `server/src/channels/conversations.ts` | Feito | `apps/backend/src/modules/chat/conversations.service.ts` (`remove`), `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversations.pg.spec.ts`; `apps/desktop/src/lib/conversation-list.ts` (`planConversationDeletion`) e `apps/desktop/src/App.tsx` | — | — | — |
 | Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito | `apps/backend/src/modules/chat/image-attachments.ts` (limite de 5 MB por mensagem) | — | — | — |
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `attachment-parts.ts` | Feito | `apps/backend/src/modules/documents/office-text.ts`, `apps/backend/src/modules/documents/office-zip.ts` (DOCX e XLSX) | — | — | — |
-| Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Parcial | `apps/desktop/src/components/RichComponent.tsx` (cartão, tabela, barras) | Gráficos interativos e galeria de componentes | INTERNO | G |
+| Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Feito | `apps/desktop/src/components/RichComponent.tsx`, `apps/desktop/src/components/rich/ComponentsGallery.tsx`, `apps/desktop/src/lib/chart-geometry.ts`, `apps/backend/src/modules/chat/rich-components-guidance.ts`; testes desktop e backend | — | — | — |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | Não encontrado | Geração local ou serviço externo de geração de imagem | EXTERNO/PESADO | M |
 | Ditado por voz (entrada) | `server/src/dictation/`, `shared/on-device-speech.ts` | Parcial | `apps/backend/src/modules/dictation/transcriber.ts` (Whisper local pt; modelo sob demanda), `apps/desktop/src/lib/dictation-session.ts` (parciais e controles) | Reprodução autenticada no exe com token do app (ação do dono) | INTERNO | P |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Feito | `apps/desktop/src/lib/read-aloud.ts`, `apps/desktop/src/App.tsx` (speechSynthesis) | Depende de voz pt-BR instalada no WebView | — | — |
@@ -178,7 +179,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Entrada por provedor de identidade (OIDC) | `server/src/identity/` | Feito | `apps/backend/src/modules/auth/oidc.service.ts`, `apps/desktop/src/App.tsx` (login Google e configurações de provedores) | — | — | — |
 | Papéis e usuários | `server/src/people/`, `server/src/passwords/` | Feito | `apps/backend/src/modules/auth/roles.ts`, `apps/backend/src/modules/auth/users.service.ts` | — | — | — |
 | Modo pessoal, sem login | `server/src/edition.ts` | Feito | `apps/backend/src/common/edition.ts`, `apps/backend/src/common/personal-edition.guard.ts`, `apps/desktop/src/lib/edition.ts` | — | — | — |
-| Painel administrativo | `app/src/routes/_authed/admin/*` | Parcial | `apps/desktop/src/App.tsx` (configurações, uso, acessos e provedores) | Administração não cobre todos os recursos e fluxos de equipe | INTERNO | M |
+| Painel administrativo | `app/src/routes/_authed/admin/*` | Feito (tarefa 112) | `apps/desktop/src/App.tsx`, `apps/backend/src/modules/team-rooms/team-rooms.service.ts` | Auditoria de criação de sala e mudanças de membros; eventos disponíveis com filtro administrativo | INTERNO | M |
 
 ### Aplicativo desktop e instalação
 
@@ -187,7 +188,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Atualização automática do app | `desktop/src/UpdateOffer.tsx`; `docs/desktop-updates.md` | Parcial | `apps/desktop/src/lib/updates.ts`, `apps/desktop/src-tauri/tauri.conf.json` | Configurar repositório público de releases e publicar manifesto e artefatos | EXTERNO/PESADO | P |
 | Primeira execução guiada | `desktop/src/Welcome.tsx`, `SetupProgress.tsx`; `server/src/setup/` | Feito | `apps/desktop/src/Welcome.tsx`, `apps/desktop/src-tauri/src/lib.rs` (instala PostgreSQL portátil com confirmação; início de serviços também confirmado) | — | — | — |
 | Verificação de requisitos do Windows | `desktop/src/WindowsBlocker.tsx` | Feito | `apps/desktop/src/lib/windows-requirements.ts`, `apps/desktop/src/Welcome.tsx` | — | — | — |
-| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Parcial | `apps/desktop/src/components/status/StatusPanel.tsx` | Encerramento ordenado dos serviços locais pelo app | INTERNO | P |
+| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Feito | `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs`, `scripts/stop.ps1` | — | — | — |
 
 ## Resumo da tabela
 

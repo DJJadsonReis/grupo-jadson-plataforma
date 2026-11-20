@@ -212,3 +212,11 @@ Inventário dos rótulos e mensagens estáticas da interface desktop, agrupado p
 ## 5. Tamanho estimado
 
 Estimativa inicial: **M (1–2 dias)** para inventário da UI, alinhamento visual das superfícies principais, revisão e aplicação dos textos, teste dos tokens, typecheck, suíte desktop e conferência visual. O web-admin inexistente e as mensagens do backend não entram na estimativa. Nesta execução, a aplicação textual foi restrita às linhas `aplicar` implementadas no código e registradas no relatório.
+
+## 6. Implementação das telas internas (tarefa 108)
+
+As telas internas usam os tokens `--gj-canvas`, `--gj-surface`, `--gj-surface-raised`, `--gj-border`, `--gj-text`, `--gj-text-secondary`, `--gj-text-muted`, `--gj-card-radius`, `--gj-radius-sm`, `--gj-radius-md`, `--gj-shadow-panel` e `--gj-shadow-overlay`. Os botões de ação destrutiva usam `--gj-danger` e `--gj-danger-surface`; os botões primários usam o dourado institucional. A base comum em `workspace.css` aplica superfícies, espaçamento, foco herdado e rolagem horizontal a listas e tabelas; salas da equipe empilham as colunas abaixo de 900 px. Os tokens semânticos antigos sem definição ganharam aliases para a paleta atual, com overrides para tema claro.
+
+Confirmações de exclusão de habilidades, responsabilidades e servidores MCP agora usam diálogos acessíveis do app. Limpeza da auditoria usa o mesmo padrão. Textos de carregamento e estados vazios revisados foram normalizados; mensagens vindas da API e conteúdo dinâmico permanecem inalterados. Testes locais validam referências CSS a tokens e uma lista curta de erros ortográficos em strings visíveis.
+
+As capturas de telas internas não foram feitas: o navegador abriu a primeira execução, o backend local estava indisponível e não foi iniciado nem contornado com dados simulados. O shell e telas internas autenticadas não puderam ser visualizados; a responsividade e os dois temas foram conferidos por regra CSS e definição de tokens.
