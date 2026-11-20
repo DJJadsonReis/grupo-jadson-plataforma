@@ -92,9 +92,10 @@ export class ModelProvidersService {
     let baseUrl = row.baseUrl;
     if (input.baseUrl !== undefined) { baseUrl = this.validateBase(row.kind, input.baseUrl, input.allowLocal); if (baseUrl) await this.validateDestination(baseUrl, input.allowLocal === true); }
     let secret = row.secretCiphertext;
-    if (input.apiKey !== undefined && input.apiKey !== "") {
+    if (input.apiKey !== undefined) {
       if (typeof input.apiKey !== "string" || input.apiKey.length > 500) throw new BadRequestException({ code: "INVALID_MODEL_PROVIDER", message: "A chave deve ter até 500 caracteres." });
-      secret = this.box.encrypt(input.apiKey.trim());
+      const apiKey = input.apiKey.trim();
+      if (apiKey) secret = this.box.encrypt(apiKey);
     }
     const result = await this.pool().query(`UPDATE model_providers SET name=$2,enabled=$3,base_url=$4,secret_ciphertext=$5,updated_at=now() WHERE id=$1 RETURNING id,kind,name,base_url AS "baseUrl",secret_ciphertext AS "secretCiphertext",enabled,created_at AS "createdAt",updated_at AS "updatedAt"`, [id, input.name === undefined ? row.name : (input.name as string).trim(), input.enabled === undefined ? row.enabled : input.enabled, baseUrl, secret]);
     return this.item(result.rows[0] as ModelProviderRow);

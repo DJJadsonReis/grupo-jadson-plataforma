@@ -48,6 +48,24 @@ describe("ModelProvidersService", () => {
     const ciphertext = rows[0]?.secretCiphertext; await service.patch(created.id, { apiKey: "" });
     expect(rows[0]?.secretCiphertext).toBe(ciphertext);
   });
+  it.each(["   ", "\t \n"])("does not replace a key when PATCH receives only whitespace (%j)", async (apiKey) => {
+    const { service, rows } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    const ciphertext = rows[0]?.secretCiphertext;
+    const result = await service.patch(created.id, { apiKey });
+    expect(rows[0]?.secretCiphertext).toBe(ciphertext);
+    expect(result.hasKey).toBe(true);
+  });
+  it("trims a replacement key before encrypting it", async () => {
+    const { service, rows } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    await service.patch(created.id, { apiKey: "  sk-teste-falso-001  " });
+    expect(new TestSecretBox().decrypt(String(rows[0]?.secretCiphertext))).toBe("sk-teste-falso-001");
+  });
+  it.each([" ".repeat(2) + "x".repeat(501) + " ".repeat(2), 12345])("rejects an invalid PATCH key without replacing the saved key (%j)", async (apiKey) => {
+    const { service, rows } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    const ciphertext = rows[0]?.secretCiphertext;
+    await expect(service.patch(created.id, { apiKey })).rejects.toMatchObject({ status: 400 });
+    expect(rows[0]?.secretCiphertext).toBe(ciphertext);
+  });
   it("tests connection with a fake fetch and maps rejection and timeout to Portuguese", async () => {
     const { service } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
     await expect(service.test(created.id)).resolves.toMatchObject({ ok: true, models: [{ id: "model-falso", label: "Modelo falso" }] });
