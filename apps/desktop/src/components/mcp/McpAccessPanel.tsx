@@ -58,7 +58,7 @@ export function McpAccessPanel({ apiFetch, apiUrl }: { apiFetch: (input: string,
     </article>)}</div>
     <details><summary>Configurar cliente MCP</summary><p>Use este trecho e substitua o placeholder pelo token, somente no cliente.</p><pre>{buildMcpClientConfig(apiUrl)}</pre></details>
     {revoking && <div className="modal-backdrop" role="presentation"><section className="modal-card" role="dialog" aria-modal="true" aria-labelledby="mcp-revoke-title">
-      <h3 id="mcp-revoke-title">Revogar token?</h3><p>O cliente “{revoking.name}” perderá acesso imediatamente.</p>
+      <h3 id="mcp-revoke-title">Revogar token?</h3><p>Este cliente “{revoking.name}” perderá o acesso imediatamente.</p>
       <div className="modal-actions"><button type="button" onClick={() => setRevoking(null)} disabled={busy}>Cancelar</button><button type="button" className="danger-button" onClick={() => void revoke()} disabled={busy}>Revogar</button></div>
     </section></div>}
   </section>;

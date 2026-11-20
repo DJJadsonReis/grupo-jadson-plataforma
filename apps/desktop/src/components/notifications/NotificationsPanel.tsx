@@ -26,9 +26,9 @@ export function NotificationsPanel({ apiFetch, apiUrl, open, onCountChange }: Pr
   }
   if (!open) return null;
   return <section className="settings-card" aria-labelledby="notifications-title">
-    <div className="page-header-row"><div><span className="section-label">CENTRAL DE AVISOS</span><h2 id="notifications-title">Notificações</h2></div><button type="button" className="settings-tab" onClick={() => void mark()} disabled={busy || items.length === 0}>Marcar todas como lidas</button></div>
+    <div className="page-header-row"><div><span className="section-label">Central de avisos</span><h2 id="notifications-title">Notificações</h2></div><button type="button" className="settings-tab" onClick={() => void mark()} disabled={busy || items.length === 0}>Marcar todas como lidas</button></div>
     {error && <p role="alert">Não foi possível carregar as notificações.</p>}
-    {!error && items.length === 0 && <p>Nenhuma notificação não lida.</p>}
+    {!error && items.length === 0 && <p>Você não tem avisos pendentes.</p>}
     <div style={{ display: "grid", gap: 10 }}>{items.map((item) => <article key={item.id} className="workspace-fact"><div><small>{notificationKindLabel(item.kind)} · {formatNotificationDate(item.createdAt)}</small><h3>{item.title}</h3><p>{item.body}</p></div><button type="button" className="settings-tab" onClick={() => void mark(item.id)} disabled={busy}>Marcar como lida</button></article>)}</div>
   </section>;
 }

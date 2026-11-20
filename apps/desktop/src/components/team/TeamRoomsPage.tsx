@@ -83,10 +83,10 @@ export function TeamRoomsPage({ apiFetch, apiUrl }: Props) {
     <div style={{ display: "grid", gridTemplateColumns: "minmax(200px, 1fr) 2fr", gap: 24 }}>
       <aside aria-label="Salas da equipe">
         <form onSubmit={(event) => void createRoom(event)}><label htmlFor="team-room-name">Nova sala</label><input id="team-room-name" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} /><button disabled={busy}>Criar sala</button></form>
-        {loading ? <p>Carregando salas...</p> : rooms.length ? rooms.map((room) => <button key={room.id} type="button" onClick={() => { setSelected(room); setError(null); }}>{room.name}</button>) : <p>Nenhuma sala ainda.</p>}
+        {loading ? <p>Carregando salas…</p> : rooms.length ? rooms.map((room) => <button key={room.id} type="button" onClick={() => { setSelected(room); setError(null); }}>{room.name}</button>) : <p>Ainda não há salas.</p>}
       </aside>
       <div>
-        {!selected ? <p>Escolha uma sala para ver a conversa.</p> : <>
+        {!selected ? <p>Escolha uma sala para ver as mensagens.</p> : <>
           <h2>{selected.name}</h2><p>{members.map((member) => member.name).join(", ")}</p>
           {selectedRole === "admin" && <><select aria-label="Pessoa para convidar" value={inviteId} onChange={(event) => setInviteId(event.target.value)}><option value="">Selecione uma pessoa</option>{people.filter((p) => !members.some((m) => m.id === p.id)).map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><button type="button" onClick={() => void invite()}>Convidar pessoa</button></>}
           <button type="button" onClick={() => void leave()}>Sair da sala</button>

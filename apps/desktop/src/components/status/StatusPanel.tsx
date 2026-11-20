@@ -25,7 +25,7 @@ export function StatusPanel({ apiFetch, apiUrl }: StatusPanelProps) {
   useEffect(() => { void verify(); }, [verify]);
 
   return <section className="page-content" aria-labelledby="dependency-status-title">
-    <div className="page-header-row"><div><span className="section-label">SISTEMA</span><h1 id="dependency-status-title">Status das dependências</h1><p className="page-subtitle">Estado dos serviços usados pelo aplicativo.</p></div></div>
+    <div className="page-header-row"><div><span className="section-label">Sistema</span><h1 id="dependency-status-title">Status dos serviços</h1><p className="page-subtitle">Estado dos serviços usados pelo aplicativo.</p></div></div>
     <div className="settings-card" aria-live="polite">
       {loading && <p role="status">Verificando…</p>}
       <ul>{toStatusRows(health).map((row) => <li key={row.label}>
