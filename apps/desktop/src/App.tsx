@@ -34,6 +34,7 @@ import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
+import { requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -75,7 +76,8 @@ function saveSession(token: string): void {
 
 /** Token do sistema local: Vite entrega em desenvolvimento e o comando Tauri no app empacotado. */
 let systemTokenRequest: Promise<string> | null = null;
-function localSystemToken(): Promise<string> {
+function localSystemToken(refresh = false): Promise<string> {
+  if (refresh) systemTokenRequest = null;
   if (!systemTokenRequest) {
     systemTokenRequest = (import.meta.env.DEV
       ? fetch("/__gj/dev-token", { cache: "no-store" })
@@ -93,10 +95,28 @@ function localSystemToken(): Promise<string> {
 
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken());
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
+  const send = async (refresh: boolean) => {
+    const headers = new Headers(init.headers);
+    const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken(refresh));
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+  let unauthorized = false;
+  const response = await requestWithTokenRefresh(send, () => { unauthorized = true; });
+  if (unauthorized) {
+    window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
+    rejectedRequest = { input, init };
+  } else if (response.ok) window.dispatchEvent(new CustomEvent("gj-api-token-accepted"));
+  return response;
+}
+
+let rejectedRequest: { input: string; init: RequestInit } | null = null;
+async function reconnectAndRetry(): Promise<void> {
+  const failed = rejectedRequest;
+  if (!failed) return;
+  await localSystemToken(true);
+  rejectedRequest = null;
+  await apiFetch(failed.input, failed.init);
 }
 
 const SIGN_IN_MESSAGES: Record<string, string> = {
@@ -308,6 +328,15 @@ function Workspace({ edition }: { edition: Edition }) {
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
   const [humanSupportAllowed, setHumanSupportAllowed] = useState(false);
+  const [tokenRejected, setTokenRejected] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  useEffect(() => {
+    const rejected = () => setTokenRejected(true);
+    const accepted = () => setTokenRejected(false);
+    window.addEventListener("gj-api-token-rejected", rejected);
+    window.addEventListener("gj-api-token-accepted", accepted);
+    return () => { window.removeEventListener("gj-api-token-rejected", rejected); window.removeEventListener("gj-api-token-accepted", accepted); };
+  }, []);
   const [sidebarHover, setSidebarHover] = useState(false);
   useEffect(() => {
     let active = true;
@@ -1045,6 +1074,11 @@ function Workspace({ edition }: { edition: Edition }) {
             {serviceLabel}
           </div>
         </header>
+
+        {tokenRejected && <div role="status" className="api-token-reconnect" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, margin: "8px 20px", padding: "9px 12px", borderRadius: 10, background: "#28251d", color: "#e8d7a2", fontSize: 13 }}>
+          <span>O backend recusou a sessão local. Reconecte para tentar novamente.</span>
+          <button type="button" disabled={reconnecting} onClick={() => { setReconnecting(true); void reconnectAndRetry().finally(() => setReconnecting(false)); }} style={{ border: 0, borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>{reconnecting ? "Conectando…" : "Reconectar"}</button>
+        </div>}
 
         {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
         {page === "dashboard" && (

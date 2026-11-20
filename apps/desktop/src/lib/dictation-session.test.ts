@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { DictationSession, isLoopbackBackend, type ModelStatus } from "./dictation-session";
+import { DictationSession, dictationErrorMessage, isLoopbackBackend, type ModelStatus } from "./dictation-session";
 import type { AudioRecorder } from "./dictation-capture";
 
 function setup(initial = "") {
@@ -13,6 +13,20 @@ function setup(initial = "") {
 }
 
 describe("DictationSession", () => {
+  it("explica a causa do erro e inclui o status HTTP quando disponível", () => {
+    expect(dictationErrorMessage(Object.assign(new Error(), { status: 401, code: "UNAUTHORIZED" }), "status")).toContain("HTTP 401");
+    expect(dictationErrorMessage(Object.assign(new Error(), { status: 404 }), "download")).toContain("não está instalado");
+    expect(dictationErrorMessage(Object.assign(new Error(), { status: 503 }), "status")).toContain("HTTP 503");
+    expect(dictationErrorMessage(new Error(), "transcription")).toContain("transcrição deste trecho falhou");
+  });
+
+  it("não esconde a recusa de token atrás da mensagem genérica", async () => {
+    const ctx = setup();
+    ctx.client.status.mockRejectedValue(Object.assign(new Error(), { status: 401, code: "UNAUTHORIZED" }));
+    await ctx.session.begin("");
+    expect(ctx.events.error).toHaveBeenCalledWith(expect.stringContaining("token local foi recusado"));
+    expect(ctx.events.error).not.toHaveBeenCalledWith("Não foi possível falar com o serviço local de ditado.");
+  });
   it("exibe cada transcrição enquanto recebe os trechos", async () => {
     const ctx = setup(); await ctx.session.begin(""); ctx.emit(1); await vi.waitFor(() => expect(ctx.events.text).toHaveBeenCalledTimes(1)); ctx.emit(2); await vi.waitFor(() => expect(ctx.events.text).toHaveBeenCalledTimes(2)); ctx.emit(3); await vi.waitFor(() => expect(ctx.events.text).toHaveBeenCalledTimes(3));
     expect(ctx.events.text.mock.calls.map(([text]) => text)).toEqual(["parte 1", "parte 1 parte 2", "parte 1 parte 2 parte 3"]);

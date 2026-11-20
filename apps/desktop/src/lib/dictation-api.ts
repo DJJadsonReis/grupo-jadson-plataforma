@@ -14,7 +14,14 @@ export class DictationHttpClient implements DictationClient {
   }
   private async request<T>(path: string, method = "GET", body?: unknown): Promise<T> {
     const response = await this.fetcher(`${this.baseUrl}${path}`, { method, ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}) });
-    if (!response.ok) { const error = new Error("Falha na solicitação de ditado.") as Error & { status: number }; error.status = response.status; throw error; }
+    if (!response.ok) {
+      let code: string | undefined;
+      try { const payload = await response.clone().json() as { code?: unknown }; if (typeof payload.code === "string") code = payload.code; } catch { /* resposta sem JSON */ }
+      const error = new Error("Falha na solicitação de ditado.") as Error & { status: number; code?: string };
+      error.status = response.status;
+      if (code) error.code = code;
+      throw error;
+    }
     return response.json() as Promise<T>;
   }
 }

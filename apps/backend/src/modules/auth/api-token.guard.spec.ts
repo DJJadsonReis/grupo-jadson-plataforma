@@ -51,7 +51,9 @@ describe("ApiTokenGuard", () => {
 
   it("recusa token errado quando não há usuário com ele", async () => {
     const { ctx, reflector } = contextWith("Bearer outro-token");
-    await expect(new ApiTokenGuard(reflector, usersReturning(null)).canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(new ApiTokenGuard(reflector, usersReturning(null)).canActivate(ctx)).rejects.toMatchObject({
+      response: { code: "UNAUTHORIZED", message: "Token de API ausente ou inválido." },
+    });
   });
 
   it("falha fechada quando API_TOKEN não está configurado", async () => {

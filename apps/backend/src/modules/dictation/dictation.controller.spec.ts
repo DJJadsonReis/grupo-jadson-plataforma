@@ -118,11 +118,25 @@ describe("Dictation API authentication", () => {
     try {
       await app.listen(0, "127.0.0.1");
       const address = app.getHttpServer().address() as { port: number };
-      const url = `http://127.0.0.1:${address.port}/api/v1/dictation/status`;
-      expect((await fetch(url)).status).toBe(401);
-      const authorized = await fetch(url, { headers: { Authorization: "Bearer TOKEN-FALSO-DE-TESTE" } });
-      expect(authorized.status).toBe(200);
-      await expect(authorized.json()).resolves.toMatchObject({ state: "missing", sizeMb: MODEL_SIZE_MB });
+      const base = `http://127.0.0.1:${address.port}/api/v1/dictation`;
+      const headers = { Authorization: "Bearer TOKEN-FALSO-DE-TESTE", "Content-Type": "application/json" };
+      const statusUrl = `${base}/status`;
+      const unauthenticated = await fetch(statusUrl);
+      expect(unauthenticated.status).toBe(401);
+      await expect(unauthenticated.json()).resolves.toMatchObject({ code: "UNAUTHORIZED" });
+      const status = await fetch(statusUrl, { headers });
+      expect(status.status).toBe(200);
+      await expect(status.json()).resolves.toMatchObject({ state: "missing", sizeMb: MODEL_SIZE_MB });
+      const refusedMidSession = await fetch(`${base}/model/download`, { method: "POST", headers: { "Content-Type": "application/json" } });
+      expect(refusedMidSession.status).toBe(401);
+      await expect(refusedMidSession.json()).resolves.toMatchObject({ code: "UNAUTHORIZED" });
+      const download = await fetch(`${base}/model/download`, { method: "POST", headers });
+      expect(download.status).toBe(202);
+      await expect(download.json()).resolves.toMatchObject({ state: "downloading" });
+      model.current = { state: "ready", sizeMb: MODEL_SIZE_MB };
+      const transcribe = await fetch(`${base}/transcribe`, { method: "POST", headers, body: JSON.stringify({ samples: encoded([0.1]) }) });
+      expect(transcribe.status).toBe(201);
+      await expect(transcribe.json()).resolves.toEqual({ text: "texto de teste" });
     } finally {
       await app.close();
       if (previousToken === undefined) delete process.env.API_TOKEN;
