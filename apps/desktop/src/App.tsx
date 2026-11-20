@@ -7,7 +7,11 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload, protocolosEndpoint } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace } from "./lib/conversation-list";
+import { groupChatsByDate } from "./lib/chat-groups";
+import { chatLayoutForMessages } from "./lib/chat-layout";
+import { readShellPrefs, writeShellPrefs, type AppTheme } from "./lib/shell-prefs";
+import { shellShortcut } from "./lib/shell-shortcuts";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -46,7 +50,7 @@ import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, rep
 import { setupNotice, type SetupRepairResult } from "./lib/setup-status";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
-  CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
+  CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip, Pencil,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
@@ -512,7 +516,13 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
   const [agentEditor, setAgentEditor] = useState<Agent | null>(null);
   const [viewedAgentId, setViewedAgentId] = useState<string | null>(null);
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => localStorage.getItem("grupo-jadson.sidebar-collapsed.v2") === "true");
+  const [shellPrefs, setShellPrefs] = useState(() => {
+    try { return readShellPrefs(typeof window === "undefined" ? null : window.localStorage); }
+    catch { return readShellPrefs(null); }
+  });
+  const sidebarCollapsed = shellPrefs.sidebarCollapsed;
+  const theme = shellPrefs.theme;
+  const sidebarSearchRef = useRef<HTMLInputElement>(null);
   const [focusMode, setFocusMode] = useState(() => localStorage.getItem("grupo-jadson.focus-mode") === "true");
   const [agentSearch, setAgentSearch] = useState("");
   const [favoriteAgentIds, setFavoriteAgentIds] = useState<string[]>(readFavoriteAgents);
@@ -709,7 +719,27 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, serializeWorkspace({ conversations, agents, groups }));
   }, [conversations, agents, groups]);
-  useEffect(() => { localStorage.setItem("grupo-jadson.sidebar-collapsed.v2", String(sidebarCollapsed)); }, [sidebarCollapsed]);
+  useEffect(() => {
+    try { writeShellPrefs(window.localStorage, shellPrefs); } catch { /* preferência permanece em memória */ }
+    document.documentElement.dataset.theme = theme;
+  }, [shellPrefs, theme]);
+  function setSidebarCollapsed(value: boolean | ((previous: boolean) => boolean)) {
+    setShellPrefs((prefs) => ({ ...prefs, sidebarCollapsed: typeof value === "function" ? value(prefs.sidebarCollapsed) : value }));
+  }
+  function setTheme(value: AppTheme) { setShellPrefs((prefs) => ({ ...prefs, theme: value })); }
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      const action = shellShortcut({ key: event.key, ctrlKey: event.ctrlKey, metaKey: event.metaKey, shiftKey: event.shiftKey, altKey: event.altKey,
+        targetTag: (event.target as HTMLElement | null)?.tagName, contentEditable: Boolean((event.target as HTMLElement | null)?.isContentEditable) });
+      if (!action) return;
+      event.preventDefault();
+      if (action === "new-chat") newConversation();
+      if (action === "search") { setSidebarCollapsed(false); setFocusMode(false); setTimeout(() => sidebarSearchRef.current?.focus(), 0); }
+      if (action === "toggle-sidebar") setSidebarCollapsed((value) => !value);
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, []);
   useEffect(() => { localStorage.setItem("grupo-jadson.focus-mode", String(focusMode)); }, [focusMode]);
   useEffect(() => {
     if (!focusMode) return;
@@ -717,6 +747,12 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [focusMode]);
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") setMobileOpen(false); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [mobileOpen]);
   useEffect(() => { localStorage.setItem("grupo-jadson.favorite-agents", JSON.stringify(favoriteAgentIds)); }, [favoriteAgentIds]);
 
   function newConversation(agentId?: string, groupId?: string) {
@@ -742,7 +778,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser = false) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -778,11 +814,14 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
     };
     // Mensagens de erro são só para a tela: não voltam ao modelo.
     const prior = (current?.messages ?? []).filter((message) => !message.error);
+    const requestHistory = retryExistingUser && prior[prior.length - 1]?.role === "assistant" ? prior.slice(0, -1) : prior;
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
       ...(responseAgent ? { agentId: responseAgent.id } : {}),
       title: item.messages.length ? item.title : (title || "Imagem enviada").slice(0, 48),
-      messages: [...item.messages, userMessage],
+      messages: retryExistingUser
+        ? item.messages.filter((message, index) => !(index === item.messages.length - 1 && message.role === "assistant"))
+        : [...item.messages, userMessage],
       updatedAt: Date.now()
     } : item));
     setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(responseAgent?.id ?? null);
@@ -802,7 +841,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
       }) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
         throw new Error("Anexe até 5 MB de imagens ou arquivos de código UTF-8 (máximo 1 MB por arquivo).");
       }
-      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
+      if (!retryExistingUser) setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
       const response = await apiFetch(`${API_URL}/chat/completions`, {
         method: "POST", signal: controller.signal,
         headers: { "Content-Type": "application/json" },
@@ -811,7 +850,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
           ...(currentGroup?.mode === "manual" && groupRequest?.agentId ? { agentId: groupRequest.agentId } : !currentGroup && agent ? { agentId: agent.id } : {}),
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
-          messages: [...prior, userMessage],
+          messages: retryExistingUser ? requestHistory : [...prior, userMessage],
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(modelProviderId ? { modelProviderId } : {}),
           ...(operationMode ? { operationMode } : {}),
@@ -999,7 +1038,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
         {!railCollapsed && (
           <label className="history-search">
             <Search size={13} />
-            <input value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
+            <input ref={sidebarSearchRef} value={historyQuery} onChange={(event) => setHistoryQuery(event.target.value)} placeholder="Buscar conversas" aria-label="Buscar conversas" />
           </label>
         )}
 
@@ -1059,7 +1098,6 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
                   </button>
                 ))}
               {(() => {
-                const sections = splitConversationSections(conversations.filter((item) => item.messages.length > 0), agents.map((agent) => agent.id));
                 const renderConversation = (item: Conversation) => renamingId === item.id ? (
                   <div key={item.id} className="history-item">
                     <span className="history-conversation-avatar">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
@@ -1072,13 +1110,12 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
                   </button>
                 );
                 const matches = (item: Conversation) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase());
-                const agentChats = sections.agents.filter(matches);
-                const fixedAgentNames = agents.filter((agent) => agent.name.toLowerCase().includes(historyQuery.trim().toLowerCase()));
+                const grouped = groupChatsByDate(conversations.filter((item) => item.messages.length > 0 && matches(item)), new Date());
                 return <>
-                  {(fixedAgentNames.length > 0 || agentChats.length > 0) && <div className="history-section-title">Agentes</div>}
-                  {agentChats.slice(0, 30).map(renderConversation)}
-                  {sections.conversations.some(matches) && <div className="history-section-title">Conversas</div>}
-                  {sections.conversations.filter(matches).slice(0, 30).map(renderConversation)}
+                  {(["Hoje", "Ontem", "Últimos 7 dias", "Mais antigas"] as const).map((label) => grouped[label].length > 0 && <section className="history-date-group" key={label} aria-label={label}>
+                    <div className="history-section-title">{label}</div>
+                    {grouped[label].slice(0, 30).map(renderConversation)}
+                  </section>)}
                 </>;
               })()}
               {historyNotice && (
@@ -1112,6 +1149,9 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
             <CircleHelp size={17} /><span>Status</span>
           </button>
         </nav>
+        <button className="nav-item theme-toggle" onClick={() => setTheme(theme === "dark" ? "light" : "dark")} aria-label={theme === "dark" ? "Ativar tema claro" : "Ativar tema escuro"} aria-pressed={theme === "light"} title={railCollapsed ? (theme === "dark" ? "Tema claro" : "Tema escuro") : undefined}>
+          <Sparkles size={17} /><span>{theme === "dark" ? "Tema claro" : "Tema escuro"}</span>
+        </button>
         {accountOpen && (
           <div className="account-menu" role="menu">
             <button role="menuitem" className="account-menu-item" onClick={() => { setAccountOpen(false); changePage("activity"); }}>Atividades</button>
@@ -1638,7 +1678,7 @@ function ChatPage({
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string; supportsEffort?: boolean }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser?: boolean) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   isAdmin: boolean;
@@ -1683,6 +1723,8 @@ function ChatPage({
   const [pdfError, setPdfError] = useState<string | null>(null);
   const [pdfDocs, setPdfDocs] = useState<{ id: string; name: string; pages: number; text: string; truncated: boolean }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const shouldFollowStream = useRef(true);
 
   /** Lê o texto de cada PDF pelo backend e coloca no rascunho, com nome e páginas. */
   async function attachPdfs(pdfs: File[]) {
@@ -1824,7 +1866,7 @@ function ChatPage({
   }, [agentId]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (shouldFollowStream.current) messagesEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
   }, [conversation?.messages, busy]);
 
   const currentGroup = groups.find((group) => group.id === conversation?.groupId);
@@ -1833,8 +1875,10 @@ function ChatPage({
   const runningAgent = agents.find((agent) => agent.id === activeAgentId);
   const mentionQuery = currentGroup?.mode === "mention" ? /(?:^|\s)@([^\s@]*)$/.exec(draft)?.[1] : undefined;
 
+  const messages = conversation?.messages ?? [];
+  const layout = chatLayoutForMessages(messages.length);
   return (
-    <div className={"chat-page gx-chat " + (workspaceOpen ? "chat-workspace-open " : "") + (conversation?.messages.length ? "" : "is-empty")}>
+    <div className={"chat-page gx-chat " + (workspaceOpen ? "chat-workspace-open " : "") + (layout === "empty" ? "is-empty" : "")}>
       {/* CABEÇALHO MÍNIMO: só o título e as ações de conversa */}
       <header className="gx-header">
         <h1 className="gx-title" title={currentGroup ? `${currentGroup.name} · ${conversation?.title ?? "Nova conversa"}` : conversation?.title ?? "Nova conversa"}>
@@ -1897,9 +1941,9 @@ function ChatPage({
       {handoffs.length > 0 && <section className="gx-handoff-history" aria-label="Delegações desta conversa"><b>Delegações desta conversa</b>{handoffs.map((item) => <small key={item.id}>{rotuloDelegacao(agents.find((agent) => agent.id === item.fromAgentId)?.name ?? "Assistente Geral", agents.find((agent) => agent.id === item.toAgentId)?.name ?? "Agente", item.reason)}</small>)}</section>}
 
       {/* FLUXO DA CONVERSA: coluna central de leitura */}
-      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name)); setFiles([...files, ...images]); }}>
+      <div ref={scrollRef} className="gx-scroll" onScroll={(event) => { const element = event.currentTarget; shouldFollowStream.current = element.scrollHeight - element.scrollTop - element.clientHeight < 96; }} onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name)); setFiles([...files, ...images]); }}>
         <div className="gx-column">
-          {!conversation?.messages.length ? (
+          {conversation && layout === "conversation" ? (
             <div className="gx-empty">
               <img src={logo} alt="" className="gx-empty-logo" />
               <h2>O que vamos construir hoje?</h2>
@@ -1920,14 +1964,15 @@ function ChatPage({
             </div>
           ) : (
             <div className="gx-thread">
-              {conversation.messages.map((message, index) => {
-                const isLast = index === conversation.messages.length - 1;
+              {messages.map((message, index) => {
+                const isLast = index === messages.length - 1;
                 if (message.content.startsWith("Conversa passada de ")) return <div className="gx-handoff-transition" key={`${index}-handoff`}>{message.content}</div>;
                 if (message.role === "user") {
                   return (
                     <div className="gx-turn gx-turn-user" key={index + "-user"}>
                       {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && (attachment.type.startsWith("image/") ? <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} /> : <span key={attachment.id} className="gx-chip"><FileText size={14} />{attachment.name}</span>))}
                       <div className="gx-user-bubble">{message.content}</div>
+                      <div className="gx-message-actions" aria-label="Ações da mensagem"><button type="button" aria-label="Editar mensagem" title="Editar mensagem" onClick={() => { setDraft(message.content); messageTextareaRef.current?.focus(); }}><Pencil size={13} /> Editar</button></div>
                     </div>
                   );
                 }
@@ -1948,6 +1993,10 @@ function ChatPage({
                       <AuthorAvatar agent={author} />
                       <span className="gx-turn-name">{author?.name ?? "Grupo Jadson"}</span>
                       <ReadAloudButton text={message.content} />
+                      <div className="gx-message-actions" aria-label="Ações da resposta">
+                        <button type="button" aria-label="Copiar resposta" title="Copiar resposta" onClick={() => { void navigator.clipboard?.writeText(message.content); }}><FileText size={13} /> Copiar</button>
+                        {isLast && <button type="button" aria-label="Refazer resposta" title="Refazer resposta" disabled={busy} onClick={() => { const previousUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user"); if (previousUser) onSend(previousUser.content, model, selectedAgent, [], undefined, selectedModelOption?.providerId, operationMode, effortSupported ? reasoningEffort : undefined, true); }}><RefreshBoldIcon size={13} /> Refazer</button>}
+                      </div>
                     </div>
                     <div className="gx-turn-body">
                       {splitRichComponents(message.content).map((part, partIndex) => part.kind === "component"
@@ -1957,7 +2006,7 @@ function ChatPage({
                   </div>
                 );
               })}
-              {busy && conversation.messages[conversation.messages.length - 1]?.role !== "assistant" && <ThinkingTurn agent={runningAgent ?? selectedAgent} />}
+              {busy && messages[messages.length - 1]?.role !== "assistant" && <ThinkingTurn agent={runningAgent ?? selectedAgent} />}
             </div>
           )}
           <div ref={messagesEndRef} />

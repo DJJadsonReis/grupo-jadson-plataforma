@@ -5,17 +5,17 @@
    ========================================================================= */
 
 :root {
-  --shell-canvas: #0b0b0b;
-  --shell-rail: #0e0e0e;
-  --shell-raised: #161616;
-  --shell-field: #1b1b1b;
-  --shell-hover: #161616;
-  --shell-active: #1f1f1f;
-  --shell-line: #1e1e1e;
-  --shell-line-strong: #2b2b2b;
-  --shell-text: #ececec;
-  --shell-text-2: #a8a8a8;
-  --shell-text-3: #6f6f6f;
+  --shell-canvas: var(--gj-canvas);
+  --shell-rail: var(--gj-sidebar);
+  --shell-raised: var(--gj-surface);
+  --shell-field: var(--gj-surface-raised);
+  --shell-hover: var(--gj-surface-raised);
+  --shell-active: var(--gj-surface-pressed);
+  --shell-line: var(--gj-border);
+  --shell-line-strong: var(--gj-border-strong);
+  --shell-text: var(--gj-text);
+  --shell-text-2: var(--gj-text-secondary);
+  --shell-text-3: var(--gj-text-muted);
   --shell-column: 760px;
   --shell-radius: 12px;
 }
