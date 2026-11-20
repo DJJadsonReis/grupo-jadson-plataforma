@@ -1386,9 +1386,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "grupo-core"
+version = "0.1.0"
+dependencies = [
+ "serde_json",
+]
+
+[[package]]
 name = "grupo-jadson"
 version = "0.1.0"
 dependencies = [
+ "grupo-core",
  "serde",
  "serde_json",
  "tauri",
