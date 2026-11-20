@@ -1,4 +1,4 @@
-import { ForbiddenException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException } from "@nestjs/common";
 import { AgentsController } from "./agents.controller";
 
 const principal = { id: "person-1", name: "Person", role: "operator" as const };
@@ -54,6 +54,25 @@ describe("AgentsController access rules", () => {
     const [listed] = await controller.list({ principal });
     expect(listed).toMatchObject({ providerKind: "endpoint", endpointUrl: null, hasEndpointToken: false });
     expect(JSON.stringify(listed)).not.toContain("top-secret");
+  });
+
+  it("recusa fallback duplicado ou acima de cinco sem gravar e mantém criação sem campos novos", async () => {
+    const { controller, agents } = setup();
+    const target = { providerId: "123e4567-e89b-42d3-a456-426614174010", model: "modelo-falso" };
+    await expect(controller.create({ name: "Inválido", modelRouting: { fallbacks: [target, target] } }, { principal })).rejects.toMatchObject({ status: 400 });
+    await expect(controller.create({ name: "Inválido", modelRouting: { fallbacks: Array.from({ length: 6 }, (_, index) => ({ ...target, model: `modelo-${index}` })) } }, { principal })).rejects.toMatchObject({ status: 400 });
+    expect(agents.create).not.toHaveBeenCalled();
+    await controller.create({ name: "Compatível" }, { principal });
+    expect(agents.create).toHaveBeenCalledWith(expect.objectContaining({ provider: "openai", modelRouting: { fallbacks: [] } }), principal.id);
+  });
+
+  it("valida referências a provedores habilitados antes de gravar", async () => {
+    const { agents, permissions } = setup();
+    const validateAgentTarget = jest.fn(async () => { throw new BadRequestException("O provedor informado está desabilitado ou sem chave."); });
+    const controller = new AgentsController(agents as never, permissions as never, { validateAgentTarget } as never);
+    await expect(controller.create({ name: "Inválido", modelRouting: { fallbacks: [{ providerId: "123e4567-e89b-42d3-a456-426614174010", model: "modelo-falso" }] } }, { principal })).rejects.toMatchObject({ status: 400 });
+    expect(validateAgentTarget).toHaveBeenCalledWith("123e4567-e89b-42d3-a456-426614174010", "modelo-falso");
+    expect(agents.create).not.toHaveBeenCalled();
   });
 
   it("checks edit permission before mutation and lets the owner grant a role", async () => {

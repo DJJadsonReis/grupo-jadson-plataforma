@@ -1,15 +1,16 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Optional, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common";
 import { AgentInput, AgentsService } from "./agents.service";
 import { AgentPermissionsService, ShareRole } from "./agent-permissions.service";
 import { Principal } from "../auth/users.service";
 import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
 import { validateAgentEndpoint } from "./agent-endpoint";
+import { ModelProvidersService } from "../providers/model-providers.service";
 
 interface PrincipalRequest { principal?: Principal }
 
 @Controller("agents")
 export class AgentsController {
-  constructor(private readonly agents: AgentsService, private readonly permissions: AgentPermissionsService) {}
+  constructor(private readonly agents: AgentsService, private readonly permissions: AgentPermissionsService, @Optional() private readonly modelProviders?: ModelProvidersService) {}
   @Get() async list(@Req() request: PrincipalRequest) {
     const principal = this.principal(request);
     const accesses = await this.permissions.listAccessible(principal);
@@ -23,13 +24,17 @@ export class AgentsController {
     });
   }
   @Post() async create(@Body() body: unknown, @Req() request: PrincipalRequest) {
-    const agent = await this.agents.create(this.parse(body, true) as AgentInput, this.principal(request).id);
+    const input = this.parse(body, true) as AgentInput;
+    await this.validateRouting(input);
+    const agent = await this.agents.create(input, this.principal(request).id);
     return { ...agent, permission: "owner" as const };
   }
   @Patch(":id") async update(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
     this.assertId(id);
     await this.permissions.assertCanEdit(id, this.principal(request));
-    const result = await this.agents.update(id, this.parse(body, false));
+    const input = this.parse(body, false);
+    await this.validateRouting(input);
+    const result = await this.agents.update(id, input);
     if (!result) throw new NotFoundException("Agente não encontrado.");
     return { ...result, permission: await this.permissions.access(id, this.principal(request)) };
   }
@@ -100,7 +105,8 @@ export class AgentsController {
       if (typeof value.endpointToken !== "string" || value.endpointToken.length > 2000) throw new BadRequestException("Token do endpoint inválido.");
       result.endpointToken = value.endpointToken;
     }
-    if (result.provider && result.provider !== "openai") throw new BadRequestException("Este backend atualmente oferece somente o provider OpenAI.");
+    if (result.provider && !["openai", "anthropic"].includes(String(result.provider)) && !this.isUuid(String(result.provider))) throw new BadRequestException("Selecione um provedor cadastrado.");
+    if (value.modelRouting !== undefined || creating) result.modelRouting = this.parseModelRouting(value.modelRouting ?? {});
     if (creating && !(result.name as string).trim()) throw new BadRequestException("Nome do agente é obrigatório.");
     if (value.enabled !== undefined && typeof value.enabled !== "boolean") throw new BadRequestException("Campo enabled deve ser booleano.");
     if (creating || value.enabled !== undefined) result.enabled = value.enabled ?? true;
@@ -118,6 +124,40 @@ export class AgentsController {
       result.generationConfig = config;
     }
     return result as Partial<AgentInput>;
+  }
+  private parseModelRouting(raw: unknown): NonNullable<AgentInput["modelRouting"]> {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw new BadRequestException("Configuração de modelos reserva inválida.");
+    const value = raw as Record<string, unknown>;
+    const target = (item: unknown): { providerId: string; model: string } => {
+      if (!item || typeof item !== "object" || Array.isArray(item)) throw new BadRequestException("Alvo de modelo inválido.");
+      const candidate = item as Record<string, unknown>;
+      if (typeof candidate.providerId !== "string" || !this.isUuid(candidate.providerId) || typeof candidate.model !== "string" || !candidate.model.trim() || candidate.model.length > 100 || !/^[a-zA-Z0-9._:-]+$/.test(candidate.model)) throw new BadRequestException("Informe um provedor e modelo válidos.");
+      return { providerId: candidate.providerId.toLowerCase(), model: candidate.model };
+    };
+    const fallbacksRaw = value.fallbacks ?? [];
+    if (!Array.isArray(fallbacksRaw) || fallbacksRaw.length > 5) throw new BadRequestException("Informe no máximo cinco modelos reserva.");
+    const fallbacks = fallbacksRaw.map(target);
+    const keys = fallbacks.map((item) => `${item.providerId}:${item.model}`);
+    if (new Set(keys).size !== keys.length) throw new BadRequestException("A lista de modelos reserva não pode ter duplicados.");
+    const tasksRaw = value.taskModels ?? {};
+    if (!tasksRaw || typeof tasksRaw !== "object" || Array.isArray(tasksRaw)) throw new BadRequestException("Modelos por tipo de tarefa inválidos.");
+    const tasks = tasksRaw as Record<string, unknown>;
+    const taskModels: NonNullable<NonNullable<AgentInput["modelRouting"]>["taskModels"]> = {};
+    for (const kind of ["vision", "code"] as const) if (tasks[kind] !== undefined && tasks[kind] !== null) taskModels[kind] = target(tasks[kind]);
+    if (Object.keys(tasks).some((key) => key !== "vision" && key !== "code")) throw new BadRequestException("Tipo de tarefa inválido.");
+    return { fallbacks, ...(Object.keys(taskModels).length ? { taskModels } : {}) };
+  }
+  private async validateRouting(input: Partial<AgentInput>): Promise<void> {
+    if (!this.modelProviders) return;
+    const targets = [
+      ...(input.modelRouting?.fallbacks ?? []),
+      ...Object.values(input.modelRouting?.taskModels ?? {}).filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    ];
+    if (input.provider && this.isUuid(input.provider)) {
+      if (!input.model) throw new BadRequestException("Informe um modelo para o provedor principal selecionado.");
+      targets.push({ providerId: input.provider, model: input.model });
+    }
+    await Promise.all(targets.map((item) => this.modelProviders!.validateAgentTarget(item.providerId, item.model)));
   }
   private assertId(id: string) {
     if (!this.isUuid(id)) throw new BadRequestException("Identificador inválido.");

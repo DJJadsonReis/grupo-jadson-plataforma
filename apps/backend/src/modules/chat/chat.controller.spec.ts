@@ -6,6 +6,7 @@ import { withUntrustedNotice } from "../tools/untrusted-content";
 import { maskSecrets } from "../../common/secret-masking";
 import { NotFoundException } from "@nestjs/common";
 import { AgentSkillsService } from "../skills/agent-skills.service";
+import { ProvidersService } from "../providers/providers.service";
 
 function sseResponse(events: unknown[]): globalThis.Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n";
@@ -37,17 +38,18 @@ function setup(options: {
   streams?: globalThis.Response[];
   invoke?: jest.Mock;
   permissionError?: Error;
-  agent?: { instructions: string; enabled: boolean; model: string | null; generationConfig: null } | null;
+  agent?: { instructions: string; enabled: boolean; model: string | null; generationConfig: null; provider?: string; modelRouting?: { fallbacks?: { providerId: string; model: string }[]; taskModels?: { vision?: { providerId: string; model: string }; code?: { providerId: string; model: string } } } } | null;
   policies?: { decisionFor: jest.Mock };
   skills?: Array<{ tools: string[]; instructions: string }>;
   skillLoad?: jest.Mock;
   endpointCredentials?: { url: string; token?: string } | null;
   providerKind?: "model" | "endpoint";
     endpointFetch?: jest.Mock;
+  providersService?: unknown;
 } = {}) {
   const inputs: any[] = [];
   const streams = [...(options.streams ?? [sseResponse([{ choices: [{ delta: { content: "feito" } }] }])])];
-  const providers = { stream: jest.fn(async (input) => { inputs.push(structuredClone(input)); return streams.shift()!; }), list: jest.fn() };
+  const providers: any = options.providersService ?? { stream: jest.fn(async (input: unknown) => { inputs.push(structuredClone(input)); return streams.shift()!; }), list: jest.fn() };
   const tools = {
     catalog: () => TOOL_DEFINITIONS,
     secretsForMasking: async () => [] as string[],
@@ -60,13 +62,14 @@ function setup(options: {
     })),
   };
   const permissions = { assertCanUse: jest.fn(async () => { if (options.permissionError) throw options.permissionError; return "owner"; }) };
+  const audit = { record: jest.fn(async () => undefined) };
   const controller = new ChatController(
     providers as never,
     {} as never,
     { get: jest.fn(async () => options.agent === null ? null : { instructions: "", enabled: true, model: null, generationConfig: null, providerKind: options.providerKind ?? "model", id: "123e4567-e89b-42d3-a456-426614174000", name: "Agente Endpoint", ...options.agent }), endpointCredentials: jest.fn(async () => options.endpointCredentials ?? null) } as never,
     {} as never,
     { record: jest.fn() } as never,
-    { record: jest.fn() } as never,
+    audit as never,
     { contextLines: jest.fn(async () => []) } as never,
     tools as never,
     permissions as never,
@@ -74,7 +77,7 @@ function setup(options: {
   (controller as any).database = {};
   const skillLoad = options.skillLoad ?? jest.fn(async () => options.skills ?? []);
   jest.spyOn(AgentSkillsService.prototype, "loadPromptSkills").mockImplementation(skillLoad as any);
-  return { controller, inputs, providers, tools, permissions, skillLoad };
+  return { controller, inputs, providers, tools, permissions, skillLoad, audit };
 }
 
 async function complete(controller: ChatController, messages: unknown[] = [{ role: "user", content: "pesquise" }]) {
@@ -84,6 +87,66 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 }
 
 describe("ChatController tool loop", () => {
+  it("tenta a reserva após 429, envia o modelo respondido e registra auditoria sem dados crus", async () => {
+    const mainProvider = "123e4567-e89b-42d3-a456-426614174020";
+    const reserveProvider = "123e4567-e89b-42d3-a456-426614174021";
+    const requests: { model?: string }[] = [];
+    let call = 0;
+    const fetcher = jest.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+      requests.push({ model: JSON.parse(String(init?.body)).model });
+      call += 1;
+      if (call === 1) return new Response("", { status: 429 });
+      return sseResponse([{ model: "reserve-model", choices: [{ delta: { content: "resposta reserva" } }] }]);
+    });
+    const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
+    const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
+    realProviders.setTestFetcher(fetcher as typeof fetch);
+    const { controller, audit } = setup({ providersService: realProviders, agent: {
+      instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: mainProvider,
+      modelRouting: { fallbacks: [{ providerId: reserveProvider, model: "reserve-model" }] },
+    } });
+    const response = new FakeResponse();
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(managed.forChat.mock.calls).toEqual([[mainProvider], [reserveProvider]]);
+    expect(requests.map((item) => item.model)).toEqual(["main-model", "reserve-model"]);
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    const output = Buffer.concat(response.writes.map((chunk) => Buffer.from(chunk))).toString("utf8");
+    expect(output).toContain('"model":"reserve-model"');
+    expect(output).not.toContain("sk-teste-falso-000");
+    expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "model.fallback", details: expect.objectContaining({ providerId: reserveProvider, model: "reserve-model", reason: "http-429" }) }));
+    expect(JSON.stringify(audit.record.mock.calls)).not.toContain("sk-teste-falso-000");
+  });
+
+  it("não troca de modelo depois que já enviou texto ao usuário", async () => {
+    const body = `data: ${JSON.stringify({ choices: [{ delta: { content: `${"texto ".repeat(110)} ` } }] })}\n\n`;
+    const partialThenFailure = new Response(new ReadableStream<Uint8Array>({ start(stream) { stream.enqueue(new TextEncoder().encode(body)); }, pull(stream) { stream.error(new Error("falha de rede")); } }));
+    const reserveProvider = "123e4567-e89b-42d3-a456-426614174021";
+    const { controller, providers, inputs } = setup({ agent: {
+      instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020",
+      modelRouting: { fallbacks: [{ providerId: reserveProvider, model: "reserve-model" }] },
+    }, streams: [partialThenFailure, sseResponse([{ choices: [{ delta: { content: "não deve aparecer" } }] }])] });
+    const response = new FakeResponse();
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect(providers.stream).toHaveBeenCalledTimes(1);
+    expect(inputs).toHaveLength(1);
+    expect(Buffer.concat(response.writes.map((chunk) => Buffer.from(chunk))).toString("utf8")).toContain("texto");
+  });
+
+  it("usa modelo de visão para imagem e modelo de código para bloco ou anexo", async () => {
+    const visionProvider = "123e4567-e89b-42d3-a456-426614174022";
+    const codeProvider = "123e4567-e89b-42d3-a456-426614174023";
+    const { controller, inputs } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: "visão" } }] }]), sseResponse([{ choices: [{ delta: { content: "código" } }] }])], agent: {
+      instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020",
+      modelRouting: { taskModels: { vision: { providerId: visionProvider, model: "vision-model" }, code: { providerId: codeProvider, model: "code-model" } } },
+    } });
+    const imageResponse = new FakeResponse();
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", attachments: [{ name: "foto.png", type: "image/png", size: 8, dataUrl: "data:image/png;base64,iVBORw0KGgo=" }], messages: [{ role: "user", content: "descreva" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, imageResponse as unknown as Response);
+    expect(inputs[0]).toMatchObject({ providerId: visionProvider, model: "vision-model" });
+    const codeResponse = new FakeResponse();
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", attachments: [{ name: "main.py", type: "text/x-python", size: 8, dataUrl: `data:text/x-python;base64,${Buffer.from("print(1)").toString("base64")}` }], messages: [{ role: "user", content: "rode este arquivo" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, codeResponse as unknown as Response);
+    expect(inputs[1]).toMatchObject({ providerId: codeProvider, model: "code-model", messages: expect.arrayContaining([expect.objectContaining({ role: "user", content: expect.arrayContaining([expect.objectContaining({ text: expect.stringContaining("print(1)") })]) })]) });
+  });
+
   it("valida e encaminha modelProviderId ao roteador", async () => {
     const { controller, inputs, providers } = setup();
     const validateManagedProvider = jest.fn(async () => undefined);
@@ -369,7 +432,7 @@ describe("ChatController tool loop", () => {
   it("offers a sensitive granted tool and keeps its invocation pending approval", async () => {
     const invoke = jest.fn(async () => ({ id: "run-pending", tool: "memoria.apagar_tudo", requestedBy: "Jadson", status: "pending_approval", input: {}, output: null, approvalId: "approval-1", createdAt: "", finishedAt: null }));
     const { controller, inputs, providers } = setup({ agent: { instructions: "", enabled: true, model: null, generationConfig: null }, skills: [{ tools: ["memoria.apagar_tudo"], instructions: "" }], invoke });
-    providers.stream.mockImplementationOnce(async (input) => { inputs.push(input); return sseResponse([toolCall("memoria.apagar_tudo")]); }).mockImplementationOnce(async (input) => { inputs.push(input); return sseResponse([{ choices: [{ delta: { content: "aguardando" } }] }]); });
+    providers.stream.mockImplementationOnce(async (input: unknown) => { inputs.push(input); return sseResponse([toolCall("memoria.apagar_tudo")]); }).mockImplementationOnce(async (input: unknown) => { inputs.push(input); return sseResponse([{ choices: [{ delta: { content: "aguardando" } }] }]); });
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
     expect(inputs[0].tools.some((tool: any) => tool.function.name === "memoria__apagar_tudo")).toBe(true);
     expect(invoke).toHaveBeenCalledTimes(1);

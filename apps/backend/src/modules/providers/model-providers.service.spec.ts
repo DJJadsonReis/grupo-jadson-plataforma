@@ -97,4 +97,13 @@ describe("ModelProvidersService", () => {
     expect(await service.selectable()).toHaveLength(1);
     await service.remove(created.id); await expect(service.test(created.id)).rejects.toBeInstanceOf(NotFoundException);
   });
+  it("validates enabled provider references and catalog models for agent routing", async () => {
+    const { service } = setup();
+    const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    await expect(service.validateAgentTarget(created.id, "gpt-4o-mini")).resolves.toBeUndefined();
+    await expect(service.validateAgentTarget("123e4567-e89b-42d3-a456-426614174099", "gpt-4o-mini")).rejects.toMatchObject({ status: 400 });
+    await expect(service.validateAgentTarget(created.id, "modelo-fora-do-catalogo")).rejects.toMatchObject({ status: 400 });
+    await service.patch(created.id, { enabled: false });
+    await expect(service.validateAgentTarget(created.id, "gpt-4o-mini")).rejects.toMatchObject({ status: 400 });
+  });
 });

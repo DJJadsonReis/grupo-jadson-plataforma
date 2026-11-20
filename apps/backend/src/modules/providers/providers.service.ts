@@ -1,4 +1,4 @@
-import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { HttpException, Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { OpenAiProvider } from "./openai.provider";
 import { CompletionInput } from "./provider.types";
 import { AnthropicProvider } from "./anthropic.provider";
@@ -9,7 +9,10 @@ import { modelsForProvider } from "./model-catalogue";
 
 @Injectable()
 export class ProvidersService {
+  private fetcher: typeof fetch = (input, init) => fetch(input, init);
   constructor(private readonly openAi: OpenAiProvider, private readonly anthropic: AnthropicProvider, private readonly integrations: IntegrationsService, private readonly modelProviders?: ModelProvidersService) {}
+
+  setTestFetcher(fetcher: typeof fetch): void { this.fetcher = fetcher; }
 
   async catalogue() {
     const key = (await this.integrations.secret("modelo_chave"))?.trim() ?? "";
@@ -63,18 +66,31 @@ export class ProvidersService {
   private async streamManagedCompatible(input: CompletionInput, baseUrl: string, apiKey: string, model: string, signal?: AbortSignal): Promise<Response> {
     let response: Response;
     try {
-      response = await fetch(`${baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", signal: signal ?? null, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
+      response = await this.fetcher(`${baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", signal: signal ?? null, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
     } catch { throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
-    if (!response.ok) throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `O modelo respondeu com HTTP ${response.status}.` });
+    if (!response.ok) {
+      const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
+      throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `O modelo respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);
+    }
     return response;
   }
 
   private async streamManagedAnthropic(input: CompletionInput, apiKey: string, model: string, signal?: AbortSignal): Promise<Response> {
     const { anthropicStreamToOpenAi, translateAnthropicRequest } = await import("./anthropic.provider");
     let response: Response;
-    try { response = await fetch("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(translateAnthropicRequest({ ...input, model })) }); }
+    try { response = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(translateAnthropicRequest({ ...input, model })) }); }
     catch { throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor Anthropic." }); }
-    if (!response.ok) throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `Anthropic respondeu com HTTP ${response.status}.` });
+    if (!response.ok) {
+      const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
+      throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `Anthropic respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);
+    }
     return anthropicStreamToOpenAi(response);
+  }
+
+  private async modelUnavailable(response: Response): Promise<boolean> {
+    try {
+      const text = await response.clone().text();
+      return /model.{0,40}(?:not found|unavailable|does not exist|unknown)|(?:not found|unavailable).{0,40}model/i.test(text);
+    } catch { return false; }
   }
 }

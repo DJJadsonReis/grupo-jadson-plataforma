@@ -25,6 +25,7 @@ import { formatCostUsd, formatTokens } from "./lib/usage";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
 import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
+import { addFallback, moveFallback, removeFallback, type AgentModelTarget } from "./lib/agent-model-routing";
 import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
@@ -663,8 +664,12 @@ function Workspace({ edition }: { edition: Edition }) {
           reader.onerror = () => reject(new Error("Não foi possível ler o anexo.")); reader.readAsDataURL(file);
         })
       })));
-      if (attachments.some((attachment) => !["image/png", "image/jpeg", "image/webp"].includes(attachment.type) || attachment.size > 5 * 1024 * 1024) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
-        throw new Error("Anexe até 5 MB de imagens PNG, JPEG ou WebP por mensagem.");
+      if (attachments.some((attachment) => {
+        const image = ["image/png", "image/jpeg", "image/webp"].includes(attachment.type);
+        const code = isCodeFileName(attachment.name);
+        return (!image && !code) || (code && attachment.size > 1024 * 1024) || attachment.size > 5 * 1024 * 1024;
+      }) || attachments.reduce((sum, item) => sum + item.size, 0) > 5 * 1024 * 1024) {
+        throw new Error("Anexe até 5 MB de imagens ou arquivos de código UTF-8 (máximo 1 MB por arquivo).");
       }
       setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: item.messages.map((message, index) => index === item.messages.length - 1 && message.role === "user" ? { ...message, attachments } : message) } : item));
       const response = await apiFetch(`${API_URL}/chat/completions`, {
@@ -742,7 +747,9 @@ function Workspace({ edition }: { edition: Edition }) {
         })),
       });
       if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
-      const saved = await response.json() as Agent;
+      const savedAgent = normalizeAgent(await response.json());
+      if (!savedAgent) throw new Error("Resposta inválida ao salvar agente.");
+      const saved = savedAgent;
       setRemoteAgentIds((ids) => ids.includes(saved.id) ? ids : [...ids, saved.id]);
       setAgents((items) => items.map((item) => item.id === agent.id ? saved : item));
       setAgentPersistence("connected");
@@ -1106,7 +1113,7 @@ function Workspace({ edition }: { edition: Edition }) {
 
       <StarterTour onNavigate={(pageId) => changePage(pageId)} />
       {agentEditor && (
-        <AgentModal agent={agentEditor} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
+        <AgentModal agent={agentEditor} providers={selectableProviders} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
       )}
     </div>
   );
@@ -1612,7 +1619,7 @@ function ChatPage({
       )}
 
       {/* FLUXO DA CONVERSA: coluna central de leitura */}
-      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type)); setFiles([...files, ...images]); }}>
+      <div className="gx-scroll" onDragOver={(event) => { if (Array.from(event.dataTransfer.types).includes("Files")) event.preventDefault(); }} onDrop={(event) => { event.preventDefault(); const images = Array.from(event.dataTransfer.files).filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name)); setFiles([...files, ...images]); }}>
         <div className="gx-column">
           {!conversation?.messages.length ? (
             <div className="gx-empty">
@@ -1640,7 +1647,7 @@ function ChatPage({
                 if (message.role === "user") {
                   return (
                     <div className="gx-turn gx-turn-user" key={index + "-user"}>
-                      {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} />)}
+                      {(Array.isArray(message.attachments) ? message.attachments : []).map((attachment) => attachment?.dataUrl && (attachment.type.startsWith("image/") ? <img key={attachment.id} className="gx-attachment" src={attachment.dataUrl} alt={attachment.name} onClick={() => window.open(attachment.dataUrl, "_blank", "noopener,noreferrer")} /> : <span key={attachment.id} className="gx-chip"><FileText size={14} />{attachment.name}</span>))}
                       <div className="gx-user-bubble">{message.content}</div>
                     </div>
                   );
@@ -1755,15 +1762,15 @@ function ChatPage({
                   hidden
                   type="file"
                   multiple
-                  accept="image/png,image/jpeg,image/webp,application/pdf"
+                  accept="image/png,image/jpeg,image/webp,.c,.cc,.cpp,.cs,.go,.h,.java,.js,.jsx,.php,.py,.rb,.rs,.sh,.sql,.ts,.tsx,.json,.yaml,.yml,.toml,.md,application/pdf"
                   onChange={(event) => {
                     const chosen = Array.from(event.target.files ?? []);
-                    setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type))]);
+                    setFiles([...files, ...chosen.filter((file) => ["image/png", "image/jpeg", "image/webp"].includes(file.type) || isCodeFileName(file.name))]);
                     void attachPdfs(chosen.filter((file) => file.type === "application/pdf"));
                     event.target.value = "";
                   }}
                 />
-                <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
+                <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem, código ou PDF" aria-label="Anexar imagem, código ou PDF">
                   <Paperclip size={16} />
                 </button>
                 <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text, selectedModelOption?.providerId)} />
@@ -3534,8 +3541,37 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
 /* =========================================================================
    MODAIS & HELPERS
    ========================================================================= */
-function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
+type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string }[] };
+function isCodeFileName(name: string): boolean { return /\.(?:c|cc|cpp|cs|go|h|java|js|jsx|php|py|rb|rs|sh|sql|ts|tsx|json|yaml|yml|toml|md)$/i.test(name); }
+
+function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, label }: { value?: AgentModelTarget | undefined; providers: AgentModelProviderOption[]; onChange: (value?: AgentModelTarget) => void; allowPrimary?: boolean; label: string }) {
+  const selected = value ? `${value.providerId}|${value.model}` : "";
+  const missingProvider = value && !providers.some((provider) => provider.providerId === value.providerId);
+  const selectedProvider = value && providers.find((provider) => provider.providerId === value.providerId);
+  const missingModel = value && selectedProvider && !selectedProvider.models.some((model) => model.id === value.model);
+  return <label><span>{label}</span><select value={selected} onChange={(event) => {
+    if (!event.target.value) { onChange(undefined); return; }
+    const [providerId, model] = event.target.value.split("|");
+    if (providerId && model) onChange({ providerId, model });
+  }}>
+    {!allowPrimary && <option value="">Selecione um provedor e modelo</option>}
+    {allowPrimary && <option value="">Usar o principal</option>}
+    {missingProvider && <option value={selected}>Provedor desabilitado ou indisponível: {value?.providerId}</option>}
+    {missingModel && <option value={selected}>Modelo atual: {value?.model}</option>}
+    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
+  </select>{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
+}
+
+function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: Agent; providers: AgentModelProviderOption[]; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
   const endpoint = (agent as Agent & { providerKind?: string }).providerKind === "endpoint";
+  const rawRouting = agent.modelRouting;
+  const routing = rawRouting && Array.isArray(rawRouting.fallbacks) ? rawRouting : { fallbacks: [] };
+  const fallbacks = routing.fallbacks;
+  const setRouting = (next: NonNullable<Agent["modelRouting"]>) => onChange({ ...agent, modelRouting: next });
+  const primaryProvider = providers.find((provider) => provider.providerId === agent.provider);
+  const primaryModelValue = agent.provider && agent.model && primaryProvider
+    ? { providerId: agent.provider, model: agent.model } : undefined;
+  const updatePrimary = (target?: AgentModelTarget) => onChange({ ...agent, provider: target?.providerId ?? "openai", model: target?.model ?? "" });
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <form className="bot-create-dialog" onSubmit={onSubmit}>
@@ -3560,7 +3596,6 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
               <label><span>Departamento</span><input value={agent.department ?? ""} onChange={(event) => onChange({ ...agent, department: event.target.value })} placeholder="Ex.: Engenharia" /></label>
               <label><span>Avatar (URL ou imagem data URL)</span><input value={agent.avatar ?? ""} onChange={(event) => onChange({ ...agent, avatar: event.target.value })} placeholder="https://… ou data:image/png;base64,…" /></label>
               <SpecialtiesInput value={toStringList(agent.specialties)} onChange={(specialties) => onChange({ ...agent, specialties })} />
-              <label><span>Provider</span><select value={agent.provider ?? "openai"} onChange={(event) => onChange({ ...agent, provider: event.target.value })}><option value="openai">OpenAI</option></select></label>
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
@@ -3575,10 +3610,25 @@ function AgentModal({ agent, onChange, onClose, onSubmit }: { agent: Agent; onCh
                 <span>Instruções de Sistema (Prompt Base)</span>
                 <textarea rows={4} value={agent.instructions} onChange={(event) => onChange({ ...agent, instructions: event.target.value })} placeholder="Como este agente deve responder, estruturar informações e se comportar?" />
               </label>
-              {!endpoint && <label>
-                <span>Modelo Específico (Opcional)</span>
-                <input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="Ex.: gpt-4o, claude-3-5-sonnet" />
-              </label>}
+              {!endpoint && <>
+                <ModelTargetSelect label="Modelo principal" providers={providers} value={primaryModelValue} onChange={updatePrimary} />
+                {agent.provider && /^[0-9a-f-]{36}$/i.test(agent.provider) && !primaryProvider && <p role="alert">O provedor do modelo principal foi desabilitado ou removido. Selecione um provedor ativo antes de salvar.</p>}
+                {primaryProvider && !primaryProvider.models.some((item) => item.id === agent.model) && <label><span>Modelo principal personalizado</span><input value={agent.model} onChange={(event) => onChange({ ...agent, model: event.target.value })} placeholder="ID do modelo" /></label>}
+                <section className="modal-fields" aria-label="Roteamento de modelos">
+                  <h3>Modelos reserva</h3>
+                  {fallbacks.map((target, index) => <div key={`${target.providerId}:${target.model}:${index}`} className="modal-fields">
+                    <ModelTargetSelect label={`Reserva ${index + 1}`} providers={providers} value={target} onChange={(next) => next && setRouting({ ...routing, fallbacks: fallbacks.map((item, itemIndex) => itemIndex === index ? next : item) })} />
+                    {!providers.some((item) => item.providerId === target.providerId) && <p role="alert">O provedor desta reserva foi desabilitado ou removido. Escolha outro antes de salvar.</p>}
+                    <div><button type="button" disabled={index === 0} onClick={() => setRouting({ ...routing, fallbacks: moveFallback(fallbacks, index, -1) })}>Subir</button><button type="button" disabled={index === fallbacks.length - 1} onClick={() => setRouting({ ...routing, fallbacks: moveFallback(fallbacks, index, 1) })}>Descer</button><button type="button" onClick={() => setRouting({ ...routing, fallbacks: removeFallback(fallbacks, index) })}>Remover</button></div>
+                  </div>)}
+                  <button type="button" disabled={fallbacks.length >= 5 || !providers.some((item) => item.models.length)} onClick={() => {
+                    const candidate = providers.flatMap((provider) => provider.models.map((model) => ({ providerId: provider.providerId, model: model.id }))).find((target) => !fallbacks.some((item) => item.providerId === target.providerId && item.model === target.model) && !(target.providerId === agent.provider && target.model === agent.model));
+                    if (candidate) { try { setRouting({ ...routing, fallbacks: addFallback(fallbacks, candidate) }); } catch { /* disabled when limit is reached */ } }
+                  }}>Adicionar modelo reserva</button>
+                  <ModelTargetSelect label="Imagem/visão" providers={providers} value={routing.taskModels?.vision} allowPrimary onChange={(vision) => { const taskModels = { ...routing.taskModels, ...(vision ? { vision } : {}) }; if (!vision) delete taskModels.vision; setRouting({ ...routing, taskModels }); }} />
+                  <ModelTargetSelect label="Código" providers={providers} value={routing.taskModels?.code} allowPrimary onChange={(code) => { const taskModels = { ...routing.taskModels, ...(code ? { code } : {}) }; if (!code) delete taskModels.code; setRouting({ ...routing, taskModels }); }} />
+                </section>
+              </>}
               {!endpoint && <><label><span>Temperatura (0 a 2)</span><input type="number" min="0" max="2" step="0.1" value={agent.generationConfig?.temperature ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { temperature: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label>
               <label><span>Limite de tokens</span><input type="number" min="1" max="32000" step="1" value={agent.generationConfig?.maxTokens ?? ""} onChange={(event) => onChange({ ...agent, generationConfig: { ...agent.generationConfig, ...(event.target.value ? { maxTokens: Number(event.target.value) } : {}) } })} placeholder="Padrão do provider" /></label></>}
             </div>

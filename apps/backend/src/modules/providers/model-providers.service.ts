@@ -106,6 +106,15 @@ export class ModelProvidersService {
     if (!row.enabled || !row.secretCiphertext) throw new BadRequestException({ code: "PROVIDER_UNAVAILABLE", message: "O provedor selecionado está indisponível." });
     return { kind: row.kind, baseUrl: row.baseUrl, apiKey: this.box.decrypt(row.secretCiphertext) };
   }
+  async validateAgentTarget(id: string, model: string): Promise<void> {
+    let row: ModelProviderRow;
+    try { row = await this.find(id); } catch { throw new BadRequestException("O provedor informado não existe."); }
+    if (!row.enabled || !row.secretCiphertext) throw new BadRequestException("O provedor informado está desabilitado ou sem chave.");
+    if (row.kind !== "custom" && !modelsForProvider(row.kind).some((candidate) => candidate.id === model)) {
+      throw new BadRequestException("O modelo informado não pertence ao catálogo do provedor.");
+    }
+    if (!model.trim() || model.length > 100 || !/^[a-zA-Z0-9._:-]+$/.test(model)) throw new BadRequestException("O modelo informado é inválido.");
+  }
   async test(id: string): Promise<{ ok: true; models: SelectableModel[] } | { ok: false; message: string }> {
     const row = await this.find(id);
     if (!row.secretCiphertext) return { ok: false, message: "Nenhuma chave salva para este provedor." };

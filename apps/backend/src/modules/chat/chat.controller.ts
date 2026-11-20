@@ -1,5 +1,6 @@
 import { BadRequestException, Body, Controller, Get, Logger, Optional, Post, Req, Res } from "@nestjs/common";
 import { Response } from "express";
+import { randomUUID } from "node:crypto";
 import { AgentsService } from "../agents/agents.service";
 import { GroupsService } from "../agents/groups.service";
 import { resolveGroupRecipient } from "./group-routing";
@@ -28,6 +29,7 @@ import { effectiveSkillTools } from "../skills/skill-tools";
 import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
+import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -126,8 +128,8 @@ function resultForModel(toolName: string, run: ToolRun): string {
 }
 
 /** Um pedaço de texto da resposta. O fim do fluxo (`[DONE]`) é escrito uma única vez, no final. */
-function sseTextChunk(text: string): Uint8Array {
-  const event = { id: `chatcmpl-${Date.now()}`, object: "chat.completion.chunk", choices: [{ index: 0, delta: { content: text }, finish_reason: null }] };
+function sseTextChunk(text: string, model?: string): Uint8Array {
+  const event = { id: `chatcmpl-${Date.now()}`, object: "chat.completion.chunk", ...(model ? { model } : {}), choices: [{ index: 0, delta: { content: text }, finish_reason: null }] };
   return new TextEncoder().encode(`data: ${JSON.stringify(event)}\n\n`);
 }
 
@@ -204,10 +206,13 @@ export class ChatController {
     const effectiveModel = model ?? (agent?.model || undefined);
     if (attachments.length) {
       const text = typeof latestUser.content === "string" ? latestUser.content : "";
-      latestUser.content = [
-        ...(text ? [{ type: "text" as const, text }] : []),
-        ...attachments.map((item) => ({ type: "image_url" as const, image_url: { url: item.dataUrl, detail: "auto" as const } })),
-      ];
+      const contentParts: ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "auto" } })[] = [];
+      if (text) contentParts.push({ type: "text", text });
+      for (const item of attachments) {
+        if (item.type.startsWith("image/")) contentParts.push({ type: "image_url", image_url: { url: item.dataUrl, detail: "auto" } });
+        else contentParts.push({ type: "text", text: `Arquivo de código ${item.name}:\n${this.decodeCodeAttachment(item.dataUrl)}` });
+      }
+      latestUser.content = contentParts;
     }
 
     const abort = new AbortController();
@@ -253,9 +258,10 @@ export class ChatController {
       }
     }
     const found = new Set<string>();
+    const primaryProvider = modelProviderId ?? (agent?.provider && UUID.test(agent.provider) ? agent.provider : agent?.provider ?? "openai");
     const completion = {
-      provider: agent?.provider === "anthropic" ? "anthropic" as const : "openai" as const,
-      ...(modelProviderId ? { providerId: modelProviderId } : {}),
+      provider: primaryProvider === "anthropic" ? "anthropic" as const : "openai" as const,
+      ...(UUID.test(primaryProvider) ? { providerId: primaryProvider } : {}),
       ...(effectiveModel === undefined ? {} : { model: effectiveModel }),
       ...(agent?.generationConfig ? { generationConfig: agent.generationConfig } : {}),
     };
@@ -266,6 +272,7 @@ export class ChatController {
     if (groupId) res.write(sseMetadata({ type: "group-routing", agentId, mentions: mentionRecords }));
     let answer = "";
     let reportedModel = effectiveModel ?? "", usageReport = null as { promptTokens: number; completionTokens: number; totalTokens: number } | null;
+    let reportedProviderId: string | undefined = UUID.test(primaryProvider) ? primaryProvider : undefined;
     try {
       if (agent?.providerKind === "endpoint") {
         try {
@@ -286,6 +293,12 @@ export class ChatController {
       let subagentToolsUsed = 0;
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
+      const task = classifyTask(messageText, attachments.some((item) => item.type.startsWith("image/")), attachments);
+      const attempts = agent && !modelProviderId && effectiveModel
+        ? modelAttempts({ providerId: UUID.test(agent.provider) ? agent.provider : "legacy", model: effectiveModel }, agent.modelRouting, task)
+        : [{ providerId: primaryProvider, model: effectiveModel ?? "", fallback: false }];
+      let attemptIndex = 0;
+      let usedFallback: { providerId: string; model: string; reason: string } | null = null;
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
         const visible = providerTools(visibleTools(toolCatalog, found));
         const availableTools = {
@@ -293,22 +306,54 @@ export class ChatController {
           names: new Map([...visible.names, ...grantedSkillTools.names]),
           risks: new Map([...visible.risks, ...grantedSkillTools.risks]),
         };
-        const upstream = await this.providers.stream({ ...completion, tools: availableTools.tools, messages: workingMessages }, abort.signal);
-        const stream = new MaskedTextStream(mask, (piece) => { res.write(sseTextChunk(piece)); });
-        const round = await readCompletion(upstream, stream);
-        if (round.model) reportedModel = round.model;
+        let round: StreamedCompletion | undefined;
+        let stream: MaskedTextStream | undefined;
+        for (let index = attemptIndex; index < attempts.length; index += 1) {
+          const target = attempts[index]!;
+          let emittedText = false;
+          try {
+            const targetCompletion = {
+              ...completion,
+              provider: target.providerId === "anthropic" ? "anthropic" as const : "openai" as const,
+              ...(UUID.test(target.providerId) ? { providerId: target.providerId } : {}),
+              model: target.model,
+              tools: availableTools.tools,
+              messages: workingMessages,
+            };
+            const timedSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(60_000)]);
+            const upstream = await this.providers.stream(targetCompletion, timedSignal);
+            stream = new MaskedTextStream(mask, (piece) => { emittedText = true; res.write(sseTextChunk(piece, target.model)); });
+            round = await readCompletion(upstream, stream);
+            attemptIndex = index;
+            if (target.fallback && usedFallback) {
+              try { await this.audit.record({ action: "model.fallback", subject: conversationId ?? null, details: { agentId: agentId ?? null, providerId: target.providerId, model: target.model, reason: usedFallback.reason } }); }
+              catch { this.logger.warn("Auditoria de failover do modelo não foi gravada."); }
+              usedFallback = null;
+            }
+            break;
+          } catch (error) {
+            stream?.discard();
+            if (!isRetryableModelError(error, emittedText, abort.signal.aborted) || index + 1 >= attempts.length) throw error;
+            const next = attempts[index + 1]!;
+            usedFallback = { providerId: next.providerId, model: next.model, reason: failureReason(error) };
+            attemptIndex = index + 1;
+          }
+        }
+        if (!round) break;
+        reportedModel = round.model || attempts[attemptIndex]?.model || reportedModel;
+        reportedProviderId = UUID.test(attempts[attemptIndex]?.providerId ?? "") ? attempts[attemptIndex]!.providerId : undefined;
         if (round.usage) usageReport = {
           promptTokens: (usageReport?.promptTokens ?? 0) + round.usage.promptTokens,
           completionTokens: (usageReport?.completionTokens ?? 0) + round.usage.completionTokens,
           totalTokens: (usageReport?.totalTokens ?? 0) + round.usage.totalTokens,
         };
         if (!round.toolCalls.length) {
-          stream.flush();
+          stream?.flush();
           answer = mask(round.content);
           break;
         }
         // Rodada de ferramenta: o que ainda estava segurado no buffer não é resposta.
-        stream.discard();
+        stream?.discard();
         if (iteration >= MAX_TOOL_ITERATIONS) {
           answer = `Não foi possível concluir: o limite de ${MAX_TOOL_ITERATIONS} ciclos de ferramentas foi atingido.`;
           res.write(sseTextChunk(answer));
@@ -420,13 +465,20 @@ export class ChatController {
       if (conversationId && answer) {
         try {
           if (agent?.providerKind === "endpoint") throw new Error("endpoint title generation disabled");
-          const title = await generateConversationTitle((input) => this.providers.stream(input, abort.signal), effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
+          const title = await generateConversationTitle((input) => this.providers.stream({ ...input, ...(reportedProviderId ? { providerId: reportedProviderId } : {}) }, abort.signal), reportedModel || effectiveModel, messageText, answer, agent?.provider === "anthropic" ? "anthropic" : "openai");
           if (title) await this.conversations.setTitleForFirstResponse(conversationId, title, request.principal?.id ?? "sistema");
         } catch { /* the current user-message title is the fallback */ }
         try { await this.conversations.addMessage(conversationId, "assistant", answer, agentId ? { agentId } : {}, request.principal?.id ?? "sistema"); }
         catch (error) { this.logger.warn(`Resposta enviada, mas não persistida: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
       if (!abort.signal.aborted) {
+        res.write(SSE_DONE);
+        res.end();
+      }
+    } catch {
+      const message = "Não foi possível obter uma resposta do provedor de IA.";
+      if (!abort.signal.aborted && !res.writableEnded) {
+        res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AI_PROVIDER_REQUEST_FAILED", message })}\n\n`));
         res.write(SSE_DONE);
         res.end();
       }
@@ -448,14 +500,31 @@ export class ChatController {
     if (!body || typeof body !== "object") return [];
     const raw = (body as { attachments?: unknown }).attachments;
     if (raw === undefined) return [];
-    if (!Array.isArray(raw) || raw.length > 4) throw new BadRequestException("Envie no máximo quatro imagens por mensagem.");
+    if (!Array.isArray(raw) || raw.length > 4) throw new BadRequestException("Envie no máximo quatro anexos por mensagem.");
     let total = 0;
     return raw.map((value) => {
-      const attachment = validateImageAttachment(value);
+      const candidate = value && typeof value === "object" ? value as Record<string, unknown> : {};
+      const name = typeof candidate.name === "string" ? candidate.name : "";
+      const type = typeof candidate.type === "string" ? candidate.type : "";
+      const isCode = /\.(?:c|cc|cpp|cs|go|h|java|js|jsx|php|py|rb|rs|sh|sql|ts|tsx|json|yaml|yml|toml|md)$/i.test(name);
+      const attachment = isCode && type !== "application/pdf" ? this.validateCodeAttachment(candidate) : validateImageAttachment(value);
       total += attachment.size;
-      if (total > MAX_IMAGE_BYTES) throw new BadRequestException("O total de imagens por mensagem não pode exceder 5 MB.");
+      if (total > MAX_IMAGE_BYTES) throw new BadRequestException("O total de anexos por mensagem não pode exceder 5 MB.");
       return attachment;
     });
+  }
+  private validateCodeAttachment(item: Record<string, unknown>): StoredAttachment {
+    if (typeof item.name !== "string" || item.name.length > 240 || typeof item.type !== "string" || typeof item.dataUrl !== "string") throw new BadRequestException("Anexo de código inválido.");
+    const match = /^data:[^;,]+;base64,([A-Za-z0-9+/]*={0,2})$/.exec(item.dataUrl);
+    if (!match) throw new BadRequestException("Conteúdo do anexo de código inválido.");
+    const bytes = Buffer.from(match[1]!, "base64");
+    if (!bytes.length || bytes.length > 1024 * 1024 || (typeof item.size === "number" && item.size !== bytes.length)) throw new BadRequestException("O anexo de código deve ter até 1 MB.");
+    try { new TextDecoder("utf-8", { fatal: true }).decode(bytes); } catch { throw new BadRequestException("O anexo precisa ser um arquivo de texto UTF-8."); }
+    return { id: typeof item.id === "string" && UUID.test(item.id) ? item.id : randomUUID(), name: item.name, type: item.type || "text/plain", size: bytes.length, dataUrl: item.dataUrl };
+  }
+  private decodeCodeAttachment(dataUrl: string): string {
+    const encoded = dataUrl.slice(dataUrl.indexOf(",") + 1);
+    return Buffer.from(encoded, "base64").toString("utf8");
   }
   private parseModel(body: unknown): string | undefined {
     if (!body || typeof body !== "object") return undefined;
