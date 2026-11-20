@@ -43,6 +43,7 @@ import { ConversationEffortApi, CONVERSATION_EFFORT_OPTIONS, effortLabel, should
 import { ConversationModelApi, initialConversationModel, modelChoiceForSelection, modelSelectionError } from "./lib/conversation-model";
 import { agentesDelegaveis, delegacaoDesabilitada, rotuloDelegacao } from "./lib/handoff";
 import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
+import { setupNotice, type SetupRepairResult } from "./lib/setup-status";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -217,6 +218,8 @@ function writeSignInRequired(required: boolean): void {
  * Sem provedores configurados, ou com o backend fora do ar, o app segue como antes.
  */
 export default function App() {
+  const [setupStatus, setSetupStatus] = useState<SetupRepairResult | null>(null);
+  const [setupFailed, setSetupFailed] = useState(false);
   const [edition, setEdition] = useState<Edition>("equipe");
   const [editionLoaded, setEditionLoaded] = useState(false);
   const [session, setSession] = useState<string | null>(() => readSession());
@@ -226,12 +229,20 @@ export default function App() {
     try { return window.localStorage.getItem(FIRST_RUN_COMPLETE_KEY) === "1"; } catch { return false; }
   });
 
+
   useEffect(() => {
     let active = true;
     let controller: AbortController | null = null;
     let timeout: number | null = null;
     const initialize = async () => {
-      if (!import.meta.env.DEV) await invoke("ensure_desktop_setup").catch(() => undefined);
+      if (!import.meta.env.DEV) {
+        try {
+          const status = await invoke<SetupRepairResult>("ensure_desktop_setup");
+          if (active) { setSetupStatus(status); setSetupFailed(false); }
+        } catch {
+          if (active) setSetupFailed(true);
+        }
+      }
       if (!active) return;
       controller = new AbortController();
       timeout = window.setTimeout(() => controller?.abort(), 3000);
@@ -303,7 +314,7 @@ export default function App() {
       />
     );
   }
-  return <Workspace edition={edition} isAdmin={isAdmin} />;
+  return <Workspace edition={edition} isAdmin={isAdmin} setupStatus={setupStatus} setupFailed={setupFailed} setSetupStatus={setSetupStatus} setSetupFailed={setSetupFailed} onOpenSetup={() => { setFirstRunComplete(false); try { window.localStorage.removeItem(FIRST_RUN_COMPLETE_KEY); } catch { /* segue para a configuração */ } }} />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -356,7 +367,8 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean }) {
+function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus, setSetupFailed, onOpenSetup }: { edition: Edition; isAdmin: boolean; setupStatus: SetupRepairResult | null; setupFailed: boolean; setSetupStatus: Dispatch<SetStateAction<SetupRepairResult | null>>; setSetupFailed: Dispatch<SetStateAction<boolean>>; onOpenSetup: () => void }) {
+  const [repairingSetup, setRepairingSetup] = useState(false);
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -546,11 +558,13 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
       try {
         const response = await repairHealthAndRetry(
             () => apiFetch(`${API_URL}/health`, {}, true),
-            () => invoke("ensure_desktop_setup"),
+            () => invoke<SetupRepairResult>("ensure_desktop_setup"),
+            () => invoke("restart_local_backend"),
             () => {
               window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
               rejectedRequest = { input: `${API_URL}/health`, init: {} };
             },
+            (status, failed) => { if (active) { setSetupStatus(status); setSetupFailed(failed); } },
           );
         if (!response.ok) throw new BackendHealthError(response.status);
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
@@ -1255,7 +1269,22 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
         )}
       </main>
 
-      <StarterTour onNavigate={(pageId) => changePage(pageId)} />
+      {setupNotice(setupStatus, setupFailed).action !== "none" && (
+        <aside role={setupFailed ? "alert" : "status"} className="setup-repair-banner">
+          <span>{setupNotice(setupStatus, setupFailed).message}</span>
+          <button type="button" onClick={() => {
+            if (setupNotice(setupStatus, setupFailed).action === "settings") { onOpenSetup(); return; }
+            setRepairingSetup(true);
+            void invoke<SetupRepairResult>("ensure_desktop_setup")
+              .then((status) => { setSetupStatus(status); setSetupFailed(false); })
+              .catch(() => setSetupFailed(true))
+              .finally(() => setRepairingSetup(false));
+          }} disabled={repairingSetup}>
+            {repairingSetup ? "Reparando…" : setupNotice(setupStatus, setupFailed).action === "settings" ? "Configurar PostgreSQL" : "Reparar"}
+          </button>
+          {setupNotice(setupStatus, setupFailed).kind === "precisa_url" && <button type="button" onClick={onOpenSetup}>Configurações</button>}
+        </aside>
+      )}      <StarterTour onNavigate={(pageId) => changePage(pageId)} />
       {agentEditor && (
         <AgentModal agent={agentEditor} providers={selectableProviders} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
       )}

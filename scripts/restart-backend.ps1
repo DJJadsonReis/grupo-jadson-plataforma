@@ -35,15 +35,26 @@ try {
   $Connection = Get-NetTCPConnection -LocalPort $ApiPort -State Listen -ErrorAction SilentlyContinue | Select-Object -First 1
   if ($Connection) { [void]$BackendProcessIds.Add([int]$Connection.OwningProcess) }
 } catch { }
+$ValidatedBackendProcessIds = [System.Collections.Generic.HashSet[int]]::new()
+foreach ($ProcessId in $BackendProcessIds) {
+  $ProcessInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $ProcessId" -ErrorAction SilentlyContinue
+  if (-not $ProcessInfo) { continue }
+  $IsNode = [IO.Path]::GetFileNameWithoutExtension([string]$ProcessInfo.Name) -eq 'node'
+  $IsBackend = [string]$ProcessInfo.CommandLine -match '(?i)(^|[\\/])dist[\\/]main\.js(?:\s|$)'
+  if ($IsNode -and $IsBackend) { [void]$ValidatedBackendProcessIds.Add($ProcessId) }
+  elseif ($Connection -and $ProcessId -eq [int]$Connection.OwningProcess) {
+    if (-not $DryRun) { throw 'A porta da API pertence a um processo que não é node dist/main.js. Ele não será encerrado.' }
+  }
+}
 
 if ($DryRun) {
-  Write-Output "DryRun: encerraria o processo do backend registrado ou na porta $ApiPort e iniciaria node dist/main.js com a configuração local; os logs iriam para .runtime\logs."
+  Write-Output "DryRun: só encerraria node dist/main.js; qualquer outro dono da porta $ApiPort será recusado durante a execução. Nenhum processo será encerrado agora."
   exit 0
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $BackendDirectory 'dist\main.js') -PathType Leaf)) { throw 'A compilação do backend não foi encontrada.' }
 New-Item -ItemType Directory -Force -Path $LogDirectory | Out-Null
-foreach ($ProcessId in $BackendProcessIds) { Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue }
+foreach ($ProcessId in $ValidatedBackendProcessIds) { Stop-Process -Id $ProcessId -Force -ErrorAction SilentlyContinue }
 $Node = (Get-Command node -ErrorAction Stop).Source
 $StdoutLog = Join-Path $LogDirectory 'backend.out.log'
 $StderrLog = Join-Path $LogDirectory 'backend.err.log'

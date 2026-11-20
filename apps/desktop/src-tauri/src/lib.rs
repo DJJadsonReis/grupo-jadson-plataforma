@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
 
-use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::{merge_setup_config, repair_setup_config, valid_api_token}, valid_postgres_archive_path, valid_sha256};
+use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::{merge_setup_config, repair_setup_config, setup_needs_database_url, valid_api_token}, valid_postgres_archive_path, valid_sha256};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -262,8 +262,12 @@ fn atomic_write_setup(path: &std::path::Path, bytes: &[u8]) -> Result<(), String
     Ok(())
 }
 
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SetupRepairStatus { database_url_missing: bool }
+
 #[tauri::command]
-fn ensure_desktop_setup() -> Result<(), String> {
+fn ensure_desktop_setup() -> Result<SetupRepairStatus, String> {
     let path = desktop_setup_path()?;
     let existing = match fs::read(&path) {
         Ok(bytes) => serde_json::from_slice(&bytes).unwrap_or_else(|_| serde_json::json!({})),
@@ -272,11 +276,33 @@ fn ensure_desktop_setup() -> Result<(), String> {
     };
     let token = secure_token()?;
     let repaired = repair_setup_config(existing.clone(), std::env::var("DATABASE_URL").ok().as_deref(), &token)?;
-    if repaired == existing { return Ok(()); }
-    let bytes = serde_json::to_vec(&repaired).map_err(|_| "não foi possível preparar a configuração local".to_string())?;
-    atomic_write_setup(&path, &bytes)
+    if repaired != existing {
+        let bytes = serde_json::to_vec(&repaired).map_err(|_| "não foi possível preparar a configuração local".to_string())?;
+        atomic_write_setup(&path, &bytes)?;
+    }
+    Ok(SetupRepairStatus { database_url_missing: setup_needs_database_url(&repaired) })
 }
 
+#[tauri::command]
+async fn restart_local_backend() -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(run_local_backend_restart)
+        .await.map_err(|_| "não foi possível acompanhar a reinicialização do backend".to_string())?
+}
+
+fn run_local_backend_restart() -> Result<(), String> {
+    let setup = read_setup_config()?;
+    if setup_needs_database_url(&setup) || !setup.get("apiToken").and_then(serde_json::Value::as_str).is_some_and(valid_api_token) {
+        return Err("Informe o endereço do PostgreSQL nas configurações antes de reconectar.".to_string());
+    }
+    let root = find_project_root().ok_or_else(|| "Não foi possível localizar o script do backend local.".to_string())?;
+    let script = root.join("scripts").join("restart-backend.ps1");
+    if !script.is_file() { return Err("O script de reinicialização do backend não foi encontrado.".to_string()); }
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(script).current_dir(root).output()
+        .map_err(|_| "Não foi possível iniciar a reconexão do backend.".to_string())?;
+    if output.status.success() { Ok(()) } else { Err("Não foi possível reconectar o backend. Confira o PostgreSQL e tente novamente.".to_string()) }
+}
 fn save_services_consent() -> Result<(), String> {
     let path = desktop_setup_path()?;
     let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
@@ -424,7 +450,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, ensure_desktop_setup, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, ensure_desktop_setup, restart_local_backend, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
