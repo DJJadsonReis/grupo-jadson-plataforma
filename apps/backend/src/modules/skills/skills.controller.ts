@@ -10,17 +10,17 @@ export class SkillsController {
 
   @Get()
   list(@Req() request: PrincipalRequest) {
-    return this.skills.list(request.principal.id);
+    return this.skills.list(request.principal);
   }
 
   @Post()
   create(@Body() body: SkillInput, @Req() request: PrincipalRequest) {
-    return this.skills.create(request.principal.id, body);
+    return this.skills.create(request.principal, body);
   }
 
   @Delete(":slug")
   async remove(@Param("slug") slug: string, @Req() request: PrincipalRequest) {
-    await this.skills.remove(request.principal.id, slug);
+    await this.skills.remove(request.principal, slug);
     return { deleted: true };
   }
 }

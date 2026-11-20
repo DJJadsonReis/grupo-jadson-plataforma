@@ -1,4 +1,6 @@
 import { buildSkillsSystemMessage, SKILL_PROMPT_LIMIT } from "./skill-prompt";
+import { DatabaseService } from "../database/database.service";
+import { AgentSkillsService } from "./agent-skills.service";
 
 describe("buildSkillsSystemMessage", () => {
   it("returns no message when there are no skills", () => {
@@ -19,5 +21,14 @@ describe("buildSkillsSystemMessage", () => {
     ]);
     expect(message).toHaveLength(SKILL_PROMPT_LIMIT);
     expect(message).not.toContain("Seguinte");
+  });
+
+  it("includes an attached global skill in the prompt", async () => {
+    const rows = [{ title: "Global", instructions: "Regra compartilhada." }];
+    const query = jest.fn().mockResolvedValue({ rows });
+    const database = { getPool: () => ({ query }) } as unknown as DatabaseService;
+    const skills = new AgentSkillsService(database);
+    const prompt = buildSkillsSystemMessage(await skills.loadPromptSkills("agent-id"));
+    expect(prompt).toContain("## Global\nRegra compartilhada.");
   });
 });

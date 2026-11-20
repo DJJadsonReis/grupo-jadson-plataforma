@@ -9,8 +9,8 @@ describe("SkillsController", () => {
     const controller = new SkillsController(skills as never);
     await controller.list({ principal });
     await controller.create({ slug: "research", title: "Research", instructions: "Guide" }, { principal });
-    expect(skills.list).toHaveBeenCalledWith("person-1");
-    expect(skills.create).toHaveBeenCalledWith("person-1", { slug: "research", title: "Research", instructions: "Guide" });
+    expect(skills.list).toHaveBeenCalledWith(principal);
+    expect(skills.create).toHaveBeenCalledWith(principal, { slug: "research", title: "Research", instructions: "Guide" });
   });
 
   it("returns a deleted response and propagates a uniform not found", async () => {
@@ -19,6 +19,6 @@ describe("SkillsController", () => {
     await expect(controller.remove("research", { principal })).resolves.toEqual({ deleted: true });
     skills.remove.mockRejectedValueOnce(new BadRequestException("Habilidade não encontrada."));
     await expect(controller.remove("foreign", { principal })).rejects.toThrow("Habilidade não encontrada.");
-    expect(skills.remove).toHaveBeenLastCalledWith("person-1", "foreign");
+    expect(skills.remove).toHaveBeenLastCalledWith(principal, "foreign");
   });
 });
