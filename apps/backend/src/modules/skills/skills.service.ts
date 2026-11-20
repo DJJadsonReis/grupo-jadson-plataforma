@@ -40,10 +40,10 @@ export class SkillsService {
   }
 
   async create(principal: Principal, input: SkillInput): Promise<SkillRecord> {
-    const validated = this.validate(input);
     const global = input?.global === undefined ? false : input.global;
     if (typeof global !== "boolean") throw new BadRequestException({ code: "INVALID_SKILL", message: "Campo global inválido." });
     if (global && principal.role !== "admin") throw new ForbiddenException({ code: "FORBIDDEN", message: "Só administradores criam habilidades globais." });
+    const validated = this.validate(input);
     try {
       const result = await this.database.getPool().query(
         `INSERT INTO skills(id,owner_id,slug,title,summary,instructions,global,tools) VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING ${COLUMNS}`,

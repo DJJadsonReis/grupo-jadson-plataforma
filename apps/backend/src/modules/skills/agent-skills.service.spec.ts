@@ -1,6 +1,10 @@
+import { randomUUID } from "node:crypto";
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { AgentSkillsService } from "./agent-skills.service";
+
+const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
+const describeWithPostgres = databaseUrl ? describe : describe.skip;
 
 const skill = { id: "skill-id", ownerId: "owner", slug: "research", title: "Pesquisa", summary: "", instructions: "Use fontes.", tools: [] as string[] };
 const agentId = "6f1c2a3e-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
@@ -107,6 +111,19 @@ describe("AgentSkillsService", () => {
     expect(query.mock.calls[0]?.[0]).toContain("a.owner_id=$2");
     expect(query.mock.calls[0]?.[0]).toContain("s.owner_id=$2 OR s.global");
     expect(query.mock.calls[0]?.[0]).toContain("ORDER BY (s2.owner_id=$2) DESC LIMIT 1");
+    expect(query.mock.calls[0]?.[1]).toEqual([agentId, "owner", "research"]);
+  });
+
+  it("prefers a linked skill when detaching duplicate slugs", async () => {
+    const query = jest.fn().mockResolvedValue({ rowCount: 1 });
+    const { service } = setup(query);
+    await expect(service.detach("owner", agentId, "research")).resolves.toBeUndefined();
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("FROM agent_skills l2");
+    expect(sql).toContain("l2.agent_id=$1");
+    expect(sql).toContain("l2.owner_id=$2");
+    expect(sql).toContain("ORDER BY (s2.owner_id=$2) DESC LIMIT 1");
+    expect(query.mock.calls[0]?.[1]).toEqual([agentId, "owner", "research"]);
   });
 
   it("loads prompt skills in attachment order", async () => {
@@ -115,5 +132,42 @@ describe("AgentSkillsService", () => {
     const { service } = setup(query);
     await expect(service.loadPromptSkills("agent-id")).resolves.toEqual(rows);
     expect(query.mock.calls[0]?.[0]).toContain("ORDER BY link.created_at ASC");
+  });
+});
+
+describeWithPostgres("desvinculação de habilidades no PostgreSQL", () => {
+  let database: DatabaseService;
+  const ownerId = `skill-detach-${randomUUID()}`;
+  const agentId = randomUUID();
+  const globalSkillId = randomUUID();
+  const ownSkillId = randomUUID();
+
+  beforeAll(async () => {
+    process.env.DATABASE_URL = databaseUrl;
+    database = new DatabaseService();
+    await database.onModuleInit();
+    const pool = database.getPool();
+    await pool.query("INSERT INTO agents(id,name,owner_id) VALUES($1,$2,$3)", [agentId, `detach-${agentId}`, ownerId]);
+    await pool.query(
+      "INSERT INTO skills(id,owner_id,slug,title,instructions,global,tools) VALUES($1,$2,$3,$4,$5,true,'{}'),($6,$2,$3,$7,$5,false,'{}')",
+      [globalSkillId, "admin-detach-test", "research", "Global", "Use fontes.", ownSkillId, "Pessoal"],
+    );
+    await pool.query("INSERT INTO agent_skills(agent_id,skill_id,owner_id) VALUES($1,$2,$3)", [agentId, globalSkillId, ownerId]);
+  });
+
+  afterAll(async () => {
+    if (database?.isReady()) {
+      const pool = database.getPool();
+      await pool.query("DELETE FROM agents WHERE id=$1", [agentId]);
+      await pool.query("DELETE FROM skills WHERE id = ANY($1::uuid[])", [[globalSkillId, ownSkillId]]);
+    }
+    await database?.onModuleDestroy();
+  });
+
+  it("remove a global vinculada mesmo com uma própria não vinculada de mesmo slug", async () => {
+    const service = new AgentSkillsService(database);
+    await expect(service.detach(ownerId, agentId, "research")).resolves.toBeUndefined();
+    const links = await database.getPool().query("SELECT skill_id FROM agent_skills WHERE agent_id=$1", [agentId]);
+    expect(links.rows).toEqual([]);
   });
 });

@@ -58,6 +58,14 @@ describe("SkillsService", () => {
     expect(query).not.toHaveBeenCalled();
   });
 
+  it("rejects a non-admin global request before validating an invalid slug", async () => {
+    const { service, query } = setup();
+    await expect(service.create(operator, { ...valid, slug: "Invalid slug", global: true })).rejects.toMatchObject({
+      status: 403, response: { code: "FORBIDDEN" },
+    });
+    expect(query).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["uppercase slug", { ...valid, slug: "Research" }],
     ["slug with space", { ...valid, slug: "re search" }],
