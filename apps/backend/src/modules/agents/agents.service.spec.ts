@@ -2,7 +2,7 @@ import { DatabaseService } from "../database/database.service";
 import { AgentsService } from "./agents.service";
 
 describe("AgentsService local UUID persistence", () => {
-  const profile = { id: "d1eb7e27-ff37-46d2-b88e-71a52c451736", name: "Researcher", description: "", instructions: "", model: "", enabled: true };
+  const profile = { id: "d1eb7e27-ff37-46d2-b88e-71a52c451736", ownerId: "sistema", name: "Researcher", description: "", instructions: "", model: "", enabled: true };
 
   it("uses a supplied UUID when inserting a desktop profile", async () => {
     const query = jest.fn().mockResolvedValue({ rows: [profile] });
@@ -10,7 +10,7 @@ describe("AgentsService local UUID persistence", () => {
     const result = await new AgentsService(database).create(profile);
 
     expect(result).toEqual(profile);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, []]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema"]);
   });
 
   it("returns an existing row without overwriting it when the UUID is already present", async () => {

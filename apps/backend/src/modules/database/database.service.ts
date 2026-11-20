@@ -1,4 +1,5 @@
 import { Injectable, Logger, OnModuleDestroy, OnModuleInit, ServiceUnavailableException } from "@nestjs/common";
+import { maskSecrets } from "../../common/secret-masking";
 import { Pool } from "pg";
 import { migrationId, up } from "./migrations/001-initial-schema";
 import { migrationId as agentLinkMigrationId, up as addConversationAgentLink } from "./migrations/002-conversation-agent-link";
@@ -16,6 +17,12 @@ import { migrationId as signInMigrationId, up as addSignIn } from "./migrations/
 import { migrationId as loopbackReturnMigrationId, up as addLoopbackReturn } from "./migrations/015-loopback-return";
 import { migrationId as integrationsMigrationId, up as addIntegrations } from "./migrations/011-integrations";
 import { migrationId as googleMigrationId, up as addGoogleConnections } from "./migrations/016-google-connections";
+import { migrationId as userPreferencesMigrationId, up as addUserPreferences } from "./migrations/017-user-preferences";
+import { migrationId as routineClaimsMigrationId, up as addRoutineClaims } from "./migrations/018-routine-claims";
+import { migrationId as routineOwnerMigrationId, up as addRoutineOwner } from "./migrations/020-routine-owner";
+import { migrationId as notificationsMigrationId, up as addNotifications } from "./migrations/019-notifications";
+import { migrationId as botSharingMigrationId, up as addBotSharing } from "./migrations/021-bot-sharing";
+import { migrationId as conversationOwnerMigrationId, up as addConversationOwner } from "./migrations/022-conversation-owner";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -54,6 +61,12 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: loopbackReturnMigrationId, apply: async () => addLoopbackReturn(this.pool!) },
         { id: integrationsMigrationId, apply: async () => addIntegrations(this.pool!) },
         { id: googleMigrationId, apply: async () => addGoogleConnections(this.pool!) },
+        { id: userPreferencesMigrationId, apply: async () => addUserPreferences(this.pool!) },
+        { id: routineClaimsMigrationId, apply: async () => addRoutineClaims(this.pool!) },
+        { id: routineOwnerMigrationId, apply: async () => addRoutineOwner(this.pool!) },
+        { id: notificationsMigrationId, apply: async () => addNotifications(this.pool!) },
+        { id: botSharingMigrationId, apply: async () => addBotSharing(this.pool!) },
+        { id: conversationOwnerMigrationId, apply: async () => addConversationOwner(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);
@@ -71,7 +84,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
       if (!this.vectorReady) this.logger.warn("pgvector não está disponível; recursos vetoriais permanecem desativados.");
     } catch (error) {
       this.ready = false;
-      this.logger.error(`PostgreSQL indisponível: ${error instanceof Error ? error.message : "erro desconhecido"}`);
+      this.logger.error(`PostgreSQL indisponível: ${maskSecrets(error instanceof Error ? error.message : "erro desconhecido")}`);
     }
   }
 

@@ -1,14 +1,19 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject } from "react";
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
+import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
+import { Welcome } from "./Welcome";
+import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
+import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
 type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings";
@@ -23,6 +28,7 @@ const MASCOTES = [
   "08-escudo", "09-chama", "10-gota", "11-triangulo", "12-engrenagem", "13-capsula",
 ].map((name) => `/mascotes/${name}.svg`);
 const SESSION_KEY = "grupo-jadson.session.v1";
+const FIRST_RUN_COMPLETE_KEY = "grupo-jadson.first-run-complete.v1";
 
 /** Sessão da pessoa que entrou com a conta. Fica só neste computador. */
 function readSession(): string | null {
@@ -41,30 +47,28 @@ function saveSession(token: string): void {
   }
 }
 
-/**
- * Token do sistema, usado só em desenvolvimento. O servidor do Vite entrega em tempo de execução
- * (ver vite.config.ts); em produção não existe token do sistema no app: vale só a sessão de login.
- */
-let devTokenRequest: Promise<string> | null = null;
-function devSystemToken(): Promise<string> {
-  if (!import.meta.env.DEV) return Promise.resolve("");
-  if (!devTokenRequest) {
-    devTokenRequest = fetch("/__gj/dev-token", { cache: "no-store" })
-      .then((r): Promise<{ token?: string }> => (r.ok ? r.json() : Promise.resolve({})))
-      .then((body) => body.token ?? "")
+/** Token do sistema local: Vite entrega em desenvolvimento e o comando Tauri no app empacotado. */
+let systemTokenRequest: Promise<string> | null = null;
+function localSystemToken(): Promise<string> {
+  if (!systemTokenRequest) {
+    systemTokenRequest = (import.meta.env.DEV
+      ? fetch("/__gj/dev-token", { cache: "no-store" })
+        .then((r): Promise<{ token?: string }> => (r.ok ? r.json() : Promise.resolve({})))
+        .then((body) => body.token ?? "")
+      : invoke<string>("get_first_run_api_token").catch(() => ""))
       .catch(() => "")
       .then((token) => {
-        if (!token) devTokenRequest = null; // tenta de novo na próxima chamada
+        if (!token) systemTokenRequest = null; // tenta de novo na próxima chamada
         return token;
       });
   }
-  return devTokenRequest;
+  return systemTokenRequest;
 }
 
-/** Envia a sessão (se houver) ou, em desenvolvimento, o token do sistema em todas as chamadas ao backend. */
+/** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = readSession() ?? (await devSystemToken());
+  const token = readSession() ?? (await localSystemToken());
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 }
@@ -152,6 +156,9 @@ function writeSignInRequired(required: boolean): void {
 export default function App() {
   const [session, setSession] = useState<string | null>(() => readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
+  const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(FIRST_RUN_COMPLETE_KEY) === "1"; } catch { return false; }
+  });
 
   useEffect(() => {
     fetch(`${API_URL}/auth/providers`)
@@ -165,6 +172,12 @@ export default function App() {
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
   }, [session]);
 
+  if (!firstRunComplete) {
+    return <Welcome apiUrl={API_URL} onComplete={() => {
+      try { window.localStorage.setItem(FIRST_RUN_COMPLETE_KEY, "1"); } catch { /* verifica de novo na próxima abertura */ }
+      setFirstRunComplete(true);
+    }} />;
+  }
   if (needsLogin) {
     return (
       <LoginScreen
@@ -431,11 +444,9 @@ function Workspace() {
           }
         }
         setRemoteAgentIds([...knownIds]);
-        setAgents((current) => {
-          const merged = new Map(remote.map((agent) => [agent.id, agent]));
-          for (const agent of current) merged.set(agent.id, agent);
-          return [...merged.values()];
-        });
+        // When the API is connected its filtered list is authoritative; stale local copies
+        // must not put a revoked or inaccessible profile back into the gallery.
+        setAgents(visibleAgentIds(remote, knownIds));
         setAgentPersistence(migrationFailed ? "error" : "connected");
       })
       .catch(() => { if (!controller.signal.aborted) setAgentPersistence("error"); });
@@ -1196,18 +1207,87 @@ function ReadAloudButton({ text }: { text: string }) {
   );
 }
 
-/** Ditado por voz: usa o reconhecimento de voz do navegador (gratuito). Some quando o sistema não oferece. */
-type SpeechRecognitionLike = { lang: string; continuous: boolean; interimResults: boolean; start(): void; stop(): void; onresult: ((event: { results: ArrayLike<ArrayLike<{ transcript: string }> & { isFinal?: boolean }> & { length: number } }) => void) | null; onend: (() => void) | null; onerror: (() => void) | null };
+/** Ditado: só inicia quando o WebView garante processamento local do áudio. */
 function DictateButton({ onText }: { onText: (text: string) => void }) {
+  const Recognition = getSpeechRecognitionConstructor(window as SpeechRecognitionWindow);
+  const onDeviceSupported = supportsOnDeviceSpeech(Recognition);
   const [listening, setListening] = useState(false);
+  const [preparing, setPreparing] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [readyNotice, setReadyNotice] = useState<string | null>(null);
+  const [languageStatus, setLanguageStatus] = useState<OnDeviceSpeechStatus>(onDeviceSupported ? "checking" : "unsupported");
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const Ctor = (window as unknown as { SpeechRecognition?: new () => SpeechRecognitionLike; webkitSpeechRecognition?: new () => SpeechRecognitionLike });
-  const Recognition = Ctor.SpeechRecognition ?? Ctor.webkitSpeechRecognition;
-  if (!Recognition) return null;
+  const mountedRef = useRef(true);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      recognitionRef.current?.stop();
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!onDeviceSupported) {
+      setLanguageStatus("unsupported");
+      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
+      return () => { active = false; };
+    }
+    void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+      if (!active) return;
+      setLanguageStatus(status);
+      if (status === "unavailable") setError("O reconhecimento local em português não está disponível neste computador.");
+    });
+    return () => { active = false; };
+  }, [Recognition, onDeviceSupported]);
 
   function toggle() {
     if (listening) { recognitionRef.current?.stop(); return; }
-    const recognition = new Recognition!();
+    setError(null);
+    setReadyNotice(null);
+    if (!Recognition || !onDeviceSupported || languageStatus === "unsupported") {
+      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
+      return;
+    }
+    if (languageStatus === "unavailable") {
+      setError("O reconhecimento local em português não está disponível neste computador. Nenhum áudio foi enviado.");
+      return;
+    }
+    if (languageStatus === "checking") {
+      setError("Verificando o pacote local de português. Tente novamente em instantes.");
+      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+        if (mountedRef.current) setLanguageStatus(status);
+      });
+      return;
+    }
+    if (languageStatus === "downloading") {
+      setError("O pacote local de português ainda está sendo preparado. Verifique novamente em instantes.");
+      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
+        if (mountedRef.current) setLanguageStatus(status);
+      });
+      return;
+    }
+    if (languageStatus === "downloadable") {
+      setPreparing(true);
+      // install() is called directly from this click; it prepares only the local language pack.
+      void installOnDeviceSpeech(Recognition, "pt-BR").then((ready) => {
+        if (!mountedRef.current) return;
+        setPreparing(false);
+        if (ready) {
+          setLanguageStatus("available");
+          setReadyNotice("Pacote local de português pronto. Clique no microfone novamente para começar a ditar.");
+        } else {
+          setError("Não foi possível preparar o pacote local de português. Nenhum áudio foi enviado.");
+        }
+      });
+      return;
+    }
+    const recognition = new Recognition();
+    if (!requireOnDeviceRecognition(recognition)) {
+      setError("Este WebView não garante reconhecimento no dispositivo. O ditado foi desativado para manter seu áudio local.");
+      return;
+    }
     recognition.lang = "pt-BR";
     recognition.continuous = false;
     recognition.interimResults = false;
@@ -1215,17 +1295,32 @@ function DictateButton({ onText }: { onText: (text: string) => void }) {
       const text = Array.from(event.results).map((result) => result[0]?.transcript ?? "").join(" ").trim();
       if (text) onText(text);
     };
-    recognition.onend = () => setListening(false);
-    recognition.onerror = () => setListening(false);
+    recognition.onend = () => {
+      setListening(false);
+      recognitionRef.current = null;
+    };
+    recognition.onerror = (event) => {
+      setListening(false);
+      setError(speechRecognitionErrorMessage(event.error));
+    };
     recognitionRef.current = recognition;
     setListening(true);
-    recognition.start();
+    try { recognition.start(); }
+    catch {
+      setListening(false);
+      recognitionRef.current = null;
+      setError("O ditado local não pôde iniciar. Verifique o microfone e tente novamente.");
+    }
   }
 
   return (
-    <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "")} onClick={toggle} title={listening ? "Parar ditado" : "Ditar mensagem"} aria-label={listening ? "Parar ditado" : "Ditar mensagem"} aria-pressed={listening}>
-      <Mic size={16} />
-    </button>
+    <>
+      <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "") + (!onDeviceSupported ? " is-unavailable" : "")} onClick={toggle} disabled={preparing} title={listening ? "Parar ditado" : languageStatus === "checking" ? "Verificando reconhecimento local" : languageStatus === "downloadable" ? "Preparar pacote local de português" : languageStatus === "unsupported" || languageStatus === "unavailable" ? "Ditado local indisponível; clique para ver o motivo" : "Ditar mensagem localmente"} aria-label={listening ? "Parar ditado" : preparing ? "Preparando pacote local" : languageStatus === "checking" ? "Verificando pacote local" : "Ditar mensagem localmente"} aria-pressed={listening || preparing}>
+        {preparing ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{(listening || preparing) && <span>{preparing ? "Preparando…" : "Escutando…"}</span>}
+      </button>
+      {error && <small className="speech-dictation-error" role="alert">{error}</small>}
+      {readyNotice && <small className="speech-dictation-ready" role="status">{readyNotice}</small>}
+    </>
   );
 }
 
@@ -1292,7 +1387,7 @@ function ChatPage({
   onEditAgent: (agent: Agent) => void;
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
   activeAgentId: string | null; error: string | null; files: File[];
-  setDraft: (value: string) => void; setFiles: (value: File[]) => void;
+  setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
@@ -1594,7 +1689,7 @@ function ChatPage({
                 <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
                   <Paperclip size={16} />
                 </button>
-                <DictateButton onText={(text) => setDraft(draft ? `${draft} ${text}` : text)} />
+                <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
                   <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
@@ -1842,7 +1937,7 @@ function AgentsPage({
                   </button>
                   <span className="agent-model-tag">{agent.model || "Modelo padrão"}</span>
                 </div>
-                <button
+                {canEditAgent(agent) && <button
                   className={"switch-toggle " + (agent.enabled ? "switch-on" : "")}
                   aria-label={agent.enabled ? "Desativar agente" : "Ativar agente"}
                   aria-pressed={agent.enabled}
@@ -1850,7 +1945,7 @@ function AgentsPage({
                   title={agent.enabled ? "Agente ativo" : "Agente desativado"}
                 >
                   <span className="switch-thumb" />
-                </button>
+                </button>}
               </div>
 
               <p className="agent-card-desc">{agent.description || "Agente com diretrizes específicas do Grupo Jadson."}</p>
@@ -1860,7 +1955,7 @@ function AgentsPage({
                   <span className="tag-pill">{remoteAgentIds.includes(agent.id) ? "PostgreSQL" : "Local"}</span>
                 </div>
                 <div className="agent-actions-group">
-                  <button className="btn-outline-sm" onClick={() => onEdit(agent)}>Configurar</button>
+                  {canEditAgent(agent) && <button className="btn-outline-sm" onClick={() => onEdit(agent)}>Configurar</button>}
                   <button className="btn-gold-sm" disabled={!agent.enabled} onClick={() => onChat(agent.id)}>
                     <MessageSquare size={13} />
                     <span>Conversar</span>
@@ -1885,6 +1980,9 @@ function AgentDetailPage({
   onBack: () => void; onEdit: () => void; onChat: () => void;
   onOpenConversation: (id: string) => void;
 }) {
+  const [sharingOpen, setSharingOpen] = useState(false);
+  const canEdit = canEditAgent(agent);
+  const canShare = canShareAgent(agent);
   const history = conversations.filter((conversation) => conversation.agentId === agent.id);
   const persistenceLabel = persistence === "connected" ? "Sincronização Ativa" : "Armazenado Localmente";
 
@@ -1896,10 +1994,12 @@ function AgentDetailPage({
       </button>
 
       <section className="agent-detail-hero-box">
-        <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
-          <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />
-          <span className="agent-hero-avatar-overlay">Editar avatar</span>
-        </button>
+        {canEdit ? (
+          <button type="button" className="agent-hero-avatar-button" onClick={onEdit} aria-label="Editar avatar" title="Editar avatar">
+            <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />
+            <span className="agent-hero-avatar-overlay">Editar avatar</span>
+          </button>
+        ) : <AgentAvatar agent={agent} size="xl" className="agent-hero-avatar" />}
         <div className="agent-hero-info">
           <span className="section-label">PERFIL DE IA</span>
           <h1>{agent.name}</h1>
@@ -1910,7 +2010,8 @@ function AgentDetailPage({
           </span>
         </div>
         <div className="agent-hero-actions">
-          <button className="btn-outline-sm" onClick={onEdit}>Editar Perfil</button>
+          {canEdit && <button className="btn-outline-sm" onClick={onEdit}>Editar Perfil</button>}
+          {canShare && <button className="btn-outline-sm" aria-expanded={sharingOpen} onClick={() => setSharingOpen((open) => !open)}>Compartilhar</button>}
           <button className="btn-gold-sm" disabled={!agent.enabled} onClick={onChat}>
             <MessageSquare size={14} />
             <span>Iniciar Conversa</span>
@@ -1925,7 +2026,7 @@ function AgentDetailPage({
             <BrainCircuit size={18} className="text-gold" />
           </div>
           <div className="instructions-body">
-            <p>{agent.instructions.trim() || "Nenhuma instrução personalizada configurada."}</p>
+            <p>{agent.permission === "user" ? "As instruções são privadas para o dono e editores deste bot." : agent.instructions.trim() || "Nenhuma instrução personalizada configurada."}</p>
           </div>
           <div className="detail-card-meta">
             <span>Modelo: <b>{agent.model || "Padrão do Provedor"}</b></span>
@@ -1957,7 +2058,85 @@ function AgentDetailPage({
           )}
         </section>
       </div>
+      {canShare && sharingOpen && <AgentSharingPanel agent={agent} />}
     </div>
+  );
+}
+
+type AgentShare = { agentId: string; userId: string | null; userName: string | null; teamId: string | null; teamName: string | null; role: "editor" | "user" };
+type ShareTeam = { id: string; name: string };
+type SharePerson = { id: string; name: string };
+
+function AgentSharingPanel({ agent }: { agent: Agent }) {
+  const [shares, setShares] = useState<AgentShare[]>([]);
+  const [teams, setTeams] = useState<ShareTeam[]>([]);
+  const [people, setPeople] = useState<SharePerson[]>([]);
+  const [targetType, setTargetType] = useState<"people" | "teams">("people");
+  const [targetId, setTargetId] = useState("");
+  const [role, setRole] = useState<"editor" | "user">("user");
+  const [error, setError] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    Promise.all([
+      apiFetch(`${API_URL}/agents/${agent.id}/shares`, { signal: controller.signal }),
+      apiFetch(`${API_URL}/teams`, { signal: controller.signal }),
+      apiFetch(`${API_URL}/teams/directory/people`, { signal: controller.signal }),
+    ]).then(async ([shareResponse, teamResponse, peopleResponse]) => {
+      if (!shareResponse.ok || !teamResponse.ok || !peopleResponse.ok) throw new Error("Não foi possível carregar os destinos de compartilhamento.");
+      const [shareList, teamList, peopleList] = await Promise.all([shareResponse.json(), teamResponse.json(), peopleResponse.json()]);
+      setShares(shareList as AgentShare[]); setTeams(teamList as ShareTeam[]); setPeople(peopleList as SharePerson[]);
+      setError(null);
+    }).catch((cause) => { if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : "Falha ao carregar compartilhamentos."); });
+    return () => controller.abort();
+  }, [agent.id, version]);
+
+  const targets = targetType === "people" ? people : teams;
+
+  async function saveShare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!targetId) return;
+    const response = await apiFetch(`${API_URL}/agents/${agent.id}/shares`, {
+      method: "PUT", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ [targetType === "people" ? "userId" : "teamId"]: targetId, role }),
+    });
+    if (!response.ok) { const data = await response.json().catch(() => ({})) as { message?: string }; setError(data.message ?? "Não foi possível compartilhar o bot."); return; }
+    setTargetId(""); setError(null); setVersion((value) => value + 1);
+  }
+
+  async function revokeShare(share: AgentShare) {
+    const kind = share.userId ? "people" : "teams";
+    const id = share.userId ?? share.teamId;
+    if (!id) return;
+    const response = await apiFetch(`${API_URL}/agents/${agent.id}/shares/${kind}/${id}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível remover este compartilhamento."); return; }
+    setVersion((value) => value + 1);
+  }
+
+  return (
+    <section className="detail-card agent-sharing-panel" aria-label="Compartilhamento do bot">
+      <div className="detail-card-header"><h3>Compartilhar bot</h3><span>Conversas e memórias permanecem privadas.</span></div>
+      <form className="security-notice" onSubmit={(event) => void saveShare(event)} style={{ alignItems: "center", gap: 8 }}>
+        <select aria-label="Destino" value={targetType} onChange={(event) => { setTargetType(event.target.value as "people" | "teams"); setTargetId(""); }}>
+          <option value="people">Pessoa</option><option value="teams">Time</option>
+        </select>
+        <select aria-label={targetType === "people" ? "Pessoa" : "Time"} value={targetId} onChange={(event) => setTargetId(event.target.value)} required>
+          <option value="">Selecione</option>{targets.map((target) => <option key={target.id} value={target.id}>{target.name}</option>)}
+        </select>
+        <select aria-label="Acesso ao bot" value={role} onChange={(event) => setRole(event.target.value as "editor" | "user")}>
+          <option value="user">Usuário — conversar</option><option value="editor">Editor — conversar e editar</option>
+        </select>
+        <button className="btn-primary-gold" type="submit" disabled={!targetId}>Salvar acesso</button>
+      </form>
+      {error && <p role="alert">{error}</p>}
+      {shares.length ? shares.map((share) => (
+        <div className="workspace-fact" key={`${share.userId ? "person" : "team"}-${share.userId ?? share.teamId}-${share.role}`}>
+          <span><b>{share.userName ?? share.teamName}</b> · {share.role === "editor" ? "Editor" : "Usuário"}</span>
+          <button className="icon-btn-close" onClick={() => void revokeShare(share)}>Remover</button>
+        </div>
+      )) : !error && <p>Este bot ainda não foi compartilhado.</p>}
+    </section>
   );
 }
 
@@ -2089,6 +2268,76 @@ function UsageSettings() {
 }
 
 /** Configurações em abas laterais: cada aba mostra só o seu assunto. */
+function UpdateSettings() {
+  const [state, setState] = useState<"checking" | "current" | "available" | "error" | "installing">("checking");
+  const [notice, setNotice] = useState<UpdateNotice | null>(null);
+  const noticeRef = useRef<UpdateNotice | null>(null);
+  const [installedVersion, setInstalledVersion] = useState("0.1.0");
+  const [message, setMessage] = useState<string | null>(null);
+
+  const verify = async () => {
+    setState("checking");
+    setMessage(null);
+    try {
+      const result = await checkForDesktopUpdate();
+      const next = result.status === "available" ? result.notice : null;
+      if (noticeRef.current) void noticeRef.current.close().catch(() => undefined);
+      noticeRef.current = next;
+      setNotice(next);
+      setState(result.status === "unsupported" ? "error" : result.status);
+      if (result.status === "unsupported") setMessage("A verificação de atualização só está disponível no aplicativo desktop.");
+    } catch {
+      setState("error");
+      setMessage("Não foi possível consultar atualizações. Confira o endpoint configurado e tente novamente.");
+    }
+  };
+
+  useEffect(() => {
+    void getVersion().then(setInstalledVersion).catch(() => undefined);
+    void verify();
+    return () => {
+      if (noticeRef.current) void noticeRef.current.close().catch(() => undefined);
+      noticeRef.current = null;
+    };
+  }, []);
+
+  const install = async () => {
+    if (!notice) return;
+    setState("installing");
+    setMessage("Baixando e instalando atualização assinada…");
+    try {
+      await notice.install();
+      setMessage("A instalação foi concluída. Reinicie o aplicativo para usar a nova versão.");
+      setState("current");
+    } catch {
+      setMessage("Não foi possível instalar a atualização. Tente novamente mais tarde.");
+      setState("available");
+    }
+  };
+
+  return (
+    <article className="settings-box">
+      <h3>Atualizações</h3>
+      <p className="version-line">
+        Versão instalada: {installedVersion}
+        <span className="beta-badge" title="Esta versão ainda está em teste">Versão beta</span>
+      </p>
+      {state === "checking" && <p role="status">Verificando atualizações…</p>}
+      {state === "current" && !message && <p role="status">O aplicativo está atualizado.</p>}
+      {state === "available" && notice && (
+        <div className="security-notice" role="status">
+          <div><strong>Nova versão disponível: {notice.version}</strong>{notice.notes && <p>{notice.notes}</p>}</div>
+          <button type="button" className="primary-button" onClick={() => void install()}>Instalar atualização</button>
+        </div>
+      )}
+      {message && <p role={state === "error" ? "alert" : "status"}>{message}</p>}
+      <button type="button" className="icon-btn-close" disabled={state === "checking" || state === "installing"} onClick={() => void verify()}>
+        {state === "checking" ? "Verificando…" : "Verificar novamente"}
+      </button>
+    </article>
+  );
+}
+
 function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
   return (
@@ -2143,13 +2392,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
           {tab === "uso" && <UsageSettings />}
           {tab === "atualizacoes" && (
             <>
-              <article className="settings-box">
-                <h3>Atualizações</h3>
-                <p className="version-line">
-                  Versão instalada: 0.1.0
-                  <span className="beta-badge" title="Esta versão ainda está em teste">Versão beta</span>
-                </p>
-              </article>
+              <UpdateSettings />
               <article className="settings-box credits-box">
                 <h3>Créditos</h3>
                 <p>Desenvolvido por <strong>DJ Jadson Reis</strong>.</p>
@@ -2622,7 +2865,109 @@ function AccessSettings() {
           </span>
         </div>
       ))}
+      <TeamManagementSettings />
     </article>
+  );
+}
+
+type TeamEntry = { id: string; name: string };
+type TeamMemberEntry = { id: string; name: string; role: string };
+
+function TeamManagementSettings() {
+  const [teams, setTeams] = useState<TeamEntry[]>([]);
+  const [people, setPeople] = useState<PersonEntry[]>([]);
+  const [members, setMembers] = useState<TeamMemberEntry[]>([]);
+  const [selectedTeamId, setSelectedTeamId] = useState("");
+  const [selectedPersonId, setSelectedPersonId] = useState("");
+  const [name, setName] = useState("");
+  const [canManage, setCanManage] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function refreshTeams() {
+    const response = await apiFetch(`${API_URL}/teams`);
+    if (!response.ok) throw new Error("Não foi possível carregar os times.");
+    setTeams(await response.json() as TeamEntry[]);
+  }
+
+  useEffect(() => {
+    let active = true;
+    Promise.all([apiFetch(`${API_URL}/teams`), apiFetch(`${API_URL}/users`)]).then(async ([teamResponse, userResponse]) => {
+      if (!teamResponse.ok) throw new Error("Não foi possível carregar os times.");
+      const teamList = await teamResponse.json() as TeamEntry[];
+      if (!active) return;
+      setTeams(teamList);
+      if (!userResponse.ok) return;
+      setPeople(await userResponse.json() as PersonEntry[]);
+      setCanManage(true);
+    }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Falha ao carregar times."); });
+    return () => { active = false; };
+  }, []);
+
+  async function selectTeam(id: string) {
+    setSelectedTeamId(id); setMembers([]);
+    if (!id) return;
+    const response = await apiFetch(`${API_URL}/teams/${id}/members`);
+    if (response.ok) setMembers(await response.json() as TeamMemberEntry[]);
+    else setError("Não foi possível carregar os membros; confirme o papel de administrador.");
+  }
+
+  async function createTeam(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const clean = name.trim();
+    if (!clean) return;
+    const response = await apiFetch(`${API_URL}/teams`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: clean }) });
+    if (!response.ok) { setError("Só administradores globais podem criar times."); return; }
+    setName(""); setError(null);
+    try { await refreshTeams(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Falha ao atualizar times."); }
+  }
+
+  async function addMember() {
+    if (!selectedTeamId || !selectedPersonId) return;
+    const response = await apiFetch(`${API_URL}/teams/${selectedTeamId}/members/${selectedPersonId}`, { method: "PUT" });
+    if (!response.ok) { setError("Não foi possível adicionar a pessoa ao time."); return; }
+    setSelectedPersonId(""); setError(null); await selectTeam(selectedTeamId);
+  }
+
+  async function removeMember(userId: string) {
+    if (!selectedTeamId) return;
+    const response = await apiFetch(`${API_URL}/teams/${selectedTeamId}/members/${userId}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível remover a pessoa do time."); return; }
+    await selectTeam(selectedTeamId);
+  }
+
+  async function deleteTeam(id: string) {
+    const response = await apiFetch(`${API_URL}/teams/${id}`, { method: "DELETE" });
+    if (!response.ok) { setError("Não foi possível excluir o time."); return; }
+    if (selectedTeamId === id) { setSelectedTeamId(""); setMembers([]); }
+    await refreshTeams();
+  }
+
+  if (!canManage) return null;
+  return (
+    <section className="settings-box team-management-settings">
+      <h3>Times</h3>
+      <p>Somente administradores globais criam times e alteram seus membros. Remover alguém revoga o acesso dado por esse time.</p>
+      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+      <form className="security-notice" onSubmit={(event) => void createTeam(event)} style={{ alignItems: "center", gap: 8 }}>
+        <input aria-label="Nome do time" value={name} maxLength={80} onChange={(event) => setName(event.target.value)} placeholder="Nome do time" />
+        <button className="btn-primary-gold" type="submit" disabled={!name.trim()}>Criar time</button>
+      </form>
+      <label className="workspace-fact"><span>Time selecionado</span>
+        <select value={selectedTeamId} onChange={(event) => void selectTeam(event.target.value)}>
+          <option value="">Escolha um time</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
+        </select>
+      </label>
+      {selectedTeamId && <>
+        <div className="security-notice" style={{ alignItems: "center", gap: 8 }}>
+          <select aria-label="Pessoa para adicionar" value={selectedPersonId} onChange={(event) => setSelectedPersonId(event.target.value)}>
+            <option value="">Escolha uma pessoa ativa</option>{people.filter((person) => person.active).map((person) => <option key={person.id} value={person.id}>{person.name}</option>)}
+          </select>
+          <button className="btn-outline-sm" onClick={() => void addMember()} disabled={!selectedPersonId}>Adicionar pessoa</button>
+          <button className="icon-btn-close" onClick={() => void deleteTeam(selectedTeamId)}>Excluir time</button>
+        </div>
+        {members.map((member) => <div className="workspace-fact" key={member.id}><b>{member.name}</b><span><small>{ROLE_LABELS[member.role as PersonEntry["role"]] ?? member.role}</small><button className="icon-btn-close" onClick={() => void removeMember(member.id)}>Remover</button></span></div>)}
+      </>}
+    </section>
   );
 }
 

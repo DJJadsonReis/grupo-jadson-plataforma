@@ -1,16 +1,16 @@
-import { Injectable } from "@nestjs/common";
+import { ConflictException, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
 export interface AgentRecord {
-  id: string; name: string; description: string; instructions: string; model: string; enabled: boolean;
+  id: string; ownerId: string; name: string; description: string; instructions: string; model: string; enabled: boolean;
   avatar: string; role: string; department: string; specialties: string[]; provider: string;
   generationConfig: { temperature?: number; maxTokens?: number }; toolsAllowed: string[];
 }
 export type AgentInput = Pick<AgentRecord, "name" | "description" | "instructions" | "model" | "enabled"> &
   Partial<Pick<AgentRecord, "avatar" | "role" | "department" | "specialties" | "provider" | "generationConfig" | "toolsAllowed">> & { id?: string };
 const COLUMNS = `id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,
-  generation_config AS "generationConfig",tools_allowed AS "toolsAllowed"`;
+  generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId"`;
 
 @Injectable()
 export class AgentsService {
@@ -26,15 +26,17 @@ export class AgentsService {
     return (result.rows[0] as AgentRecord | undefined) ?? null;
   }
 
-  async create(input: AgentInput): Promise<AgentRecord> {
+  async create(input: AgentInput, ownerId = "sistema"): Promise<AgentRecord> {
     const id = input.id ?? randomUUID();
     const result = await this.database.getPool().query(
-      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
-      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? []],
+      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed,owner_id)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
+      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? [],ownerId],
     );
     if (result.rows[0]) return result.rows[0] as AgentRecord;
-    return (await this.get(id))!;
+    const existing = await this.get(id);
+    if (!existing || existing.ownerId !== ownerId) throw new ConflictException("Já existe um agente com este identificador.");
+    return existing;
   }
 
   async update(id: string, input: Partial<Omit<AgentRecord, "id">>): Promise<AgentRecord | null> {

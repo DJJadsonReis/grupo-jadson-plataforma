@@ -10,22 +10,28 @@ export interface ToolDefinition {
   name: string;
   description: string;
   risk: RiskLevel;
+  parameters?: {
+    properties: Record<string, { type: "string"; description: string }>;
+    required?: string[];
+  };
 }
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "tempo.agora", description: "Data e hora atuais do servidor.", risk: "read" },
   { name: "memoria.listar", description: "Lista as memórias salvas pela pessoa.", risk: "read" },
   { name: "memoria.apagar_tudo", description: "Apaga todas as memórias salvas. Exige aprovação.", risk: "sensitive" },
-  { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read" },
-  { name: "busca.web", description: "Pesquisa na web com o Tavily. Precisa da chave TAVILY_API_KEY no .env.", risk: "read" },
+  { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
+  { name: "pagina.ler", description: "Lê o texto de uma página pública da web, sem chave de API. Endereços locais e privados são bloqueados.", risk: "read", parameters: { properties: { url: { type: "string", description: "URL pública HTTP ou HTTPS da página." } }, required: ["url"] } },
+  { name: "busca.web", description: "Pesquisa na web com o Tavily. Precisa da chave TAVILY_API_KEY no .env.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
   { name: "agenda.listar_eventos", description: "Próximos eventos da Agenda Google da pessoa. Precisa de conexão Google.", risk: "read" },
   { name: "drive.listar_arquivos", description: "Arquivos recentes do Google Drive da pessoa. Precisa de conexão Google.", risk: "read" },
-  { name: "computador.listar", description: "Lista arquivos de uma pasta da pasta de trabalho do Bot.", risk: "read" },
-  { name: "computador.ler", description: "Lê um arquivo de texto da pasta de trabalho do Bot.", risk: "read" },
+  { name: "computador.listar", description: "Lista arquivos de uma pasta da pasta de trabalho do Bot.", risk: "read", parameters: { properties: { pasta: { type: "string", description: "Pasta relativa dentro de workspace." } } } },
+  { name: "computador.ler", description: "Lê um arquivo de texto da pasta de trabalho do Bot.", risk: "read", parameters: { properties: { caminho: { type: "string", description: "Caminho relativo do arquivo dentro de workspace." } }, required: ["caminho"] } },
   { name: "computador.escrever", description: "Cria ou altera um arquivo de texto na pasta de trabalho do Bot. Exige aprovação.", risk: "sensitive" },
-  { name: "notion.buscar", description: "Pesquisa páginas e bases no Notion. Precisa da integração Notion em Configurações.", risk: "read" },
+  { name: "notion.buscar", description: "Pesquisa páginas e bases no Notion. Precisa da integração Notion em Configurações.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },
   { name: "notion.criar_pagina", description: "Cria uma página no Notion dentro de outra página. Exige aprovação.", risk: "sensitive" },
   { name: "agenda.criar_evento", description: "Cria um evento na Agenda Google da pessoa. Exige aprovação.", risk: "sensitive" },
+  { name: "atendimento.humano", description: "Registra um pedido interno de atendimento humano após aprovação; não envia mensagens externas.", risk: "sensitive", parameters: { properties: { motivo: { type: "string", description: "Por que a pessoa precisa de atendimento humano." }, conversaId: { type: "string", description: "Id da conversa relacionada, se disponível." } }, required: ["motivo"] } },
 ];
 
 export function findTool(name: string): ToolDefinition | undefined {

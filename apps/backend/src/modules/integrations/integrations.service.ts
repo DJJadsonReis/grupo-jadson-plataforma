@@ -4,6 +4,7 @@ import { SecretBox } from "./secret-box";
 
 export type IntegrationName = "tavily" | "notion" | "modelo_chave" | "modelo_endereco" | "modelo_padrao";
 const NAMES: IntegrationName[] = ["tavily", "notion", "modelo_chave", "modelo_endereco", "modelo_padrao"];
+const MASKABLE_NAMES: IntegrationName[] = ["tavily", "notion", "modelo_chave"];
 const MIN_LENGTH: Record<IntegrationName, number> = { tavily: 8, notion: 20, modelo_chave: 8, modelo_endereco: 1, modelo_padrao: 1 };
 const LABELS: Record<IntegrationName, string> = {
   tavily: "Busca na web",
@@ -72,5 +73,26 @@ export class IntegrationsService {
       modelo_padrao: process.env.OPENAI_MODEL,
     };
     return fallback[name];
+  }
+
+  /** Segredos de integração para mascaramento em memória; nunca os persiste nem os devolve por rota. */
+  async secretValuesForMasking(): Promise<string[]> {
+    const result = await this.database.getPool().query(
+      `SELECT name, secret FROM integrations WHERE name = ANY($1::text[])`,
+      [MASKABLE_NAMES],
+    );
+    const saved = new Map((result.rows as { name: IntegrationName; secret: string }[]).map((row) => [row.name, row.secret]));
+    const fallback: Record<IntegrationName, string | undefined> = {
+      tavily: process.env.TAVILY_API_KEY,
+      notion: process.env.NOTION_TOKEN,
+      modelo_chave: process.env.OPENAI_API_KEY,
+      modelo_endereco: process.env.OPENAI_BASE_URL,
+      modelo_padrao: process.env.OPENAI_MODEL,
+    };
+    const values = MASKABLE_NAMES.map((name) => {
+      const stored = saved.get(name);
+      return stored === undefined ? fallback[name] : this.box.decrypt(stored);
+    });
+    return values.filter((value): value is string => Boolean(value));
   }
 }

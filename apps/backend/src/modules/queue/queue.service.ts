@@ -23,7 +23,8 @@ export class QueueService implements OnModuleInit {
       throw new Error("QUEUE_DRIVER=local não é permitido em produção.");
     }
 
-    const requireRedis = production || requested === "redis";
+    // Redis is opt-in until a backend workflow actually depends on durable queues.
+    const requireRedis = requested === "redis";
     const redisConnected = this.redis.isReady() || await this.redis.checkConnection();
     if (requireRedis && !redisConnected) {
       throw new ServiceUnavailableException("QUEUE_DRIVER=redis exige uma conexão Redis válida.");

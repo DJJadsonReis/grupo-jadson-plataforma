@@ -38,13 +38,13 @@ describe("limites de rotinas", () => {
       query: async (text: string) => (text.includes("count(*)") ? { rows: [{ n: 20 }], rowCount: 1 } : { rows: [], rowCount: 1 }),
     };
     const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, {} as ToolsService);
-    await expect(service.setEnabled("r1", true)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.setEnabled("r1", true, "dono")).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it("desligar uma rotina não passa pelo teto", async () => {
     const pool = { query: async () => ({ rows: [{ id: "r1" }], rowCount: 1 }) };
     const service = new RoutinesService({ getPool: () => pool } as unknown as DatabaseService, {} as ToolsService);
-    await expect(service.setEnabled("r1", false)).resolves.toBeDefined();
+    await expect(service.setEnabled("r1", false, "dono")).resolves.toBeDefined();
   });
 
   it("envia ao banco o status de falha e o limite de 10 falhas seguidas", async () => {
@@ -58,7 +58,7 @@ describe("limites de rotinas", () => {
         return { rows: [], rowCount: 1 };
       },
     };
-    const tools = { invoke: async () => { throw new Error("falha simulada"); } } as unknown as ToolsService;
+    const tools = { invoke: async () => { throw new Error("falha simulada"); }, maskSecretText: async (text: string) => text } as unknown as ToolsService;
     const service = new RoutinesService({ getPool: () => pool, isReady: () => true } as unknown as DatabaseService, tools);
     await service.tick(new Date());
     // Parâmetro $3 = status ("failed") e $5 = limite de falhas seguidas
@@ -87,12 +87,18 @@ describe("RoutinesService.create", () => {
 });
 
 describe("RoutinesService.tick", () => {
+  it("consulta disparos vencidos no PostgreSQL para retomar depois do boot", async () => {
+    const query = jest.fn(async () => ({ rows: [], rowCount: 0 }));
+    const service = new RoutinesService({ getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService, {} as ToolsService);
+    await service.tick(new Date("2026-11-19T12:00:00Z"));
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("next_run_at <= $1"), expect.arrayContaining([new Date("2026-11-19T12:00:00Z")]));
+  });
   it("roda só as rotinas vencidas e registra o resultado", async () => {
     const queries: string[] = [];
     const pool = {
       query: async (text: string) => {
         queries.push(text);
-        if (text.includes("WHERE enabled = true")) return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30 }], rowCount: 1 };
+        if (text.includes("FOR UPDATE SKIP LOCKED")) return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30, claimToken: "claim-1" }], rowCount: 1 };
         return { rows: [], rowCount: 1 };
       },
     };
@@ -101,7 +107,26 @@ describe("RoutinesService.tick", () => {
     const service = new RoutinesService({ getPool: () => pool, isReady: () => true } as unknown as DatabaseService, tools);
     expect(await service.tick(new Date())).toBe(1);
     expect(invoked).toEqual(["tempo.agora|rotina:clima"]);
-    expect(queries.some((text) => text.startsWith("UPDATE routines"))).toBe(true);
+    expect(queries.some((text) => text.includes("claim_until = NULL"))).toBe(true);
+  });
+
+  it("duas instâncias concorrentes só executam o disparo que ganhou o claim PostgreSQL", async () => {
+    let claimed = false;
+    const query = async (text: string) => {
+      if (text.includes("FOR UPDATE SKIP LOCKED")) {
+        if (claimed) return { rows: [], rowCount: 0 };
+        claimed = true;
+        return { rows: [{ id: "r1", name: "clima", tool: "tempo.agora", intervalMinutes: 30, claimToken: "claim-1" }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    };
+    const invoke = jest.fn(async () => ({}));
+    const tools = { invoke, maskSecretText: async (message: string) => message } as unknown as ToolsService;
+    const db = { getPool: () => ({ query }), isReady: () => true } as unknown as DatabaseService;
+    const first = new RoutinesService(db, tools);
+    const second = new RoutinesService(db, tools);
+    await Promise.all([first.tick(new Date()), second.tick(new Date())]);
+    expect(invoke).toHaveBeenCalledTimes(1);
   });
 
   it("não roda nada enquanto o banco não está pronto", async () => {

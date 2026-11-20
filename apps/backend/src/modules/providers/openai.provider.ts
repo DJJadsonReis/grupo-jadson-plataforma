@@ -53,17 +53,37 @@ export class OpenAiProvider implements LanguageModelProvider {
       });
     }
 
-    const response = await fetch(endpoint, {
-      method: "POST",
-      signal: signal ?? null,
-      headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: input.model || model, messages: input.messages, stream: true,
-        stream_options: { include_usage: true },
-        ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
-        ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
-      }),
-    });
+    const selectedModel = input.model || model;
+    if (new URL(endpoint).host === "api.openai.com") {
+      const availability = await fetch(`https://api.openai.com/v1/models/${encodeURIComponent(selectedModel)}`, {
+        method: "GET", signal: signal ?? AbortSignal.timeout(5_000), headers: { Authorization: `Bearer ${apiKey}` },
+      }).catch(() => null);
+      if (!availability) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: "Não foi possível verificar a disponibilidade do modelo OpenAI." });
+      if (availability.status === 404) throw new ServiceUnavailableException({ code: "MODEL_UNAVAILABLE", message: `O modelo '${selectedModel}' não existe ou esta chave não tem acesso a ele.` });
+      if (availability.status === 401 || availability.status === 403) throw new ServiceUnavailableException({ code: "MODEL_CREDENTIAL_REJECTED", message: "A OpenAI recusou a chave ao verificar o acesso ao modelo." });
+      if (!availability.ok) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: `A OpenAI não confirmou o modelo '${selectedModel}' (HTTP ${availability.status}).` });
+    }
+
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        signal: signal ?? null,
+        headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: selectedModel, messages: input.messages, stream: true,
+          ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}),
+          stream_options: { include_usage: true },
+          ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
+          ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
+        }),
+      });
+    } catch {
+      throw new ServiceUnavailableException({
+        code: "AI_PROVIDER_REQUEST_FAILED",
+        message: "NÃ£o foi possÃ­vel conectar ao provedor de IA. Confira o endereÃ§o e tente novamente.",
+      });
+    }
 
     if (!response.ok) {
       const hasImage = input.messages.some((message) => Array.isArray(message.content) && message.content.some((part) => part.type === "image_url"));

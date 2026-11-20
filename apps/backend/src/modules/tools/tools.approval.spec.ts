@@ -31,20 +31,21 @@ function build(approvalStatus: string) {
   const database = fakeDatabase();
   const memoryCalls: string[] = [];
   const approvalsCalls: string[] = [];
+  const auditCalls: unknown[] = [];
   const service = new ToolsService(
     database as never,
     {
       request: async (input: { action: string }) => { approvalsCalls.push(input.action); return { id: "ap-1" }; },
       get: async () => ({ id: "ap-1", status: approvalStatus }),
     } as never,
-    { record: async () => undefined } as never,
+    { record: async (input: unknown) => { auditCalls.push(input); } } as never,
     { list: async () => { memoryCalls.push("list"); return []; }, clear: async () => { memoryCalls.push("clear"); } } as never,
     { catalog: () => [], find: () => undefined, call: async () => ({}) } as never,
     { secret: async () => undefined } as never,
     { decisionFor: async () => null } as never,
     {} as never,
   );
-  return { service, memoryCalls, approvalsCalls };
+  return { service, memoryCalls, approvalsCalls, auditCalls };
 }
 
 describe("ToolsService — ação sensível com aprovação", () => {
@@ -62,5 +63,16 @@ describe("ToolsService — ação sensível com aprovação", () => {
     const run = await service.invoke("memoria.apagar_tudo", {}, "Jadson");
     await expect(service.executeApproved(run.id, "Jadson")).rejects.toBeInstanceOf(BadRequestException);
     expect(memoryCalls).toEqual([]);
+  });
+
+  it("pedido de atendimento humano aguarda aprovação e, aprovado, só grava evento interno", async () => {
+    const { service, approvalsCalls, auditCalls } = build("approved");
+    const pending = await service.invoke("atendimento.humano", { motivo: "Preciso falar com alguém", conversaId: "c-1" }, "Jadson", undefined, "u-1");
+    expect(pending.status).toBe("pending_approval");
+    expect(approvalsCalls).toEqual(["tool.atendimento.humano"]);
+    expect(auditCalls).toHaveLength(0);
+    const completed = await service.executeApproved(pending.id, "Admin");
+    expect(completed.status).toBe("done");
+    expect(auditCalls).toContainEqual(expect.objectContaining({ action: "human_support.requested", subject: "c-1" }));
   });
 });

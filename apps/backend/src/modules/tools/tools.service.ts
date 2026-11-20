@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { AgentPolicyService } from "./agent-policy.service";
 import { randomUUID } from "node:crypto";
 import { ApprovalsService } from "../audit/approvals.service";
@@ -12,6 +12,10 @@ import { IntegrationsService } from "../integrations/integrations.service";
 import { GoogleService } from "../google/google.service";
 import { createNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
+import { withUntrustedNotice } from "./untrusted-content";
+import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
+import { NotificationsService } from "../notifications/notifications.service";
+import { readPage } from "./page-reader";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -36,6 +40,18 @@ export interface ToolRun {
 const COLUMNS = `id, tool, requested_by AS "requestedBy", status, input, output, approval_id AS "approvalId",
   created_at AS "createdAt", finished_at AS "finishedAt"`;
 
+/** Ferramentas que só devolvem dado local do próprio sistema (hora, memória). Todo o resto é de fora. */
+const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
+
+/** Resultado de ferramenta de fora (web, Notion, Drive, Agenda, arquivo, MCP) é marcado como dado não confiável. */
+function isOutsideTool(name: string): boolean {
+  return !LOCAL_TOOLS.has(name);
+}
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 /** Ferramenta que devolve erro (ex.: caminho recusado pelo servidor) não conta como concluída. */
 function statusOf(output: unknown): "done" | "failed" {
   return (output as { erro?: unknown } | null)?.erro === true ? "failed" : "done";
@@ -52,11 +68,39 @@ export class ToolsService {
     private readonly integrations: IntegrationsService,
     private readonly policies: AgentPolicyService,
     private readonly google: GoogleService,
+    @Optional() private readonly notifications?: NotificationsService,
   ) {}
 
   catalog(): ToolDefinition[] {
     const fromMcp = this.mcp.catalog().map((tool) => ({ name: tool.name, description: tool.description, risk: tool.risk }));
     return [...TOOL_DEFINITIONS, ...fromMcp];
+  }
+
+  /** Sanitiza texto de saída/erro usando integrações e ambiente, sem guardar os valores. */
+  async maskSecretText(value: string): Promise<string> {
+    try {
+      return maskSecrets(value, [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())]);
+    } catch {
+      return maskSecrets(value, environmentSecrets());
+    }
+  }
+
+  /** Valores secretos conhecidos (ambiente e integrações), em memória, para mascarar um fluxo de texto. */
+  async secretsForMasking(): Promise<string[]> {
+    try {
+      return [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())];
+    } catch {
+      return environmentSecrets();
+    }
+  }
+
+  private async maskSecretOutput(value: unknown): Promise<unknown> {
+    try {
+      const known = [...environmentSecrets(), ...(await this.integrations.secretValuesForMasking())];
+      return maskSecretValues(value, known);
+    } catch {
+      return maskSecretValues(value, environmentSecrets());
+    }
   }
 
   /** Usa uma ferramenta. Leitura roda na hora; sensível fica pendente até aprovação. */
@@ -81,7 +125,11 @@ export class ToolsService {
         payload: input,
         requestedBy,
       });
-      return this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
+      const pending = await this.insert(id, tool.name, requestedBy, "pending_approval", input, null, approval.id);
+      try {
+        await this.notifications?.create({ owner: requesterId ?? requestedBy, kind: "approval.pending", title: "Ação aguardando aprovação", body: tool.description, details: { tool: tool.name, runId: id, approvalId: approval.id } });
+      } catch { /* notification failure must not cancel a persisted approval */ }
+      return pending;
     }
 
     const output = await this.safeRun(tool.name, input);
@@ -123,9 +171,11 @@ export class ToolsService {
   /** Roda a ferramenta; uma falha vira resultado com erro, gravado no histórico, em vez de derrubar a requisição. */
   private async safeRun(name: string, input: Record<string, unknown>): Promise<unknown> {
     try {
-      return await this.runTool(name, input);
+      const output = await this.maskSecretOutput(await this.runTool(name, input));
+      return isOutsideTool(name) && isPlainObject(output) ? withUntrustedNotice(output, name) : output;
     } catch (error) {
-      return { erro: true, mensagem: error instanceof Error ? error.message : "Falha ao executar a ferramenta." };
+      const message = error instanceof Error ? error.message : "Falha ao executar a ferramenta.";
+      return { erro: true, mensagem: await this.maskSecretText(message) };
     }
   }
 
@@ -134,11 +184,18 @@ export class ToolsService {
     if (this.mcp.find(name)) return this.mcp.call(name, input);
     if (name === "tempo.agora") return { agora: new Date().toISOString() };
     if (name === "busca.wikipedia") return { resultados: await searchWikipedia(String(input.consulta ?? input.query ?? "")) };
+    if (name === "pagina.ler") return readPage(String(input.url ?? ""));
     if (name === "busca.web") return { resultados: await searchTavily(String(input.consulta ?? input.query ?? ""), await this.integrations.secret("tavily")) };
-    if (name === "memoria.listar") return { itens: await this.memory.list() };
+    if (name === "memoria.listar") return { itens: await this.memory.list(typeof input.pessoaId === "string" ? input.pessoaId : "local") };
     if (name === "memoria.apagar_tudo") {
       const removed = await this.database.getPool().query(`DELETE FROM memories WHERE owner = 'local'`);
       return { apagadas: removed.rowCount ?? 0 };
+    }
+    if (name === "atendimento.humano") {
+      const motivo = String(input.motivo ?? "").trim().slice(0, 1000);
+      if (!motivo) return { erro: true, mensagem: "Descreva o motivo do atendimento humano." };
+      await this.audit.record({ actor: typeof input.pessoaId === "string" ? input.pessoaId : "sistema", action: "human_support.requested", subject: typeof input.conversaId === "string" ? input.conversaId : null, details: { motivo } });
+      return { registrada: true, mensagem: "Pedido de atendimento humano registrado internamente." };
     }
     if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);
     if (name.startsWith("notion.")) return this.runNotion(name, input);
