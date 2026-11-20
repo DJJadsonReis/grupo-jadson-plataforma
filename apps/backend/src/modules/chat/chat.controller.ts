@@ -32,6 +32,7 @@ import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
 
 const MAX_TOOL_ITERATIONS = 4;
+export const MODEL_FIRST_RESPONSE_TIMEOUT_MS = 60_000;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
 
 interface ChatRequest { principal?: Principal }
@@ -144,6 +145,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 
 @Controller()
 export class ChatController {
+  static firstResponseTimeoutMs = MODEL_FIRST_RESPONSE_TIMEOUT_MS;
   private readonly logger = new Logger(ChatController.name);
   private endpointFetcher?: Parameters<typeof callAgentEndpoint>[0]["fetcher"];
   private endpointLookup?: Parameters<typeof callAgentEndpoint>[0]["lookupHost"];
@@ -320,10 +322,26 @@ export class ChatController {
               tools: availableTools.tools,
               messages: workingMessages,
             };
-            const timedSignal = AbortSignal.any([abort.signal, AbortSignal.timeout(60_000)]);
-            const upstream = await this.providers.stream(targetCompletion, timedSignal);
+            const firstResponseController = new AbortController();
+            const abortFirstResponse = () => firstResponseController.abort(abort.signal.reason);
+            abort.signal.addEventListener("abort", abortFirstResponse, { once: true });
+            const timeout = setTimeout(() => {
+              const error = new Error("Tempo limite para a primeira resposta do modelo.");
+              error.name = "TimeoutError";
+              firstResponseController.abort(error);
+            }, ChatController.firstResponseTimeoutMs);
+            let upstream: globalThis.Response;
+            try {
+              upstream = await this.providers.stream(targetCompletion, firstResponseController.signal);
+              clearTimeout(timeout);
+            } catch (error) {
+              clearTimeout(timeout);
+              abort.signal.removeEventListener("abort", abortFirstResponse);
+              throw error;
+            }
             stream = new MaskedTextStream(mask, (piece) => { emittedText = true; res.write(sseTextChunk(piece, target.model)); });
-            round = await readCompletion(upstream, stream);
+            try { round = await readCompletion(upstream, stream); }
+            finally { abort.signal.removeEventListener("abort", abortFirstResponse); }
             attemptIndex = index;
             if (target.fallback && usedFallback) {
               try { await this.audit.record({ action: "model.fallback", subject: conversationId ?? null, details: { agentId: agentId ?? null, providerId: target.providerId, model: target.model, reason: usedFallback.reason } }); }

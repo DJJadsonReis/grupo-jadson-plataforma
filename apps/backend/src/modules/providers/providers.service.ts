@@ -67,7 +67,7 @@ export class ProvidersService {
     let response: Response;
     try {
       response = await this.fetcher(`${baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", signal: signal ?? null, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
-    } catch { throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
+    } catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
     if (!response.ok) {
       const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
       throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `O modelo respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);
@@ -79,7 +79,7 @@ export class ProvidersService {
     const { anthropicStreamToOpenAi, translateAnthropicRequest } = await import("./anthropic.provider");
     let response: Response;
     try { response = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(translateAnthropicRequest({ ...input, model })) }); }
-    catch { throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor Anthropic." }); }
+    catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor Anthropic." }); }
     if (!response.ok) {
       const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
       throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `Anthropic respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);

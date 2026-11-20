@@ -117,6 +117,73 @@ describe("ChatController tool loop", () => {
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain("sk-teste-falso-000");
   });
 
+  it("mantém o corpo após o limite de primeira resposta", async () => {
+    const oldLimit = ChatController.firstResponseTimeoutMs;
+    ChatController.firstResponseTimeoutMs = 50;
+    try {
+      const stream = new ReadableStream<Uint8Array>({ start(controller) {
+        setTimeout(() => { controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "resposta longa completa" } }] })}\n\ndata: [DONE]\n\n`)); controller.close(); }, 150);
+      } });
+      const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
+      const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
+      const fetcher = jest.fn(async () => new Response(stream));
+      realProviders.setTestFetcher(fetcher as typeof fetch);
+      const { controller, audit } = setup({ providersService: realProviders, agent: {
+        instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020",
+        modelRouting: { fallbacks: [{ providerId: "123e4567-e89b-42d3-a456-426614174021", model: "reserve-model" }] },
+      } });
+      const response = new FakeResponse();
+      await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+      const output = Buffer.concat(response.writes.map((chunk) => Buffer.from(chunk))).toString("utf8");
+      expect(output).toContain("resposta longa completa");
+      expect((output.match(/data: \[DONE\]/g) ?? [])).toHaveLength(1);
+      expect(fetcher).toHaveBeenCalledTimes(1);
+      expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: "model.fallback" }));
+    } finally { ChatController.firstResponseTimeoutMs = oldLimit; }
+  });
+
+  it("cancela a leitura pelo usuário sem trocar de modelo", async () => {
+    const streamingProvider = { stream: jest.fn(async (_input: unknown, signal: AbortSignal) => new Response(new ReadableStream<Uint8Array>({ start(stream) {
+      stream.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "início" } }] })}\n\n`));
+      signal.addEventListener("abort", () => stream.error(signal.reason), { once: true });
+    } }))), list: jest.fn() };
+    const { controller, audit } = setup({ providersService: streamingProvider, agent: {
+      instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020",
+      modelRouting: { fallbacks: [{ providerId: "123e4567-e89b-42d3-a456-426614174021", model: "reserve-model" }] },
+    } });
+    const response = new FakeResponse();
+    const completion = controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    response.emit("close");
+    await completion;
+    expect(streamingProvider.stream).toHaveBeenCalledTimes(1);
+    expect(audit.record).not.toHaveBeenCalledWith(expect.objectContaining({ action: "model.fallback" }));
+  });
+
+  it("troca para a reserva quando os cabeçalhos excedem o limite", async () => {
+    const oldLimit = ChatController.firstResponseTimeoutMs;
+    ChatController.firstResponseTimeoutMs = 30;
+    try {
+      const main = "123e4567-e89b-42d3-a456-426614174020", reserve = "123e4567-e89b-42d3-a456-426614174021";
+      let call = 0;
+      const providers = { stream: jest.fn((_input: unknown, signal: AbortSignal) => {
+        call++;
+        if (call === 1) return new Promise<globalThis.Response>((_resolve, reject) => signal.addEventListener("abort", () => reject(signal.reason), { once: true }));
+        return Promise.resolve(sseResponse([{ model: "reserve-model", choices: [{ delta: { content: "resposta reserva" } }] }]));
+      }), list: jest.fn() };
+      const { controller, audit } = setup({ providersService: providers, agent: {
+        instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: main,
+        modelRouting: { fallbacks: [{ providerId: reserve, model: "reserve-model" }] },
+      } });
+      const response = new FakeResponse();
+      await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+      const output = Buffer.concat(response.writes.map((chunk) => Buffer.from(chunk))).toString("utf8");
+      expect(providers.stream).toHaveBeenCalledTimes(2);
+      expect(output).toContain('"model":"reserve-model"');
+      expect(audit.record).toHaveBeenCalledWith(expect.objectContaining({ action: "model.fallback", details: expect.objectContaining({ providerId: reserve, model: "reserve-model", reason: "timeout" }) }));
+    } finally { ChatController.firstResponseTimeoutMs = oldLimit; }
+  });
+
   it("não troca de modelo depois que já enviou texto ao usuário", async () => {
     const body = `data: ${JSON.stringify({ choices: [{ delta: { content: `${"texto ".repeat(110)} ` } }] })}\n\n`;
     const partialThenFailure = new Response(new ReadableStream<Uint8Array>({ start(stream) { stream.enqueue(new TextEncoder().encode(body)); }, pull(stream) { stream.error(new Error("falha de rede")); } }));
