@@ -1,4 +1,4 @@
-﻿# Relat?rio da tarefa 105
+# Relat?rio da tarefa 105
 
 ## O que foi feito
 
@@ -47,4 +47,3 @@ Commit: `(preenchido apÃ³s commit)` ? `fix(dictation): modelo embutido no layo
 
 - Gerar o instalador e verificar o recurso dentro do execut?vel: n?o executado, pois `makensis` n?o est? dispon?vel neste ambiente; essa verifica??o depende do dono.
 - N?o foi feito push.
-
