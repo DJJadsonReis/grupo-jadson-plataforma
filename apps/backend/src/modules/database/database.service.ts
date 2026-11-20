@@ -33,6 +33,7 @@ import { migrationId as agentEndpointsMigrationId, up as addAgentEndpoints } fro
 import { migrationId as mcpServersMigrationId, up as addMcpServers } from "./migrations/030-mcp-servers";
 import { migrationId as routineScheduleMigrationId, up as addRoutineSchedule } from "./migrations/031-routine-schedule";
 import { migrationId as teamRoomsMigrationId, up as addTeamRooms } from "./migrations/032-team-rooms";
+import { migrationId as connectionSharesMigrationId, up as addConnectionShares } from "./migrations/033-connection-shares";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -87,6 +88,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: mcpServersMigrationId, apply: async () => addMcpServers(this.pool!) },
         { id: routineScheduleMigrationId, apply: async () => addRoutineSchedule(this.pool!) },
         { id: teamRoomsMigrationId, apply: async () => addTeamRooms(this.pool!) },
+        { id: connectionSharesMigrationId, apply: async () => addConnectionShares(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

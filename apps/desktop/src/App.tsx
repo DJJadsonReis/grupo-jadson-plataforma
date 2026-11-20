@@ -18,6 +18,7 @@ import { TeamRoomsPage } from "./components/team/TeamRoomsPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
+import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
@@ -2521,6 +2522,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
               <IntegrationSettings />
               <NotionSettings />
               <GoogleSettings />
+              {canShowSharing(edition) && <ConnectionSharesPanel apiFetch={apiFetch} apiUrl={API_URL} isAdmin={edition === "pessoal" || !readSession()} />}
             </>
           )}
           {tab === "uso" && <UsageSettings />}
