@@ -11,6 +11,7 @@ import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
+import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
@@ -2428,7 +2429,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
                   <button type="button" className="icon-btn-close" onClick={signOutThisComputer}>Sair</button>
                 </div>
               </article>
-              <MemorySettings />
+              <MemorySettings apiFetch={apiFetch} apiUrl={API_URL} />
             </>
           )}
           {tab === "computador" && (
@@ -3035,7 +3036,7 @@ function TeamManagementSettings() {
 type MemoryEntry = { id: string; content: string; createdAt: string };
 
 /** Memória: o que a pessoa pediu para lembrar. Desligada, nada disso vai para o modelo. */
-function MemorySettings() {
+function MemorySettings({ apiFetch, apiUrl }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string }) {
   const [enabled, setEnabled] = useState(true);
   const [items, setItems] = useState<MemoryEntry[]>([]);
   const [draft, setDraft] = useState("");
@@ -3077,6 +3078,7 @@ function MemorySettings() {
     <article className="settings-box">
       <h3>Memória</h3>
       <p>O que você pedir para lembrar entra como contexto nas conversas. Você pode desligar a memória ou apagar cada item.</p>
+      <PreferencesPanel apiFetch={apiFetch} apiUrl={apiUrl} />
       {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
       <div className="workspace-fact">
         <span>Memória {enabled ? "ligada" : "desligada"}</span>

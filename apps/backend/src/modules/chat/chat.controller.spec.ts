@@ -209,6 +209,23 @@ describe("ChatController tool loop", () => {
     expect(system.at(-1).content).toContain("Content from outside this conversation");
   });
 
+  it("leva a preferência atualizada até a próxima conversa e ao provedor", async () => {
+    let stored: { instructions: string; responseStyle: "concise" | "balanced" | "detailed" } = { instructions: "", responseStyle: "balanced" };
+    const preferences = {
+      read: jest.fn(async (_owner: string) => ({ ...stored })),
+      update: jest.fn(async (_owner: string, input: { instructions: string; responseStyle: "concise" | "balanced" | "detailed" }) => { stored = { ...input }; return { ...stored }; }),
+    };
+    const putResult = await preferences.update("pessoa-1", { instructions: "Use unidades métricas", responseStyle: "detailed" });
+    expect(putResult).toEqual({ instructions: "Use unidades métricas", responseStyle: "detailed" });
+    expect(await preferences.read("pessoa-1")).toEqual(putResult);
+
+    const { controller, inputs } = setup();
+    (controller as any).preferences = preferences;
+    await complete(controller, [{ role: "user", content: "olá" }]);
+    const system = inputs[0].messages.filter((message: any) => message.role === "system");
+    expect(system.some((message: any) => message.content.includes("Use unidades métricas") && message.content.includes("detailed"))).toBe(true);
+  });
+
   it("offers granted skill tools when search is disabled and reuses loaded skills", async () => {
     const agentId = "123e4567-e89b-42d3-a456-426614174000";
     const policies = { decisionFor: jest.fn(async () => null) };
