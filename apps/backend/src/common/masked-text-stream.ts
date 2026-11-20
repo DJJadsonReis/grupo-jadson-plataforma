@@ -24,6 +24,21 @@ export class MaskedTextStream {
   push(text: string): void {
     if (!text) return;
     this.buffer += text;
+    // Nunca libere conteúdo iniciado por BEGIN PRIVATE KEY antes de END (ou do limite).
+    const privateKeyStart = this.buffer.search(/-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/);
+    if (privateKeyStart >= 0) {
+      const endPattern = /-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/g;
+      endPattern.lastIndex = privateKeyStart;
+      const endMatch = endPattern.exec(this.buffer);
+      if (!endMatch) {
+        if (this.buffer.length - privateKeyStart <= 16 * 1024) return;
+        const before = this.buffer.slice(0, privateKeyStart);
+        if (before) this.emit(this.mask(before));
+        this.emit("[REDACTED]");
+        this.buffer = "";
+        return;
+      }
+    }
     if (this.buffer.length <= this.holdChars) return;
     const limit = this.buffer.length - this.holdChars;
     // Procura o último espaço em branco antes do limite cujo prefixo não termine em "Bearer".

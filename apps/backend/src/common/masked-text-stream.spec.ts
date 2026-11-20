@@ -54,4 +54,19 @@ describe("MaskedTextStream", () => {
     stream.flush();
     expect(out).toEqual([]);
   });
+
+  it("não libera corpo de PEM falso dividido em quatro partes antes do END", () => {
+    const out: string[] = [];
+    const stream = new MaskedTextStream((text) => maskSecrets(text, []), (piece) => out.push(piece), 8);
+    stream.push("começo. -----BEGIN RSA PRIVATE KEY-----\n");
+    stream.push("MIIFAKEFAKEFAKE\n");
+    stream.push("CORPO-FALSO-PEM\n");
+    stream.push("-----END RSA PRIVATE KEY----- fim longo para forçar emissão");
+    stream.flush();
+    const output = out.join("");
+    expect(output).not.toContain("MIIFAKEFAKEFAKE");
+    expect(output).not.toContain("CORPO-FALSO-PEM");
+    expect(output).toContain("[REDACTED]");
+    expect(output).toContain("começo.");
+  });
 });

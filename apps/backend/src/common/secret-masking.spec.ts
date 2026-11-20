@@ -29,4 +29,38 @@ describe("secret masking", () => {
     const text = "A pesquisa encontrou três páginas sobre jardins.";
     expect(maskSecrets(text)).toBe(text);
   });
+
+  it("mascara formatos proprietários falsos", () => {
+    const fakeValues = [
+      "AKIAFAKEFAKEFAKE0000",
+      "sk_test_FALSO0000000000000000",
+      "rk_live_FALSO0000000000000000",
+      "pk_test_FALSO0000000000000000",
+      "npm_FALSO00000000000000000000",
+      "ya29.FALSO-token-de-teste-0000",
+      "glpat-FALSO-token-de-teste-0000",
+      "hf_ABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890",
+      "SG.FALSO-token-de-teste-0000.ABCDEFGHIJKLMNOPQRST",
+    ];
+    for (const fakeValue of fakeValues) {
+      const output = maskSecrets(fakeValue);
+      expect(output).not.toContain(fakeValue);
+      expect(output).toContain(SECRET_REDACTION_MARKER);
+    }
+    expect(maskSecrets("ASIAFAKEFAKEFAKE0000")).toContain(SECRET_REDACTION_MARKER);
+    expect(maskSecrets("rk_test_FALSO0000000000000000")).toContain(SECRET_REDACTION_MARKER);
+  });
+
+  it("mascara bloco PEM falso e PEM falso sem END", () => {
+    const pem = "antes\n-----BEGIN RSA PRIVATE KEY-----\nMIIFAKEFAKEFAKE123\nCORPO-FALSO-PEM\n-----END RSA PRIVATE KEY-----\ndepois";
+    const output = maskSecrets(pem);
+    expect(output).toBe("antes\n[REDACTED]\ndepois");
+    expect(maskSecrets("início -----BEGIN PRIVATE KEY-----\nCORPO-FALSO-PEM"))
+      .toBe("início [REDACTED]");
+  });
+
+  it("preserva falsos positivos comuns", () => {
+    const text = "a chave sk do sistema; hf_x; AKIA; SG.; npm_; Bearer; STRIPE_KEY";
+    expect(maskSecrets(text)).toBe(text);
+  });
 });
