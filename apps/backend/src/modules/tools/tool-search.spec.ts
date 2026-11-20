@@ -8,7 +8,8 @@ function mcpTools(count: number): ToolDefinition[] {
 describe("tool-search", () => {
   it("mantém todas as ferramentas até o limite e ativa a busca acima dele", () => {
     expect(TOOL_SEARCH_FLOOR).toBe(50);
-    const atLimit = [...TOOL_DEFINITIONS.filter((definition) => definition.risk === "read"), ...mcpTools(40)];
+    const coreRead = TOOL_DEFINITIONS.filter((definition) => definition.risk === "read");
+    const atLimit = [...coreRead, ...mcpTools(50 - coreRead.length)];
     const overLimit = [...atLimit, ...mcpTools(1)];
     expect(atLimit.filter((definition) => definition.risk === "read")).toHaveLength(50);
     expect(searchEnabled(atLimit)).toBe(false);
@@ -44,6 +45,11 @@ describe("tool-search", () => {
     expect(searchTools("", defs)).toEqual([]);
     expect(searchTools("a x", defs)).toEqual([]);
     expect(searchTools("inexistente", defs)).toEqual([]);
+  });
+
+  it("encontra a ferramenta de leitura do Notion pelo nome e descrição", () => {
+    expect(searchTools("notion.ler_pagina", TOOL_DEFINITIONS).map((item) => item.name)).toContain("notion.ler_pagina");
+    expect(searchTools("lê o título texto blocos página notion", TOOL_DEFINITIONS).map((item) => item.name)).toContain("notion.ler_pagina");
   });
 
   it("ignora sensíveis e limita resultados a oito mesmo com limite maior", () => {

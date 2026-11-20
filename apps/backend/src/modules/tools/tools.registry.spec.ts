@@ -14,6 +14,13 @@ describe("registro de ferramentas", () => {
     expect(findTool("memoria.apagar_tudo")?.risk).toBe("sensitive");
   });
 
+  it("registra leitura do Notion como read e anexo como sensitive", () => {
+    expect(findTool("notion.ler_pagina")?.risk).toBe("read");
+    expect(findTool("notion.anexar_texto")?.risk).toBe("sensitive");
+    expect(findTool("notion.ler_pagina")?.parameters?.required).toEqual(["pagina"]);
+    expect(findTool("notion.anexar_texto")?.parameters?.required).toEqual(["pagina", "texto"]);
+  });
+
   it("ferramenta desconhecida não existe", () => {
     expect(findTool("shell.executar")).toBeUndefined();
   });

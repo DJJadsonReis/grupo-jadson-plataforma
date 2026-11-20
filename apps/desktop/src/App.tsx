@@ -2681,7 +2681,7 @@ function NotionSettings() {
   return (
     <article className="settings-box">
       <h3>Notion</h3>
-      <p>Permite que os agentes pesquisem e criem páginas no seu Notion, depois da sua aprovação. Compartilhe as páginas com a integração no próprio Notion.</p>
+      <p>Permite buscar e ler páginas, criar páginas e anexar texto ao seu Notion. A criação e o anexo exigem sua aprovação. Compartilhe as páginas com a integração no próprio Notion.</p>
       {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
       <div className="workspace-fact">
         <span>Status</span>

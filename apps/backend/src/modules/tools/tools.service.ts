@@ -10,7 +10,7 @@ import { McpService } from "../mcp/mcp.service";
 import { searchTavily, searchWikipedia } from "./web-search";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { GoogleService } from "../google/google.service";
-import { createNotionPage, searchNotion } from "./notion";
+import { appendNotionText, createNotionPage, readNotionPage, searchNotion } from "./notion";
 import { listFiles, readText, writeText } from "./workspace-files";
 import { withUntrustedNotice } from "./untrusted-content";
 import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
@@ -224,6 +224,17 @@ export class ToolsService {
     const token = await this.integrations.secret("notion");
     if (!token) return { erro: true, mensagem: "O Notion não está configurado. Cole o token em Configurações." };
     if (name === "notion.buscar") return { resultados: await searchNotion(token, String(input.consulta ?? input.query ?? "")) };
+    if (name === "notion.ler_pagina") {
+      const pagina = String(input.pagina ?? "").trim();
+      if (!pagina) return { erro: true, mensagem: "Informe o id ou URL da página do Notion." };
+      return readNotionPage(token, pagina);
+    }
+    if (name === "notion.anexar_texto") {
+      const pagina = String(input.pagina ?? "").trim();
+      const texto = String(input.texto ?? "").trim();
+      if (!pagina || !texto) return { erro: true, mensagem: "Informe a página e o texto que deseja anexar." };
+      return appendNotionText(token, pagina, texto);
+    }
     if (name === "notion.criar_pagina") {
       const pai = String(input.pagina_pai ?? "").trim();
       const titulo = String(input.titulo ?? "").trim();
