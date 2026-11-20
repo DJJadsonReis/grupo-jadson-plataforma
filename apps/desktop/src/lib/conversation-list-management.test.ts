@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { deletionErrorMessage, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./conversation-list";
+import { deletionErrorMessage, isConversationDeletionComplete, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./conversation-list";
 import type { Conversation, Workspace } from "./workspace";
 
 const conversation = (id: string, values: Partial<Conversation> = {}): Conversation => ({ id, title: id, updatedAt: 0, messages: [], ...values });
@@ -21,6 +21,13 @@ describe("conversation list management", () => {
   it("shows a transient error only for failed deletion", () => {
     expect(deletionErrorMessage(true)).toBe("Não foi possível excluir a conversa. Tente de novo.");
     expect(deletionErrorMessage(false)).toBeNull();
+  });
+
+  it("treats successful responses and missing conversations as completed deletions", () => {
+    expect(isConversationDeletionComplete(200)).toBe(true);
+    expect(isConversationDeletionComplete(204)).toBe(true);
+    expect(isConversationDeletionComplete(404)).toBe(true);
+    for (const status of [401, 403, 500]) expect(isConversationDeletionComplete(status)).toBe(false);
   });
 
   it("separates direct fixed-agent chats and keeps groups under conversations", () => {

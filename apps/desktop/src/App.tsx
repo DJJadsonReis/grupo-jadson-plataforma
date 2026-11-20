@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials, deletionErrorMessage, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, deletionErrorMessage, isConversationDeletionComplete, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -372,17 +372,22 @@ function Workspace({ edition }: { edition: Edition }) {
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
     if (!item) return;
-    deletedConversationIdsRef.current.add(id);
+    const isServerId = isServerConversationId(id);
+    const hasServerList = serverConversationIdsRef.current.size > 0;
+    if (isServerId && !hasServerList) {
+      showHistoryNotice(deletionErrorMessage(true));
+      return;
+    }
     if (isPersistedConversation(id, serverConversationIdsRef.current)) {
       try {
         const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-        if (!response.ok) throw new Error("falhou");
+        if (!isConversationDeletionComplete(response.status)) throw new Error("falhou");
       } catch {
-        deletedConversationIdsRef.current.delete(id);
         showHistoryNotice(deletionErrorMessage(true));
         return;
       }
     }
+    deletedConversationIdsRef.current.add(id);
     const remaining = conversations.filter((c) => c.id !== id);
     setConversations(remaining);
     setPendingConversation((current) => current?.id === id ? null : current);
