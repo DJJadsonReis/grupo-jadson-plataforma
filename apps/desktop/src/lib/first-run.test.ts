@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { createLocalApiToken, isPostgresUrl } from "./first-run";
+import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
 
 describe("first run setup helpers", () => {
   it("accepts PostgreSQL URLs and rejects other or incomplete URLs", () => {
@@ -14,5 +14,22 @@ describe("first run setup helpers", () => {
     const token = createLocalApiToken((bytes) => { bytes.fill(0xab); return bytes; });
     expect(token).toBe("ab".repeat(32));
     expect(token).toHaveLength(64);
+  });
+
+  it("describes the exact PowerShell command and working directory", () => {
+    expect(describeLocalServicesCommand("T:/projeto/scripts/start.ps1", "T:/projeto")).toBe(
+      'powershell -NoProfile -ExecutionPolicy Bypass -File "T:\\projeto\\scripts\\start.ps1"\nDiretório de trabalho: T:\\projeto',
+    );
+  });
+
+  it("asks until consent is explicitly true", () => {
+    expect(shouldAskServicesConsent(undefined)).toBe(true);
+    expect(shouldAskServicesConsent(false)).toBe(true);
+    expect(shouldAskServicesConsent(true)).toBe(false);
+  });
+
+  it("summarizes captured output and includes stderr", () => {
+    expect(summarizeProcessOutput("serviços iniciados", "aviso")).toContain("Avisos/erros:\naviso");
+    expect(summarizeProcessOutput("x".repeat(30), "", 10)).toContain("saída resumida");
   });
 });

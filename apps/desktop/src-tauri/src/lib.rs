@@ -6,6 +6,7 @@ use std::sync::mpsc::{channel, Receiver};
 use std::sync::Mutex;
 use std::thread;
 use std::time::{Duration, Instant};
+use std::process::{Command, Stdio};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -133,6 +134,141 @@ fn desktop_setup_path() -> Result<PathBuf, String> {
     Ok(root.join("GrupoJadson").join("setup.json"))
 }
 
+fn find_project_root() -> Option<PathBuf> {
+    let mut candidates = Vec::new();
+    if let Ok(directory) = std::env::current_dir() { candidates.push(directory); }
+    if let Ok(executable) = std::env::current_exe() {
+        if let Some(directory) = executable.parent() { candidates.push(directory.to_path_buf()); }
+    }
+    candidates.into_iter().flat_map(|path| path.ancestors().map(PathBuf::from).collect::<Vec<_>>())
+        .find(|root| root.join("scripts").join("start.ps1").is_file())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct LocalServicesInfo { script_path: String, project_root: String, services_consent: bool }
+
+fn read_setup_config() -> Result<serde_json::Value, String> {
+    let path = desktop_setup_path()?;
+    match fs::read(&path) {
+        Ok(bytes) => serde_json::from_slice(&bytes).map_err(|_| "configuração local inválida".to_string()),
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(serde_json::json!({})),
+        Err(_) => Err("não foi possível ler a configuração local".to_string()),
+    }
+}
+
+fn merge_setup_config(
+    existing: serde_json::Value,
+    updates: &[(&str, serde_json::Value)],
+) -> Result<serde_json::Value, String> {
+    let mut config = existing
+        .as_object()
+        .cloned()
+        .map(serde_json::Value::Object)
+        .ok_or_else(|| "configuração local inválida".to_string())?;
+    for (key, value) in updates {
+        config[key] = value.clone();
+    }
+    Ok(config)
+}
+
+fn save_services_consent() -> Result<(), String> {
+    let path = desktop_setup_path()?;
+    let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
+    fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
+    let config = merge_setup_config(
+        read_setup_config()?,
+        &[("servicesConsent", serde_json::Value::Bool(true))],
+    )?;
+    let bytes = serde_json::to_vec(&config).map_err(|_| "não foi possível preparar a configuração".to_string())?;
+    fs::write(path, bytes).map_err(|_| "não foi possível salvar a confirmação local".to_string())
+}
+
+#[tauri::command]
+fn get_local_services_info() -> Result<LocalServicesInfo, String> {
+    let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; inicie manualmente".to_string())?;
+    let script = root.join("scripts").join("start.ps1");
+    let config = read_setup_config()?;
+    Ok(LocalServicesInfo {
+        script_path: script.to_string_lossy().into_owned(),
+        project_root: root.to_string_lossy().into_owned(),
+        services_consent: config.get("servicesConsent").and_then(serde_json::Value::as_bool) == Some(true),
+    })
+}
+
+#[derive(serde::Serialize)]
+struct LocalServicesResult { stdout: String, stderr: String }
+
+#[tauri::command]
+async fn start_local_services() -> Result<LocalServicesResult, String> {
+    tauri::async_runtime::spawn_blocking(run_local_services)
+        .await
+        .map_err(|_| "não foi possível acompanhar o script de inicialização".to_string())?
+}
+
+fn run_local_services() -> Result<LocalServicesResult, String> {
+    let root = find_project_root().ok_or_else(|| "scripts de inicialização não encontrados; inicie manualmente".to_string())?;
+    let script = root.join("scripts").join("start.ps1");
+    save_services_consent()?;
+    let mut child = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&script)
+        .current_dir(&root)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|_| "não foi possível iniciar o script de serviços locais".to_string())?;
+    let (output_sender, output_receiver) = channel();
+    let stdout_sender = output_sender.clone();
+    let stdout_reader = child.stdout.take().map(|mut stream| thread::spawn(move || {
+        let mut output = String::new();
+        let _ = stream.read_to_string(&mut output);
+        let _ = stdout_sender.send((true, output));
+    }));
+    let stderr_reader = child.stderr.take().map(|mut stream| thread::spawn(move || {
+        let mut output = String::new();
+        let _ = stream.read_to_string(&mut output);
+        let _ = output_sender.send((false, output));
+    }));
+    let deadline = Instant::now() + Duration::from_secs(300);
+    let mut stdout = String::new();
+    let mut stderr = String::new();
+    let mut stdout_done = stdout_reader.is_none();
+    let mut stderr_done = stderr_reader.is_none();
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                // Depois que o processo principal termina, pode haver um processo descendente
+                // com os pipes herdados. Aguarda EOF apenas até o prazo original.
+                while (!stdout_done || !stderr_done) && Instant::now() < deadline {
+                    let remaining = deadline.saturating_duration_since(Instant::now());
+                    match output_receiver.recv_timeout(remaining) {
+                        Ok((is_stdout, output)) => {
+                            if is_stdout { stdout = output; stdout_done = true; }
+                            else { stderr = output; stderr_done = true; }
+                        }
+                        Err(_) => break,
+                    }
+                }
+                drop(stdout_reader);
+                drop(stderr_reader);
+                if !status.success() { return Err(if stderr.trim().is_empty() { "o script de inicialização terminou com erro".to_string() } else { stderr.chars().take(1200).collect() }); }
+                return Ok(LocalServicesResult { stdout, stderr });
+            }
+            Ok(None) if Instant::now() < deadline => {
+                // Drena saídas concluídas enquanto acompanha o processo, sem bloquear nos pipes.
+                while let Ok((is_stdout, output)) = output_receiver.try_recv() {
+                    if is_stdout { stdout = output; stdout_done = true; }
+                    else { stderr = output; stderr_done = true; }
+                }
+                thread::sleep(Duration::from_millis(250));
+            }
+            Ok(None) => return Err("o script excedeu o limite de 5 minutos; verifique os serviços antes de tentar novamente".to_string()),
+            Err(_) => return Err("não foi possível acompanhar o script de inicialização".to_string()),
+        }
+    }
+}
+
 /// Persiste somente as configurações locais mínimas necessárias para o backend.
 #[tauri::command]
 fn save_first_run_config(database_url: String, api_token: String) -> Result<(), String> {
@@ -153,7 +289,13 @@ fn save_first_run_config(database_url: String, api_token: String) -> Result<(), 
     let path = desktop_setup_path()?;
     let directory = path.parent().ok_or_else(|| "pasta de configuração inválida".to_string())?;
     fs::create_dir_all(directory).map_err(|_| "não foi possível criar a pasta de configuração".to_string())?;
-    let content = serde_json::to_vec(&serde_json::json!({ "databaseUrl": parsed, "apiToken": api_token }))
+    let existing = read_setup_config()?;
+    let existing = if existing.is_object() { existing } else { serde_json::json!({}) };
+    let config = merge_setup_config(existing, &[
+        ("databaseUrl", serde_json::Value::String(parsed.to_string())),
+        ("apiToken", serde_json::Value::String(api_token)),
+    ])?;
+    let content = serde_json::to_vec(&config)
         .map_err(|_| "não foi possível preparar a configuração".to_string())?;
     fs::write(&path, content).map_err(|_| "não foi possível salvar a configuração local".to_string())
 }
@@ -170,13 +312,47 @@ fn get_first_run_api_token() -> Result<String, String> {
         .ok_or_else(|| "token local inválido".to_string())
 }
 
+#[cfg(test)]
+mod tests {
+    use super::merge_setup_config;
+    use serde_json::{json, Value};
+
+    #[test]
+    fn consent_merge_preserves_database_url_and_api_token() {
+        let merged = merge_setup_config(
+            json!({"databaseUrl":"postgres://x/db","apiToken":"abc"}),
+            &[("servicesConsent", Value::Bool(true))],
+        ).unwrap();
+        assert_eq!(merged, json!({"databaseUrl":"postgres://x/db","apiToken":"abc","servicesConsent":true}));
+    }
+
+    #[test]
+    fn consent_merge_creates_missing_config() {
+        assert_eq!(merge_setup_config(json!({}), &[("servicesConsent", Value::Bool(true))]).unwrap(), json!({"servicesConsent":true}));
+    }
+
+    #[test]
+    fn saving_database_url_and_token_preserves_consent() {
+        let merged = merge_setup_config(
+            json!({"servicesConsent":true,"other":"kept"}),
+            &[("databaseUrl", json!("postgres://x/db")), ("apiToken", json!("abc"))],
+        ).unwrap();
+        assert_eq!(merged, json!({"servicesConsent":true,"other":"kept","databaseUrl":"postgres://x/db","apiToken":"abc"}));
+    }
+
+    #[test]
+    fn consent_merge_rejects_non_object_config_like_existing_behavior() {
+        assert!(merge_setup_config(json!(null), &[("servicesConsent", Value::Bool(true))]).is_err());
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
