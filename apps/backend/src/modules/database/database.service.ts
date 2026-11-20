@@ -27,6 +27,7 @@ import { migrationId as skillsMigrationId, up as addSkills } from "./migrations/
 import { migrationId as agentSkillsMigrationId, up as addAgentSkills } from "./migrations/024-agent-skills";
 import { migrationId as tasksMigrationId, up as addTasks } from "./migrations/025-tasks";
 import { migrationId as globalSkillsMigrationId, up as addGlobalSkills } from "./migrations/026-skills-globais";
+import { migrationId as skillToolsMigrationId, up as addSkillTools } from "./migrations/027-skills-ferramentas";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -75,6 +76,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: agentSkillsMigrationId, apply: async () => addAgentSkills(this.pool!) },
         { id: tasksMigrationId, apply: async () => addTasks(this.pool!) },
         { id: globalSkillsMigrationId, apply: async () => addGlobalSkills(this.pool!) },
+        { id: skillToolsMigrationId, apply: async () => addSkillTools(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

@@ -2,7 +2,7 @@ import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { DatabaseService } from "../database/database.service";
 import { AgentSkillsService } from "./agent-skills.service";
 
-const skill = { id: "skill-id", ownerId: "owner", slug: "research", title: "Pesquisa", summary: "", instructions: "Use fontes." };
+const skill = { id: "skill-id", ownerId: "owner", slug: "research", title: "Pesquisa", summary: "", instructions: "Use fontes.", tools: [] as string[] };
 const agentId = "6f1c2a3e-4b5d-4e6f-8a9b-0c1d2e3f4a5b";
 function setup(query: jest.Mock) {
   const database = { getPool: () => ({ query }) } as unknown as DatabaseService;
@@ -43,6 +43,20 @@ describe("AgentSkillsService", () => {
     await expect(service.attach("owner", agentId, "research")).resolves.toEqual(skill);
     await expect(service.attach("owner", agentId, "research")).resolves.toEqual(skill);
     expect(query.mock.calls.filter(([sql]) => /INSERT\s+INTO agent_skills/.test(String(sql)))).toHaveLength(1);
+  });
+
+  it("prefers the owner's skill when a global skill has the same slug", async () => {
+    const own = { ...skill, id: "own" };
+    const query = jest.fn(async (sql: string, _params: unknown[]) => {
+      if (sql.includes("FROM agents a CROSS JOIN skills")) return { rows: [own] };
+      if (sql.includes("SELECT count(*)")) return { rows: [{ count: 0 }] };
+      if (sql.includes("INSERT INTO agent_skills")) return { rowCount: 1 };
+      return { rows: [own] };
+    });
+    const { service } = setup(query);
+    await expect(service.attach("owner", agentId, "research")).resolves.toEqual(own);
+    expect(query.mock.calls[0]?.[0]).toContain("ORDER BY (s.owner_id=$2) DESC LIMIT 1");
+    expect(query.mock.calls[0]?.[1]).toEqual([agentId, "owner", "research"]);
   });
 
   it("attaches a global skill from another owner and lists it", async () => {
@@ -89,16 +103,17 @@ describe("AgentSkillsService", () => {
     await expect(service.detach("owner", agentId, "research")).resolves.toBeUndefined();
     await expect(service.detach("other", agentId, "research")).rejects.toBeInstanceOf(NotFoundException);
     await expect(service.detach("owner", agentId, "absent")).rejects.toMatchObject({ response: { message: "Habilidade não encontrada." } });
-    expect(query.mock.calls[0][0]).toContain("link.owner_id=$2");
-    expect(query.mock.calls[0][0]).toContain("a.owner_id=$2");
-    expect(query.mock.calls[0][0]).toContain("s.owner_id=$2 OR s.global");
+    expect(query.mock.calls[0]?.[0]).toContain("link.owner_id=$2");
+    expect(query.mock.calls[0]?.[0]).toContain("a.owner_id=$2");
+    expect(query.mock.calls[0]?.[0]).toContain("s.owner_id=$2 OR s.global");
+    expect(query.mock.calls[0]?.[0]).toContain("ORDER BY (s2.owner_id=$2) DESC LIMIT 1");
   });
 
   it("loads prompt skills in attachment order", async () => {
-    const rows = [{ title: "A", instructions: "a" }, { title: "B", instructions: "b" }];
+    const rows = [{ title: "A", instructions: "a", tools: ["pagina.ler"] }, { title: "B", instructions: "b", tools: [] }];
     const query = jest.fn().mockResolvedValue({ rows });
     const { service } = setup(query);
     await expect(service.loadPromptSkills("agent-id")).resolves.toEqual(rows);
-    expect(query.mock.calls[0][0]).toContain("ORDER BY link.created_at ASC");
+    expect(query.mock.calls[0]?.[0]).toContain("ORDER BY link.created_at ASC");
   });
 });

@@ -13,17 +13,40 @@ function setup(query = jest.fn()) {
 
 describe("SkillsService", () => {
   it("creates a skill owned by the supplied principal", async () => {
-    const created = { id: "id", ownerId: "person-1", ...valid, summary: "", createdAt: new Date(), updatedAt: new Date() };
+    const created = { id: "id", ownerId: "person-1", ...valid, summary: "", tools: ["pagina.ler"], createdAt: new Date(), updatedAt: new Date() };
     const { service, query } = setup(jest.fn().mockResolvedValue({ rows: [created] }));
-    await expect(service.create(operator, valid)).resolves.toEqual(created);
-    expect(query.mock.calls[0]?.[1]).toEqual([expect.any(String), "person-1", "research", "Research", "", "Follow these steps", false]);
+    await expect(service.create(operator, { ...valid, tools: ["pagina.ler"] })).resolves.toEqual(created);
+    expect(query.mock.calls[0]?.[1]).toEqual([expect.any(String), "person-1", "research", "Research", "", "Follow these steps", false, ["pagina.ler"]]);
+  });
+
+  it("stores an empty tools array when tools are omitted", async () => {
+    const { service, query } = setup(jest.fn().mockResolvedValue({ rows: [{ tools: [] }] }));
+    await expect(service.create(operator, valid)).resolves.toMatchObject({ tools: [] });
+    expect(query.mock.calls[0]?.[1]?.[7]).toEqual([]);
+  });
+
+  it("deduplicates tools before writing", async () => {
+    const { service, query } = setup(jest.fn().mockResolvedValue({ rows: [{ tools: ["pagina.ler"] }] }));
+    await service.create(operator, { ...valid, tools: ["pagina.ler", "pagina.ler"] });
+    expect(query.mock.calls[0]?.[1]?.[7]).toEqual(["pagina.ler"]);
+  });
+
+  it.each([
+    ["non-array", "pagina.ler"],
+    ["non-string member", ["pagina.ler", 42]],
+    ["more than 20 items", Array(21).fill("pagina.ler")],
+    ["unknown tool", ["desconhecida"]],
+  ])("rejects %s tools without querying", async (_name, tools) => {
+    const { service, query } = setup();
+    await expect(service.create(operator, { ...valid, tools })).rejects.toMatchObject({ response: { code: "INVALID_SKILL" } });
+    expect(query).not.toHaveBeenCalled();
   });
 
   it("allows an admin to create a global skill", async () => {
     const created = { id: "id", ownerId: "admin-1", ...valid, summary: "", global: true };
     const { service, query } = setup(jest.fn().mockResolvedValue({ rows: [created] }));
     await expect(service.create(admin, { ...valid, global: true })).resolves.toMatchObject({ global: true });
-    expect(query.mock.calls[0]?.[1]).toEqual([expect.any(String), "admin-1", "research", "Research", "", "Follow these steps", true]);
+    expect(query.mock.calls[0]?.[1]).toEqual([expect.any(String), "admin-1", "research", "Research", "", "Follow these steps", true, []]);
   });
 
   it("rejects non-admin global creation and invalid global values", async () => {
