@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
-import { createLocalApiToken, describeLocalServicesCommand, isPostgresUrl, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
+import { describe, expect, it, vi } from "vitest";
+import { confirmPostgresInstall, createLocalApiToken, describeLocalServicesCommand, describePostgresInstallCommand, isPostgresUrl, isSha256, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
 
 describe("first run setup helpers", () => {
   it("accepts PostgreSQL URLs and rejects other or incomplete URLs", () => {
@@ -31,5 +31,20 @@ describe("first run setup helpers", () => {
   it("summarizes captured output and includes stderr", () => {
     expect(summarizeProcessOutput("serviços iniciados", "aviso")).toContain("Avisos/erros:\naviso");
     expect(summarizeProcessOutput("x".repeat(30), "", 10)).toContain("saída resumida");
+  });
+
+  it("validates PostgreSQL archive hashes and describes the confirmed install", () => {
+    const hash = "aB".repeat(32);
+    expect(isSha256(hash)).toBe(true);
+    expect(isSha256("a".repeat(63))).toBe(false);
+    expect(isSha256(`${"a".repeat(63)}z`)).toBe(false);
+    expect(describePostgresInstallCommand("scripts\\install-postgresql-portable.ps1", "T:\\project\\.cache\\downloads\\pg.zip", hash, "tools\\postgresql"))
+      .toContain("-ExpectedSha256 " + hash + "\nDestino: tools\\postgresql");
+  });
+
+  it("does not invoke PostgreSQL installation when confirmation is canceled", async () => {
+    const install = vi.fn(async () => "installed");
+    await expect(confirmPostgresInstall(false, install)).resolves.toBeUndefined();
+    expect(install).not.toHaveBeenCalled();
   });
 });

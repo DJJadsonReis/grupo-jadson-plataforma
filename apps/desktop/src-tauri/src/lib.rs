@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
 
-use grupo_core::{parse_callback, parse_reg_build, setup_config::merge_setup_config};
+use grupo_core::{parse_callback, parse_reg_build, setup_config::merge_setup_config, valid_postgres_archive_path, valid_sha256};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -138,6 +138,60 @@ fn find_project_root() -> Option<PathBuf> {
     }
     candidates.into_iter().flat_map(|path| path.ancestors().map(PathBuf::from).collect::<Vec<_>>())
         .find(|root| root.join("scripts").join("start.ps1").is_file())
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PostgresInstallInfo { downloads_dir: String, destination: String, destination_empty: bool }
+
+#[tauri::command]
+fn get_postgres_install_info() -> Result<PostgresInstallInfo, String> {
+    let root = find_project_root().ok_or_else(|| "pasta do projeto não encontrada".to_string())?;
+    let downloads = root.join(".cache").join("downloads");
+    let target = root.join("tools").join("postgresql");
+    let empty = !target.exists() || fs::read_dir(&target).map_err(|_| "não foi possível verificar a pasta de destino".to_string())?.next().is_none();
+    Ok(PostgresInstallInfo {
+        downloads_dir: downloads.to_string_lossy().into_owned(),
+        destination: target.to_string_lossy().into_owned(),
+        destination_empty: empty,
+    })
+}
+
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct PostgresInstallResult { exit_code: i32, stdout: String, stderr: String }
+
+#[tauri::command]
+async fn install_postgresql_portable(archive_path: String, expected_sha256: String) -> Result<PostgresInstallResult, String> {
+    tauri::async_runtime::spawn_blocking(move || run_postgresql_installer(&archive_path, &expected_sha256))
+        .await.map_err(|_| "não foi possível acompanhar a instalação do PostgreSQL".to_string())?
+}
+
+fn run_postgresql_installer(archive_path: &str, expected_sha256: &str) -> Result<PostgresInstallResult, String> {
+    if !valid_sha256(expected_sha256) {
+        return Err("SHA-256 inválido: informe exatamente 64 caracteres hexadecimais".to_string());
+    }
+    let root = find_project_root().ok_or_else(|| "pasta do projeto não encontrada".to_string())?;
+    let downloads = fs::canonicalize(root.join(".cache").join("downloads"))
+        .map_err(|_| "a pasta .cache\\downloads não existe".to_string())?;
+    let archive = fs::canonicalize(archive_path).map_err(|_| "arquivo ZIP não encontrado".to_string())?;
+    if !valid_postgres_archive_path(&archive, &downloads) {
+        return Err("O arquivo precisa ser um ZIP localizado dentro de .cache\\downloads.".to_string());
+    }
+    let script = root.join("scripts").join("install-postgresql-portable.ps1");
+    if !script.is_file() { return Err("script de instalação do PostgreSQL não encontrado".to_string()); }
+    let output = Command::new("powershell")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(script)
+        .arg("-ArchivePath").arg(archive)
+        .arg("-ExpectedSha256").arg(expected_sha256)
+        .current_dir(&root)
+        .output().map_err(|_| "não foi possível iniciar o instalador do PostgreSQL".to_string())?;
+    Ok(PostgresInstallResult {
+        exit_code: output.status.code().unwrap_or(-1),
+        stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+    })
 }
 
 #[derive(serde::Serialize)]
@@ -299,7 +353,7 @@ pub fn run() {
         .manage(SignIn(Mutex::new(None)))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services])
+        .invoke_handler(tauri::generate_handler![begin_sign_in, await_sign_in, open_external, get_windows_build, save_first_run_config, get_first_run_api_token, get_local_services_info, start_local_services, get_postgres_install_info, install_postgresql_portable])
         .run(tauri::generate_context!())
         .expect("erro ao iniciar o aplicativo Grupo Jadson");
 }
