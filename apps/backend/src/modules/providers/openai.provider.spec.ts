@@ -36,7 +36,7 @@ describe("OpenAiProvider", () => {
     const event = { choices: [{ delta: { tool_calls: [{ index: 0, id: "call-1", type: "function", function: { name: "busca__web", arguments: "{}" } }] } }] };
     const fetch = jest.spyOn(globalThis, "fetch").mockResolvedValueOnce(new Response(JSON.stringify({ id: "gpt-4o-mini" }))).mockResolvedValueOnce(new Response(`data: ${JSON.stringify(event)}\\n\\n`));
     try {
-      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "teste" }));
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "sk-test" }));
       const tools = [{ type: "function" as const, function: {
         name: "busca__web", description: "Pesquisa", parameters: { type: "object" as const, properties: {}, additionalProperties: true as const },
       } }];
@@ -53,9 +53,9 @@ describe("OpenAiProvider", () => {
   });
 
   it("recusa modelo ausente na lista do provider antes do POST de chat", async () => {
-    const fetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response("not found", { status: 404 }));
+    const fetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [] })));
     try {
-      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "teste" }));
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "teste-model-unavailable", modelo_endereco: "https://unavailable.example/v1/chat/completions" }));
       await expect(provider.stream({ model: "modelo-inexistente", messages: [{ role: "user", content: "oi" }] })).rejects.toMatchObject({ response: expect.objectContaining({ code: "MODEL_UNAVAILABLE" }) });
       expect(fetch).toHaveBeenCalledTimes(1);
     } finally { fetch.mockRestore(); }
@@ -68,5 +68,54 @@ describe("OpenAiProvider", () => {
       await expect(provider.stream({ messages: [{ role: "user", content: "oi" }] })).rejects.toMatchObject({ response: expect.objectContaining({ code: "MODEL_CREDENTIAL_REJECTED" }) });
       expect(fetch).toHaveBeenCalledTimes(1);
     } finally { fetch.mockRestore(); }
+  });
+
+  it("checa Gemini em /models e não envia chat quando o modelo não está listado", async () => {
+    const fetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({ data: [{ id: "outro-modelo" }] })));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "chave-gemini-a", modelo_endereco: "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" }));
+      await expect(provider.stream({ model: "gemini-inexistente", messages: [{ role: "user", content: "oi" }] })).rejects.toMatchObject({ response: expect.objectContaining({ code: "MODEL_UNAVAILABLE" }) });
+      expect(fetch).toHaveBeenCalledTimes(1);
+      expect(String(fetch.mock.calls[0]?.[0])).toBe("https://generativelanguage.googleapis.com/v1beta/openai/models");
+    } finally { fetch.mockRestore(); }
+  });
+
+  it("usa o cache por cinco minutos depois de confirmar o modelo compatível", async () => {
+    const fetch = jest.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: [{ id: "modelo-cache-55" }] })))
+      .mockResolvedValue(new Response("data: [DONE]\n\n"));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "chave-cache-unica-55", modelo_endereco: "https://cache.example/v1/chat/completions" }));
+      const input = { model: "modelo-cache-55", messages: [{ role: "user" as const, content: "oi" }] };
+      await provider.stream(input);
+      await provider.stream(input);
+      expect(fetch).toHaveBeenCalledTimes(3);
+      expect(String(fetch.mock.calls[0]?.[0])).toContain("/models");
+      expect(String(fetch.mock.calls[1]?.[0])).toContain("/chat/completions");
+      expect(String(fetch.mock.calls[2]?.[0])).toContain("/chat/completions");
+    } finally { fetch.mockRestore(); }
+  });
+
+  it("mapeia credencial inválida e falha de rede e deixa passar o status 404 de /models", async () => {
+    const authFetch = jest.spyOn(globalThis, "fetch").mockResolvedValue(new Response("unauthorized", { status: 401 }));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "chave-401-55", modelo_endereco: "https://auth.example/v1/chat/completions" }));
+      await expect(provider.stream({ model: "modelo-401-55", messages: [{ role: "user", content: "oi" }] })).rejects.toMatchObject({ response: expect.objectContaining({ code: "MODEL_CREDENTIAL_REJECTED" }) });
+    } finally { authFetch.mockRestore(); }
+
+    const networkFetch = jest.spyOn(globalThis, "fetch").mockRejectedValue(new Error("sem rede"));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "chave-rede-55", modelo_endereco: "https://network.example/v1/chat/completions" }));
+      await expect(provider.stream({ model: "modelo-rede-55", messages: [{ role: "user", content: "oi" }] })).rejects.toMatchObject({ response: expect.objectContaining({ code: "MODEL_CHECK_FAILED" }) });
+    } finally { networkFetch.mockRestore(); }
+
+    const missingRouteFetch = jest.spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("", { status: 404 }))
+      .mockResolvedValueOnce(new Response("data: [DONE]\n\n"));
+    try {
+      const provider = new OpenAiProvider(integrationsWith({ modelo_chave: "chave-404-55", modelo_endereco: "https://no-list.example/v1/chat/completions" }));
+      await expect(provider.stream({ model: "modelo-404-55", messages: [{ role: "user", content: "oi" }] })).resolves.toBeInstanceOf(Response);
+      expect(missingRouteFetch).toHaveBeenCalledTimes(2);
+    } finally { missingRouteFetch.mockRestore(); }
   });
 });

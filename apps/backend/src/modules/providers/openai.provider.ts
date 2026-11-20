@@ -1,4 +1,5 @@
 import { Injectable, ServiceUnavailableException } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { CompletionInput, LanguageModelProvider } from "./provider.types";
 
@@ -6,6 +7,8 @@ const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-4o-mini";
 const GEMINI_ENDPOINT = "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions";
 const GEMINI_MODEL = "gemini-2.0-flash";
+const availabilityCache = new Map<string, number>();
+const AVAILABILITY_TTL_MS = 5 * 60 * 1000;
 
 /**
  * Provedor de modelo compatível com a API da OpenAI. Chave, endereço e nome do modelo vêm das
@@ -62,6 +65,8 @@ export class OpenAiProvider implements LanguageModelProvider {
       if (availability.status === 404) throw new ServiceUnavailableException({ code: "MODEL_UNAVAILABLE", message: `O modelo '${selectedModel}' não existe ou esta chave não tem acesso a ele.` });
       if (availability.status === 401 || availability.status === 403) throw new ServiceUnavailableException({ code: "MODEL_CREDENTIAL_REJECTED", message: "A OpenAI recusou a chave ao verificar o acesso ao modelo." });
       if (!availability.ok) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: `A OpenAI não confirmou o modelo '${selectedModel}' (HTTP ${availability.status}).` });
+    } else {
+      await this.checkCompatibleAvailability(endpoint, selectedModel, key, signal);
     }
 
     let response: Response;
@@ -96,5 +101,32 @@ export class OpenAiProvider implements LanguageModelProvider {
     }
     if (!response.body) throw new ServiceUnavailableException("O modelo não retornou um fluxo de dados.");
     return response;
+  }
+
+  private async checkCompatibleAvailability(endpoint: string, model: string, key: string, signal?: AbortSignal): Promise<void> {
+    const cacheKey = `${endpoint}\n${model}\n${createHash("sha256").update(key).digest("hex")}`;
+    const cachedAt = availabilityCache.get(cacheKey);
+    if (cachedAt !== undefined && Date.now() - cachedAt < AVAILABILITY_TTL_MS) return;
+    if (cachedAt !== undefined) availabilityCache.delete(cacheKey);
+
+    const modelsUrl = new URL(endpoint);
+    modelsUrl.pathname = modelsUrl.pathname.replace(/\/chat\/completions\/?$/, "/models");
+    const headers: Record<string, string> = {};
+    if (key) headers.Authorization = `Bearer ${key}`;
+    let response: Response | null;
+    try { response = await fetch(modelsUrl, { method: "GET", signal: signal ?? AbortSignal.timeout(5_000), headers }); }
+    catch { response = null; }
+    if (!response) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: "Não foi possível verificar a disponibilidade do modelo." });
+    if (response.status === 404) return;
+    if (response.status === 401 || response.status === 403) throw new ServiceUnavailableException({ code: "MODEL_CREDENTIAL_REJECTED", message: "O provedor recusou a chave ao verificar o acesso ao modelo." });
+    if (!response.ok) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: `O provedor não confirmou o modelo (HTTP ${response.status}).` });
+    let body: unknown;
+    try { body = await response.json(); }
+    catch { throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: "O provedor retornou uma lista de modelos inválida." }); }
+    const data = (body as { data?: unknown } | null)?.data;
+    if (!Array.isArray(data)) throw new ServiceUnavailableException({ code: "MODEL_CHECK_FAILED", message: "O provedor retornou uma lista de modelos inválida." });
+    const available = data.some((item) => item && typeof item === "object" && ((item as { id?: unknown }).id === model || (item as { name?: unknown }).name === model));
+    if (!available) throw new ServiceUnavailableException({ code: "MODEL_UNAVAILABLE", message: `O modelo '${model}' não está disponível neste provedor.` });
+    availabilityCache.set(cacheKey, Date.now());
   }
 }

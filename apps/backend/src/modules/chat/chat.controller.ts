@@ -403,7 +403,7 @@ export class ChatController {
       }
       if (usageReport) {
         try {
-          await this.usage.record({ conversationId, agentId, provider: "openai", model: reportedModel, ...usageReport });
+          await this.usage.record({ conversationId, agentId, ownerId: request.principal?.id ?? "sistema", provider: "openai", model: reportedModel, ...usageReport });
         } catch (error) { this.logger.warn(`Consumo não registrado: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
       }
       // Trilha de auditoria: só metadados da chamada, nunca o texto das mensagens.

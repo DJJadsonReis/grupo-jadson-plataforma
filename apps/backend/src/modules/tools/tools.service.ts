@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, Injectable, NotFoundException, Optional } from "@nestjs/common";
+import { BadRequestException, ForbiddenException, HttpException, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { AgentPolicyService } from "./agent-policy.service";
 import { randomUUID } from "node:crypto";
 import { ApprovalsService } from "../audit/approvals.service";
@@ -16,6 +16,7 @@ import { withUntrustedNotice } from "./untrusted-content";
 import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/secret-masking";
 import { NotificationsService } from "../notifications/notifications.service";
 import { readPage } from "./page-reader";
+import { ConnectionSharesService } from "../connection-shares/connection-shares.service";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -69,6 +70,7 @@ export class ToolsService {
     private readonly policies: AgentPolicyService,
     private readonly google: GoogleService,
     @Optional() private readonly notifications?: NotificationsService,
+    @Optional() private readonly shares?: ConnectionSharesService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -174,6 +176,10 @@ export class ToolsService {
       const output = await this.maskSecretOutput(await this.runTool(name, input));
       return isOutsideTool(name) && isPlainObject(output) ? withUntrustedNotice(output, name) : output;
     } catch (error) {
+      const response = error instanceof HttpException ? error.getResponse() : null;
+      if (response && typeof response === "object" && "code" in response && (response as { code?: unknown }).code === "CONEXAO_NAO_LIBERADA") {
+        return { erro: true, code: "CONEXAO_NAO_LIBERADA", mensagem: "Você não tem acesso a esta conexão." };
+      }
       const message = error instanceof Error ? error.message : "Falha ao executar a ferramenta.";
       return { erro: true, mensagem: await this.maskSecretText(message) };
     }
@@ -194,7 +200,25 @@ export class ToolsService {
     if (name === "atendimento.humano") {
       const motivo = String(input.motivo ?? "").trim().slice(0, 1000);
       if (!motivo) return { erro: true, mensagem: "Descreva o motivo do atendimento humano." };
-      await this.audit.record({ actor: typeof input.pessoaId === "string" ? input.pessoaId : "sistema", action: "human_support.requested", subject: typeof input.conversaId === "string" ? input.conversaId : null, details: { motivo } });
+      const requestedBy = typeof input.pessoaId === "string" ? input.pessoaId : "sistema";
+      const conversationId = typeof input.conversaId === "string" ? input.conversaId : null;
+      await this.audit.record({ actor: requestedBy, action: "human_support.requested", subject: conversationId, details: { motivo } });
+      if (this.notifications) {
+        const body = (await this.maskSecretText(motivo)).slice(0, 300);
+        let adminIds: string[] = [];
+        try {
+          const admins = await this.database.getPool().query("SELECT id FROM users WHERE role='admin' AND active=true");
+          adminIds = admins.rows.map((row: { id: string }) => row.id);
+        } catch { /* instalação pessoal sem tabela users */ }
+        const recipients = adminIds.length ? adminIds : ["sistema"];
+        await Promise.all(recipients.map((owner) => this.notifications!.create({
+          owner,
+          kind: "human_support.requested",
+          title: "Atendimento humano solicitado",
+          body,
+          details: { conversationId, requestedBy },
+        }).catch(() => undefined)));
+      }
       return { registrada: true, mensagem: "Pedido de atendimento humano registrado internamente." };
     }
     if (name.startsWith("agenda.") || name.startsWith("drive.")) return this.runGoogle(name, input);
@@ -246,8 +270,12 @@ export class ToolsService {
 
   /** Ferramentas do Google: usam a conexão da própria pessoa que pediu. */
   private async runGoogle(name: string, input: Record<string, unknown>): Promise<unknown> {
-    const pessoaId = typeof input.pessoaId === "string" ? input.pessoaId : "";
+    let pessoaId = typeof input.pessoaId === "string" ? input.pessoaId : "";
     if (!pessoaId) return { erro: true, mensagem: "Entre na sua conta para usar o Google." };
+    if (typeof input.conexao_de === "string" && input.conexao_de.trim()) {
+      if (!this.shares) throw new ForbiddenException({ code: "CONEXAO_NAO_LIBERADA", message: "Você não tem acesso a esta conexão." });
+      pessoaId = await this.shares.resolveOwner(pessoaId, input.conexao_de.trim());
+    }
     if (name === "agenda.listar_eventos") return { eventos: await this.google.listEvents(pessoaId) };
     if (name === "drive.listar_arquivos") return { arquivos: await this.google.listFiles(pessoaId) };
     if (name === "agenda.criar_evento") return this.google.createEvent(pessoaId, input);

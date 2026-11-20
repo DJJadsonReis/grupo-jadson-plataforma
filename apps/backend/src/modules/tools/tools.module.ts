@@ -11,11 +11,12 @@ import { McpController } from "../mcp/mcp.controller";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { GoogleModule } from "../google/google.module";
 import { NotificationsModule } from "../notifications/notifications.module";
+import { ConnectionSharesModule } from "../connection-shares/connection-shares.module";
 
 @Module({
-  imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule, GoogleModule, NotificationsModule],
+  imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule, GoogleModule, NotificationsModule, ConnectionSharesModule],
   controllers: [ToolsController, AgentPoliciesController, McpController],
   providers: [ToolsService, McpService, AgentPolicyService],
-  exports: [ToolsService],
+  exports: [ToolsService, AgentPolicyService],
 })
 export class ToolsModule {}

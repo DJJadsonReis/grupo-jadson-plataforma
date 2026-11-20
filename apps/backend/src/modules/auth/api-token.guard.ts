@@ -5,7 +5,7 @@ import { ADMIN_ONLY_ROUTE } from "./roles";
 import { IS_PUBLIC_ROUTE } from "./public.decorator";
 import { Principal, UsersService } from "./users.service";
 
-type AuthedRequest = { method: string; headers: Record<string, string | undefined>; principal?: Principal };
+type AuthedRequest = { method: string; url?: string; headers: Record<string, string | undefined>; principal?: Principal };
 
 /**
  * Autentica cada requisição por `Authorization: Bearer <token>`, exceto rotas @Public().
@@ -42,7 +42,8 @@ export class ApiTokenGuard implements CanActivate {
     if (adminOnly && principal.role !== "admin") {
       throw new ForbiddenException({ code: "FORBIDDEN", message: "Esta ação é só para administradores." });
     }
-    if (principal.role === "viewer" && request.method !== "GET") {
+    const teamRoomWrite = request.url?.split("?")[0]?.startsWith("/api/v1/team-rooms") === true;
+    if (principal.role === "viewer" && request.method !== "GET" && !teamRoomWrite) {
       throw new ForbiddenException({ code: "FORBIDDEN", message: "Leitores só podem consultar." });
     }
     return true;

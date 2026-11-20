@@ -14,23 +14,29 @@ import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
+import { TeamRoomsPage } from "./components/team/TeamRoomsPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
+import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
+import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
+import { formatCostUsd, formatTokens } from "./lib/usage";
+import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
+import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
-  CircleHelp, Clock3, Cpu, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
+  CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
   PanelRight, Plus, Search, Send, Settings, ShieldCheck, Sparkles, Square, Star, Workflow, X, Maximize2, Minimize2, LogOut, LayoutGrid } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -239,6 +245,7 @@ export default function App() {
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
+  { id: "team-rooms", label: "Equipe", icon: MessageSquare },
   { id: "tasks", label: "Tarefas", icon: ListTodo },
   { id: "dashboard", label: "Início", icon: Gauge },
   { id: "agents", label: "Galeria de Agentes", icon: Bot },
@@ -298,7 +305,14 @@ function Workspace({ edition }: { edition: Edition }) {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notificationCount, setNotificationCount] = useState(0);
   const [sidebarHover, setSidebarHover] = useState(false);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/notifications`).then((r) => r.ok ? r.json() : Promise.reject(new Error("notifications"))).then((items: unknown[]) => { if (active) setNotificationCount(items.length); }).catch(() => { if (active) setNotificationCount(0); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (!accountOpen) return;
     const onPointer = (event: PointerEvent) => {
@@ -323,6 +337,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [redisHealth, setRedisHealth] = useState<Health>("checking");
   const [configuredProviders, setConfiguredProviders] = useState<number | null>(null);
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
+  const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
@@ -442,10 +457,12 @@ function Workspace({ edition }: { edition: Edition }) {
         setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
         setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
       })
-      .then(() => apiFetch(`${API_URL}/providers`, { signal: controller.signal }))
+      .then(() => apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal }))
       .then(async (response) => {
         if (!response.ok) throw new Error();
-        const status = await response.json() as ProviderStatus[];
+        const catalogue = groupCatalogue(await response.json());
+        setModelCatalogue(catalogue);
+        const status = catalogue.map(({ id, name, configured }) => ({ id, name, configured }));
         setProviders(status);
         setConfiguredProviders(status.filter((provider) => provider.configured).length);
       })
@@ -828,7 +845,7 @@ function Workspace({ edition }: { edition: Edition }) {
 
         {/* NAVEGAÇÃO PRINCIPAL */}
         <nav className="nav-primary" aria-label="Navegação principal">
-          {NAV.slice(0, 3).map(({ id, label, icon: Icon }) => (
+          {NAV.filter(({ id }) => id !== "team-rooms" || canShowSharing(edition)).slice(0, 4).map(({ id, label, icon: Icon }) => (
             <button
               className={`nav-item ${page === id || (id === "conversations" && page === "chat") ? "active" : ""}`}
               key={id}
@@ -842,6 +859,7 @@ function Workspace({ edition }: { edition: Edition }) {
           ))}
         </nav>
 
+        <button className="nav-item" onClick={() => setNotificationsOpen((open) => !open)} aria-expanded={notificationsOpen} title={railCollapsed ? "Notificações" : undefined}><Bell size={17} /><span>Notificações{notificationCount > 0 ? ` (${notificationCount})` : ""}</span></button>
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
           <div className="history">
@@ -972,6 +990,7 @@ function Workspace({ edition }: { edition: Edition }) {
           </div>
         </header>
 
+        {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
         {page === "dashboard" && (
           <Dashboard
             health={health}
@@ -991,6 +1010,7 @@ function Workspace({ edition }: { edition: Edition }) {
         {page === "chat" && (
           <ChatPage
             conversation={active}
+            modelCatalogue={modelCatalogue ?? []}
             autoReadEnabled={autoReadEnabled}
             autoReadSupported={autoReadSupported}
             onToggleAutoRead={() => setAutoReadEnabled((enabled) => !enabled)}
@@ -1048,9 +1068,10 @@ function Workspace({ edition }: { edition: Edition }) {
         )}
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
+        {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
-        {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
+        {page === "models" && <ModelsPage catalogue={modelCatalogue} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
@@ -1502,13 +1523,13 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 }
 
 function ChatPage({
-  conversation, agents, groups, draft, busy, activeAgentId, error, files, autoReadEnabled, autoReadSupported, onToggleAutoRead,
+  conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, autoReadEnabled, autoReadSupported, onToggleAutoRead,
   setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean;
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
   onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string) => void;
@@ -1517,6 +1538,7 @@ function ChatPage({
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
   const [model, setModel] = useState("");
+  const suggestedModels = modelCatalogue.flatMap((provider) => provider.models);
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1820,7 +1842,8 @@ function ChatPage({
                 <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
+                  <input className="gx-pill-input" aria-label="ID do modelo" list="model-suggestions" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
+                  <datalist id="model-suggestions">{suggestedModels.map((item) => <option key={`${item.provider}:${item.id}`} value={item.id}>{item.label}</option>)}</datalist>
                 </label>
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
@@ -2305,7 +2328,7 @@ function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversat
   );
 }
 
-function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | null; onOpenChat: () => void }) {
+function ModelsPage({ catalogue, onOpenChat }: { catalogue: CatalogueProvider[] | null; onOpenChat: () => void }) {
   return (
     <div className="page-content">
       <div className="page-header-row">
@@ -2317,17 +2340,17 @@ function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | n
         <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
       </div>
       <div className="provider-grid">
-        {providers === null ? (
+        {catalogue === null ? (
           <EmptyState title="Modo Local Ativo" text="O aplicativo opera em modo local isolado enquanto o backend não está ativo." />
         ) : (
-          providers.map((p) => (
+          catalogue.map((p) => (
             <article className="provider-card-box" key={p.id}>
               <div className="provider-card-top">
                 <BrainCircuit size={22} className="text-gold" />
-                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Pendente"}</span>
+                <span className={"status-pill " + (p.configured ? "online" : "offline")}>{p.configured ? "Configurado" : "Sem chave"}</span>
               </div>
               <h2>{p.name}</h2>
-              <p>{p.configured ? "Chave de acesso detectada no ambiente seguro." : "Configure sua chave no arquivo de ambiente do backend para habilitar este provedor."}</p>
+              <p>{p.models.length ? p.models.map((model) => <span key={model.id} style={{ display: "block" }}>{model.label} ({model.id}){p.defaultModel === model.id ? " · Padrão" : ""}</span>) : "Os modelos deste endpoint dependem da configuração do provedor."}</p>
             </article>
           ))
         )}
@@ -2349,55 +2372,51 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
 
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
 function UsageSettings() {
-  const [rows, setRows] = useState<{ agentId: string | null; totalTokens: number; calls: number }[] | null>(null);
+  type UsageLine = { agentId?: string | null; conversationId?: string | null; personId?: string; title?: string; totalTokens: number; calls: number; costUsd: number | null; callsWithoutPrice: number };
+  const [summary, setSummary] = useState<{ byAgent: UsageLine[]; byConversation: UsageLine[]; byPerson?: UsageLine[] } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
       apiFetch(`${API_URL}/usage/summary?days=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("usage")))),
       apiFetch(`${API_URL}/agents`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([summary, agents]) => {
-        setRows((summary as { agents: { agentId: string | null; totalTokens: number; calls: number }[] }).agents ?? []);
-        setNames(Object.fromEntries((agents as { id: string; name: string }[]).map((agent) => [agent.id, agent.name])));
-        setError(null);
-      })
-      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
+    ]).then(([summaryData, agents]) => {
+      const data = summaryData as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+      setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      setNames(Object.fromEntries((agents as { id: string; name: string }[]).map((agent) => [agent.id, agent.name])));
+      setError(null);
+    }).catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
     return () => controller.abort();
   }, []);
-
-  const totalTokens = (rows ?? []).reduce((sum, row) => sum + row.totalTokens, 0);
-  const totalCalls = (rows ?? []).reduce((sum, row) => sum + row.calls, 0);
-
-  return (
-    <article className="settings-box">
-      <h3>Uso e cobrança</h3>
-      <p>Consumo dos últimos 30 dias.</p>
-      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
-      {rows && (
-        <>
-          <div className="usage-totals">
-            <div><span>Tokens</span><b>{totalTokens.toLocaleString("pt-BR")}</b></div>
-            <div><span>Chamadas</span><b>{totalCalls.toLocaleString("pt-BR")}</b></div>
-          </div>
-          {rows.length === 0 ? <small className="sidebar-empty">Nenhum uso registrado ainda.</small> : (
-            <div className="usage-rows">
-              {rows.map((row) => (
-                <div className="workspace-fact" key={row.agentId ?? "sem-agente"}>
-                  <span>{row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente"}</span>
-                  <b>{row.totalTokens.toLocaleString("pt-BR")} tokens · {row.calls} chamadas</b>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </article>
+  const rows = summary?.byAgent ?? [];
+  const totalTokens = rows.reduce((sum, row) => sum + row.totalTokens, 0);
+  const totalCalls = rows.reduce((sum, row) => sum + row.calls, 0);
+  const totalCost = rows.some((row) => row.costUsd !== null) ? rows.reduce((sum, row) => sum + (row.costUsd ?? 0), 0) : null;
+  const callsWithoutPrice = rows.reduce((sum, row) => sum + row.callsWithoutPrice, 0);
+  const renderLines = (heading: string, lines: UsageLine[], label: (row: UsageLine) => string) => (
+    <section><h4>{heading}</h4>{lines.length === 0 ? <small className="sidebar-empty">Nenhum uso registrado ainda.</small> : lines.map((row, index) => (
+      <div className="workspace-fact" key={`${heading}-${row.agentId ?? row.conversationId ?? row.personId ?? index}`}>
+        <span>{label(row)}</span><b>{formatTokens(row.totalTokens)} tokens · {row.calls} chamadas · {formatCostUsd(row.costUsd)}</b>
+      </div>
+    ))}</section>
   );
+  return <article className="settings-box">
+    <h3>Uso e cobrança</h3><p>Consumo dos últimos 30 dias.</p>
+    {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+    {summary && <>
+      <div className="usage-totals">
+        <div><span>Tokens</span><b>{formatTokens(totalTokens)}</b></div>
+        <div><span>Chamadas</span><b>{formatTokens(totalCalls)}</b></div>
+        <div><span>Custo estimado</span><b>{formatCostUsd(totalCost)}</b></div>
+      </div>
+      {callsWithoutPrice > 0 && <small>Custo estimado; só inclui modelos com preço cadastrado.</small>}
+      {renderLines("Por agente", summary.byAgent, (row) => row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente")}
+      {renderLines("Por conversa", summary.byConversation, (row) => row.title ?? "Sem conversa")}
+      {summary.byPerson && renderLines("Por pessoa", summary.byPerson, (row) => row.personId ?? "sistema")}
+    </>}
+  </article>;
 }
-
 /** Configurações em abas laterais: cada aba mostra só o seu assunto. */
 function UpdateSettings() {
   const [state, setState] = useState<"checking" | "current" | "available" | "error" | "installing">("checking");
@@ -2471,6 +2490,20 @@ function UpdateSettings() {
 
 function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | null; edition: Edition }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
+  const [identityProviders, setIdentityProviders] = useState<IdentityProvider[] | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/identity-providers`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("status")))
+      .then((data: unknown) => {
+        const result = groupIdentityProviders(data);
+        if (result.length) setIdentityProviders(result);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   return (
     <div className="page-content settings-page">
       <div className="page-header-row">
@@ -2501,6 +2534,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
               <MemorySettings apiFetch={apiFetch} apiUrl={API_URL} />
             </>
           )}
+          {tab === "geral" && identityProviders && <IdentityProvidersSettings providers={identityProviders} />}
           {tab === "computador" && (
             <article className="settings-box">
               <h3>Computador do Bot</h3>
@@ -2518,6 +2552,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
               <IntegrationSettings />
               <NotionSettings />
               <GoogleSettings />
+              {canShowSharing(edition) && <ConnectionSharesPanel apiFetch={apiFetch} apiUrl={API_URL} />}
             </>
           )}
           {tab === "uso" && <UsageSettings />}
@@ -2545,6 +2580,35 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
 function signOutThisComputer() {
   try { window.localStorage.removeItem(SESSION_KEY); } catch { /* sem armazenamento */ }
   window.location.reload();
+}
+
+function IdentityProvidersSettings({ providers }: { providers: IdentityProvider[] }) {
+  const [copyError, setCopyError] = useState<string | null>(null);
+  async function copyRedirectUri(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyError(null);
+    } catch {
+      setCopyError("N\u00e3o foi poss\u00edvel copiar");
+    }
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Provedores de identidade</h3>
+      {providers.map((provider) => (
+        <div className="security-notice" key={provider.id} style={{ display: "block", marginTop: 12 }}>
+          <strong>{provider.label}: {provider.configured ? "Configurado" : "N\u00e3o configurado"}</strong>
+          {!provider.configured && <p>Faltam: {provider.missingVars.join(", ")}</p>}
+          {!provider.configured && <p>Defina essas vari\u00e1veis no arquivo de configura\u00e7\u00e3o e reinicie o backend</p>}
+          {provider.issuer && <p>Emissor: <code>{provider.issuer}</code></p>}
+          <p>Endere\u00e7o de retorno: <code>{provider.redirectUri}</code></p>
+          <button type="button" className="icon-btn-close" onClick={() => void copyRedirectUri(provider.redirectUri)}>Copiar</button>
+        </div>
+      ))}
+      {copyError && <p role="status">{copyError}</p>}
+    </article>
+  );
 }
 
 type ModelField = { name: "modelo_chave" | "modelo_endereco" | "modelo_padrao"; label: string; hint: string; secret: boolean; placeholder: string };

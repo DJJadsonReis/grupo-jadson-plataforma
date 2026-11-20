@@ -32,6 +32,10 @@ import { migrationId as responsibilitiesMigrationId, up as addResponsibilities }
 import { migrationId as agentEndpointsMigrationId, up as addAgentEndpoints } from "./migrations/029-agent-endpoints";
 import { migrationId as mcpServersMigrationId, up as addMcpServers } from "./migrations/030-mcp-servers";
 import { migrationId as routineScheduleMigrationId, up as addRoutineSchedule } from "./migrations/031-routine-schedule";
+import { migrationId as teamRoomsMigrationId, up as addTeamRooms } from "./migrations/032-team-rooms";
+import { migrationId as connectionSharesMigrationId, up as addConnectionShares } from "./migrations/033-connection-shares";
+import { migrationId as usageOwnerMigrationId, up as addUsageOwner } from "./migrations/034-usage-owner";
+import { migrationId as notificationKindsMigrationId, up as addNotificationKinds } from "./migrations/035-notifications-kinds";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -85,6 +89,10 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: agentEndpointsMigrationId, apply: async () => addAgentEndpoints(this.pool!) },
         { id: mcpServersMigrationId, apply: async () => addMcpServers(this.pool!) },
         { id: routineScheduleMigrationId, apply: async () => addRoutineSchedule(this.pool!) },
+        { id: teamRoomsMigrationId, apply: async () => addTeamRooms(this.pool!) },
+        { id: connectionSharesMigrationId, apply: async () => addConnectionShares(this.pool!) },
+        { id: usageOwnerMigrationId, apply: async () => addUsageOwner(this.pool!) },
+        { id: notificationKindsMigrationId, apply: async () => addNotificationKinds(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

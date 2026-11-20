@@ -24,6 +24,11 @@ describeWithPostgres("notificações internas no PostgreSQL", () => {
       expect((await notifications.listUnread(ownerA)).map((row) => row.kind).sort()).toEqual(["approval.pending", "routine.failed", "tool_limit.reached"].sort());
       expect((await notifications.listUnread(ownerB)).map((row) => row.title)).toEqual(["Privada B"]);
       await expect(notifications.markRead(ownerB, created[0]!.id)).rejects.toThrow();
+      expect(await notifications.markAllRead(ownerA)).toBe(3);
+      expect(await notifications.listUnread(ownerA)).toHaveLength(0);
+      expect(await notifications.listUnread(ownerB)).toHaveLength(1);
+      await expect(notifications.markRead(ownerA, other.id)).rejects.toThrow();
+      expect(await notifications.listUnread(ownerB)).toHaveLength(1);
       await notifications.markRead(ownerA, created[0]!.id);
       expect((await notifications.listUnread(ownerA)).map((row) => row.id)).not.toContain(created[0]!.id);
       expect((await notifications.listUnread(ownerB)).map((row) => row.id)).toContain(other.id);

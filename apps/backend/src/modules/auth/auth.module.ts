@@ -7,10 +7,11 @@ import { OidcService } from "./oidc.service";
 import { UsersController } from "./users.controller";
 import { UsersService } from "./users.service";
 import { PersonalEditionGuard } from "../../common/personal-edition.guard";
+import { IdentityProvidersController } from "./identity-providers.controller";
 
 @Module({
   imports: [DatabaseModule],
-  controllers: [UsersController, AuthController],
+  controllers: [UsersController, AuthController, IdentityProvidersController],
   providers: [{ provide: APP_GUARD, useClass: ApiTokenGuard }, PersonalEditionGuard, UsersService, OidcService],
   exports: [UsersService],
 })
