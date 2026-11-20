@@ -396,7 +396,6 @@ function Workspace({ edition }: { edition: Edition }) {
   const autoReadEnabledRef = useRef(autoReadEnabled);
   const autoReadSupported = typeof window !== "undefined" && "speechSynthesis" in window;
   const lastSpokenIdRef = useRef<string | null>(null);
-  const historyConversationIdsRef = useRef(new Set(readWorkspace().conversations.map((conversation) => conversation.id)));
   const abortRef = useRef<AbortController | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const active = useMemo(() => conversations.find((c) => c.id === activeConversation) ?? (pendingConversation && pendingConversation.id === activeConversation ? pendingConversation : null), [conversations, activeConversation, pendingConversation]);
@@ -415,7 +414,8 @@ function Workspace({ edition }: { edition: Edition }) {
     const text = cleanForSpeech(content);
     if (!text || !autoReadSupported || !shouldAutoRead({ enabled: autoReadEnabledRef.current, supported: autoReadSupported,
       message: { role: "assistant", streaming: false, id }, lastSpokenId: lastSpokenIdRef.current,
-      loadedFromHistory: historyConversationIdsRef.current.has(activeConversation ?? "") })) return;
+      // Resposta gerada neste envio; respostas do histórico não passam por esta função.
+      loadedFromHistory: false })) return;
     const synthesis = window.speechSynthesis;
     synthesis.cancel();
     const utterance = new SpeechSynthesisUtterance(text);
@@ -464,7 +464,6 @@ function Workspace({ edition }: { edition: Edition }) {
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
         const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
-        for (const item of remote) historyConversationIdsRef.current.add(item.id);
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -567,7 +566,6 @@ function Workspace({ edition }: { edition: Edition }) {
       ...(groupId ? { groupId, type: "group" as const } : {})
     };
     setPendingConversation(conversation);
-    historyConversationIdsRef.current.delete(conversation.id);
     setActiveConversation(conversation.id);
     setPage("chat");
     setError(null);
