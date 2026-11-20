@@ -31,6 +31,11 @@ describe("desktop first-run configuration", () => {
     expect(readDesktopSetup({ GJ_DESKTOP_SETUP_PATH: configPath })).toBeNull();
   });
 
+  it("returns null for a token with 63 characters", () => {
+    writeFileSync(configPath, JSON.stringify({ databaseUrl: "postgres://localhost/db", apiToken: "a".repeat(63) }));
+    expect(readDesktopSetup({ GJ_DESKTOP_SETUP_PATH: configPath })).toBeNull();
+  });
+
   it("applies saved local setup values to the backend environment", () => {
     writeFileSync(configPath, JSON.stringify({ databaseUrl: "postgresql://local/db", apiToken: "b".repeat(64) }));
     const env: NodeJS.ProcessEnv = { GJ_DESKTOP_SETUP_PATH: configPath, DATABASE_URL: "", API_TOKEN: "" };
@@ -58,5 +63,9 @@ describe("desktop first-run configuration", () => {
 
   it("does nothing when no desktop configuration path exists", () => {
     expect(applyDesktopSetup({})).toBe(false);
+  });
+
+  it("returns null when the configured file is absent", () => {
+    expect(readDesktopSetup({ GJ_DESKTOP_SETUP_PATH: configPath })).toBeNull();
   });
 });

@@ -1,7 +1,24 @@
 import { describe, expect, it, vi } from "vitest";
-import { monitorBackendHealth, reconnectAndRetryRequest, requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
+import { monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
 
 describe("reconexão do token local", () => {
+  it("repara o setup e repete health antes de exibir o aviso após 401", async () => {
+    const order: string[] = [];
+    const check = vi.fn(async () => {
+      order.push("health");
+      return new Response(null, { status: 401 });
+    });
+    const repair = vi.fn(async () => { order.push("repair"); });
+    const notice = vi.fn(() => { order.push("notice"); });
+
+    const response = await repairHealthAndRetry(check, repair, notice);
+
+    expect(response.status).toBe(401);
+    expect(order).toEqual(["health", "repair", "health", "notice"]);
+    expect(check).toHaveBeenCalledTimes(2);
+    expect(notice).toHaveBeenCalledOnce();
+  });
+
   it("retoma a checagem de saúde a cada 10 segundos até o backend voltar", async () => {
     vi.useFakeTimers();
     const health = vi.fn(async (): Promise<number> => 0).mockResolvedValueOnce(401).mockResolvedValueOnce(200);

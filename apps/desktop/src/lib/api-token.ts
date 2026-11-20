@@ -1,5 +1,25 @@
 export type ApiFailure = Error & { status?: number; code?: string };
 
+export class BackendHealthError extends Error {
+  constructor(readonly status: number) {
+    super(`Backend health returned HTTP ${status}`);
+    this.name = "BackendHealthError";
+  }
+}
+
+export async function repairHealthAndRetry(
+  check: () => Promise<Response>,
+  repairSetup: () => Promise<unknown>,
+  onUnauthorized?: () => void,
+): Promise<Response> {
+  const first = await check();
+  if (first.status !== 401) return first;
+  await repairSetup().catch(() => undefined);
+  const retried = await check();
+  if (retried.status === 401) onUnauthorized?.();
+  return retried;
+}
+
 export function isTokenRejected(error: unknown): boolean {
   return typeof error === "object" && error !== null && "status" in error && (error as ApiFailure).status === 401 && (!("code" in error) || (error as ApiFailure).code === "UNAUTHORIZED");
 }

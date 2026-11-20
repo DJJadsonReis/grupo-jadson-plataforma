@@ -4,6 +4,7 @@ import { Check, CircleAlert, LoaderCircle, RefreshCw } from "lucide-react";
 import logo from "./assets/grupo-jadson-logo.png";
 import { confirmPostgresInstall, createLocalApiToken, describeLocalServicesCommand, describePostgresInstallCommand, isPostgresUrl, isSha256, shouldAskServicesConsent, summarizeProcessOutput, type FirstRunHealth } from "./lib/first-run";
 import { evaluateWindowsBuild, type WindowsBuildEvaluation } from "./lib/windows-requirements";
+import { checkFirstRunHealth } from "./lib/first-run-health";
 
 type Props = { apiUrl: string; onComplete: () => void };
 
@@ -38,15 +39,10 @@ export function Welcome({ apiUrl, onComplete }: Props) {
     setChecking(true);
     setError(null);
     try {
-      const response = await fetch(`${apiUrl}/health`, { cache: "no-store" });
-      if (!response.ok) throw new Error("backend");
-      const body = await response.json();
-      setHealth({
-        postgres: body.dependencies?.postgres === "connected" ? "connected" : "unavailable",
-        pgvector: body.dependencies?.pgvector === "connected" ? "connected" : "unavailable",
-        redis: body.dependencies?.redis === "connected" ? "connected" : "unavailable",
-        queue: body.dependencies?.queue ?? { driver: "memory", persistence: "process-memory" },
-      });
+      const result = await checkFirstRunHealth(apiUrl, fetch, async () => {
+        return invoke<string>("get_first_run_api_token");
+      }, () => invoke("ensure_desktop_setup"));
+      setHealth(result);
     } catch {
       setHealth(null);
     } finally {

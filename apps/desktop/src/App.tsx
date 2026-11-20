@@ -35,7 +35,7 @@ import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
-import { monitorBackendHealth, reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
+import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -95,7 +95,7 @@ function localSystemToken(refresh = false): Promise<string> {
 }
 
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
-async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
+async function apiFetch(input: string, init: RequestInit = {}, suppressUnauthorizedNotice = false): Promise<Response> {
   const send = async (refresh: boolean) => {
     const headers = new Headers(init.headers);
     const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken(refresh));
@@ -104,7 +104,7 @@ async function apiFetch(input: string, init: RequestInit = {}): Promise<Response
   };
   let unauthorized = false;
   const response = await requestWithTokenRefresh(send, () => { unauthorized = true; });
-  if (unauthorized) {
+  if (unauthorized && !suppressUnauthorizedNotice) {
     window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
     rejectedRequest = { input, init };
   } else if (response.ok) window.dispatchEvent(new CustomEvent("gj-api-token-accepted"));
@@ -537,8 +537,15 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     let active = true;
     const checkHealth = async () => {
       try {
-        const response = await apiFetch(`${API_URL}/health`)
-        if (!response.ok) throw new Error();
+        const response = await repairHealthAndRetry(
+            () => apiFetch(`${API_URL}/health`, {}, true),
+            () => invoke("ensure_desktop_setup"),
+            () => {
+              window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
+              rejectedRequest = { input: `${API_URL}/health`, init: {} };
+            },
+          );
+        if (!response.ok) throw new BackendHealthError(response.status);
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
         if (active) {
           setHealth("connected");
@@ -546,7 +553,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
           setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
           setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
         }
-      } catch {
+      } catch (cause) {
         if (active) {
           setHealth("unavailable");
           setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
