@@ -45,6 +45,23 @@ describe("AgentSkillsService", () => {
     expect(query.mock.calls.filter(([sql]) => /INSERT\s+INTO agent_skills/.test(String(sql)))).toHaveLength(1);
   });
 
+  it("attaches a global skill from another owner and lists it", async () => {
+    const globalSkill = { ...skill, ownerId: "admin", global: true };
+    let attached = false;
+    const query = jest.fn(async (sql: string) => {
+      if (sql.includes("INSERT INTO agent_skills")) { attached = true; return { rowCount: 1 }; }
+      if (sql.includes("FROM agents a CROSS JOIN skills")) return { rows: [globalSkill] };
+      if (sql.includes("SELECT count(*)")) return { rows: [{ count: 0 }] };
+      if (sql.includes("FROM agent_skills link JOIN agents")) return { rows: attached ? [globalSkill] : [] };
+      return { rows: [] };
+    });
+    const { service } = setup(query);
+    await expect(service.attach("owner", agentId, "research")).resolves.toEqual(globalSkill);
+    await expect(service.listForAgent("owner", agentId)).resolves.toEqual([globalSkill]);
+    expect(query.mock.calls[0]?.[0]).toContain("s.owner_id=$2 OR s.global");
+    expect(query.mock.calls.at(-1)?.[0]).toContain("s.owner_id=$2 OR s.global");
+  });
+
   it.each(["bot de outra pessoa", "habilidade de outra pessoa", "slug inexistente"])("não anexa quando há %s", async () => {
     const query = jest.fn().mockResolvedValue({ rows: [] });
     const { service } = setup(query);
@@ -74,7 +91,7 @@ describe("AgentSkillsService", () => {
     await expect(service.detach("owner", agentId, "absent")).rejects.toMatchObject({ response: { message: "Habilidade não encontrada." } });
     expect(query.mock.calls[0][0]).toContain("link.owner_id=$2");
     expect(query.mock.calls[0][0]).toContain("a.owner_id=$2");
-    expect(query.mock.calls[0][0]).toContain("s.owner_id=$2");
+    expect(query.mock.calls[0][0]).toContain("s.owner_id=$2 OR s.global");
   });
 
   it("loads prompt skills in attachment order", async () => {

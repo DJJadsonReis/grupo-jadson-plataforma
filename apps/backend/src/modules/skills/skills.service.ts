@@ -1,6 +1,7 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
+import { Principal } from "../auth/users.service";
 
 export interface SkillRecord {
   id: string;
@@ -9,6 +10,7 @@ export interface SkillRecord {
   title: string;
   summary: string;
   instructions: string;
+  global: boolean;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -18,27 +20,31 @@ export interface SkillInput {
   title: unknown;
   summary?: unknown;
   instructions: unknown;
+  global?: unknown;
 }
 
-const COLUMNS = `id,owner_id AS "ownerId",slug,title,summary,instructions,created_at AS "createdAt",updated_at AS "updatedAt"`;
+const COLUMNS = `id,owner_id AS "ownerId",slug,title,summary,instructions,global,created_at AS "createdAt",updated_at AS "updatedAt"`;
 
 @Injectable()
 export class SkillsService {
   constructor(private readonly database: DatabaseService) {}
 
-  async list(ownerId: string): Promise<SkillRecord[]> {
+  async list(principal: Principal): Promise<SkillRecord[]> {
     const result = await this.database.getPool().query(
-      `SELECT ${COLUMNS} FROM skills WHERE owner_id=$1 ORDER BY created_at DESC`, [ownerId],
+      `SELECT ${COLUMNS} FROM skills WHERE owner_id=$1 OR global ORDER BY created_at DESC`, [principal.id],
     );
     return result.rows as SkillRecord[];
   }
 
-  async create(ownerId: string, input: SkillInput): Promise<SkillRecord> {
+  async create(principal: Principal, input: SkillInput): Promise<SkillRecord> {
+    const global = input?.global === undefined ? false : input.global;
+    if (typeof global !== "boolean") throw new BadRequestException({ code: "INVALID_SKILL", message: "Campo global inválido." });
+    if (global && principal.role !== "admin") throw new ForbiddenException({ code: "FORBIDDEN", message: "Só administradores criam habilidades globais." });
     const validated = this.validate(input);
     try {
       const result = await this.database.getPool().query(
-        `INSERT INTO skills(id,owner_id,slug,title,summary,instructions) VALUES($1,$2,$3,$4,$5,$6) RETURNING ${COLUMNS}`,
-        [randomUUID(), ownerId, validated.slug, validated.title, validated.summary, validated.instructions],
+        `INSERT INTO skills(id,owner_id,slug,title,summary,instructions,global) VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING ${COLUMNS}`,
+        [randomUUID(), principal.id, validated.slug, validated.title, validated.summary, validated.instructions, global],
       );
       return result.rows[0] as SkillRecord;
     } catch (error) {
@@ -47,9 +53,9 @@ export class SkillsService {
     }
   }
 
-  async remove(ownerId: string, slug: string): Promise<void> {
+  async remove(principal: Principal, slug: string): Promise<void> {
     const result = await this.database.getPool().query(
-      "DELETE FROM skills WHERE owner_id=$1 AND slug=$2", [ownerId, slug],
+      "DELETE FROM skills WHERE slug=$1 AND (owner_id=$2 OR (global AND $3))", [slug, principal.id, principal.role === "admin"],
     );
     if (result.rowCount === 0) throw new NotFoundException({ code: "SKILL_NOT_FOUND", message: "Habilidade não encontrada." });
   }
