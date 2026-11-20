@@ -52,7 +52,7 @@ Depois dos itens 1–6, Decisão 30:
 12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
 13. **Painel administrativo completo** — Feito na tarefa 112; evidências: `apps/backend/src/modules/team-rooms/team-rooms.service.ts` e testes `team-rooms.service.spec.ts`/`team-rooms.e2e.spec.ts` (criação de sala e mudanças de membros auditadas), além de `apps/desktop/src/lib/audit-labels.ts` (rótulos pt-BR; filtro por ação aceita texto livre).
 14. **Tela de status e encerramento ordenado** — Feito na tarefa 111; evidências: `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs` (`stop_local_services`), `scripts/stop.ps1` e testes `apps/desktop/src/lib/shutdown-plan.test.ts`.
-15. **Gráficos interativos e galeria de componentes** — INTERNO, G.
+15. **Gráficos interativos e galeria de componentes** — Feito na tarefa 113. Evidências: `apps/desktop/src/components/RichComponent.tsx`, `apps/desktop/src/components/rich/ComponentsGallery.tsx`, `apps/desktop/src/lib/chart-geometry.ts`, `apps/backend/src/modules/chat/rich-components-guidance.ts`; testes de geometria, validação e guidance.
 16. **Check-ins proativos** — INTERNO, G.
 
 Nenhum item EXTERNO/PESADO está nesta fila.
@@ -90,7 +90,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Exclusão definitiva de conversa | `server/src/channels/conversations.ts` | Feito | `apps/backend/src/modules/chat/conversations.service.ts` (`remove`), `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversations.pg.spec.ts`; `apps/desktop/src/lib/conversation-list.ts` (`planConversationDeletion`) e `apps/desktop/src/App.tsx` | — | — | — |
 | Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito | `apps/backend/src/modules/chat/image-attachments.ts` (limite de 5 MB por mensagem) | — | — | — |
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `attachment-parts.ts` | Feito | `apps/backend/src/modules/documents/office-text.ts`, `apps/backend/src/modules/documents/office-zip.ts` (DOCX e XLSX) | — | — | — |
-| Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Parcial | `apps/desktop/src/components/RichComponent.tsx` (cartão, tabela, barras) | Gráficos interativos e galeria de componentes | INTERNO | G |
+| Respostas com componentes ricos | `server/src/components/`; `components-gallery` | Feito | `apps/desktop/src/components/RichComponent.tsx`, `apps/desktop/src/components/rich/ComponentsGallery.tsx`, `apps/desktop/src/lib/chart-geometry.ts`, `apps/backend/src/modules/chat/rich-components-guidance.ts`; testes desktop e backend | — | — | — |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | Não encontrado | Geração local ou serviço externo de geração de imagem | EXTERNO/PESADO | M |
 | Ditado por voz (entrada) | `server/src/dictation/`, `shared/on-device-speech.ts` | Parcial | `apps/backend/src/modules/dictation/transcriber.ts` (Whisper local pt; modelo sob demanda), `apps/desktop/src/lib/dictation-session.ts` (parciais e controles) | Reprodução autenticada no exe com token do app (ação do dono) | INTERNO | P |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Feito | `apps/desktop/src/lib/read-aloud.ts`, `apps/desktop/src/App.tsx` (speechSynthesis) | Depende de voz pt-BR instalada no WebView | — | — |
