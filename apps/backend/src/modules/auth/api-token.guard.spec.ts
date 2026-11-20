@@ -51,7 +51,9 @@ describe("ApiTokenGuard", () => {
 
   it("recusa token errado quando não há usuário com ele", async () => {
     const { ctx, reflector } = contextWith("Bearer outro-token");
-    await expect(new ApiTokenGuard(reflector, usersReturning(null)).canActivate(ctx)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(new ApiTokenGuard(reflector, usersReturning(null)).canActivate(ctx)).rejects.toMatchObject({
+      response: { code: "UNAUTHORIZED", message: "Token de API ausente ou inválido." },
+    });
   });
 
   it("falha fechada quando API_TOKEN não está configurado", async () => {
@@ -71,6 +73,10 @@ describe("ApiTokenGuard", () => {
     expect(await new ApiTokenGuard(read.reflector, usersReturning(viewer)).canActivate(read.ctx)).toBe(true);
     const write = contextWith("Bearer pessoal", {}, "POST");
     await expect(new ApiTokenGuard(write.reflector, usersReturning(viewer)).canActivate(write.ctx)).rejects.toBeInstanceOf(ForbiddenException);
+    const deleteRequest = contextWith("Bearer pessoal", {}, "DELETE", "/api/v1/conversations/123e4567-e89b-42d3-a456-426614174000");
+    await expect(new ApiTokenGuard(deleteRequest.reflector, usersReturning(viewer)).canActivate(deleteRequest.ctx)).rejects.toMatchObject({
+      response: { message: "Seu perfil permite apenas consultas. Peça ao administrador para liberar a exclusão desta conversa." },
+    });
   });
 
   it("permite que leitor escreva somente nas rotas do chat interno", async () => {

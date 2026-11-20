@@ -98,7 +98,7 @@ describe("ChatController tool loop", () => {
       if (call === 1) return new Response("", { status: 429 });
       return sseResponse([{ model: "reserve-model", choices: [{ delta: { content: "resposta reserva" } }] }]);
     });
-    const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
+    const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })), assertAvailable: jest.fn(async () => undefined) };
     const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
     realProviders.setTestDependencies(fetcher as typeof fetch, async () => ["8.8.8.8"]);
     const { controller, audit } = setup({ providersService: realProviders, agent: {
@@ -117,6 +117,16 @@ describe("ChatController tool loop", () => {
     expect(JSON.stringify(audit.record.mock.calls)).not.toContain("sk-teste-falso-000");
   });
 
+  it("propaga MODEL_UNAVAILABLE sem fazer nova chamada e não vaza a chave", async () => {
+    const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })), assertAvailable: jest.fn(async () => { throw new (require("@nestjs/common").BadRequestException)({ code: "MODEL_UNAVAILABLE", message: "O modelo ‘modelo-x’ está indisponível no provedor ‘Falso’. Escolha outro modelo." }); }) };
+    const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
+    const fetcher = jest.fn();
+    realProviders.setTestDependencies(fetcher as typeof fetch, async () => ["8.8.8.8"]);
+    const { controller } = setup({ providersService: realProviders, agent: { instructions: "", enabled: true, model: "modelo-x", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020" } });
+    await expect(controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response)).rejects.toMatchObject({ response: { code: "MODEL_UNAVAILABLE" } });
+    expect(fetcher).not.toHaveBeenCalled();
+  });
+
   it("mantém o corpo após o limite de primeira resposta", async () => {
     const oldLimit = ChatController.firstResponseTimeoutMs;
     ChatController.firstResponseTimeoutMs = 50;
@@ -124,7 +134,7 @@ describe("ChatController tool loop", () => {
       const stream = new ReadableStream<Uint8Array>({ start(controller) {
         setTimeout(() => { controller.enqueue(new TextEncoder().encode(`data: ${JSON.stringify({ choices: [{ delta: { content: "resposta longa completa" } }] })}\n\ndata: [DONE]\n\n`)); controller.close(); }, 150);
       } });
-      const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
+      const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })), assertAvailable: jest.fn(async () => undefined) };
       const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
       const fetcher = jest.fn(async () => new Response(stream));
       realProviders.setTestDependencies(fetcher as typeof fetch, async () => ["8.8.8.8"]);
@@ -217,6 +227,7 @@ describe("ChatController tool loop", () => {
   it("valida e encaminha modelProviderId ao roteador", async () => {
     const { controller, inputs, providers } = setup();
     const validateManagedProvider = jest.fn(async () => undefined);
+    (providers as any).validateManagedModel = jest.fn(async () => undefined);
     (providers as any).validateManagedProvider = validateManagedProvider;
     const response = new FakeResponse();
     const modelProviderId = "123e4567-e89b-42d3-a456-426614174010";

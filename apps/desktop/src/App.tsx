@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -33,6 +33,8 @@ import { Welcome } from "./Welcome";
 import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
+import { HumanSupportApi } from "./lib/human-support-api";
+import { requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -41,7 +43,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "human-support" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -74,7 +76,8 @@ function saveSession(token: string): void {
 
 /** Token do sistema local: Vite entrega em desenvolvimento e o comando Tauri no app empacotado. */
 let systemTokenRequest: Promise<string> | null = null;
-function localSystemToken(): Promise<string> {
+function localSystemToken(refresh = false): Promise<string> {
+  if (refresh) systemTokenRequest = null;
   if (!systemTokenRequest) {
     systemTokenRequest = (import.meta.env.DEV
       ? fetch("/__gj/dev-token", { cache: "no-store" })
@@ -92,10 +95,28 @@ function localSystemToken(): Promise<string> {
 
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
-  const headers = new Headers(init.headers);
-  const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken());
-  if (token) headers.set("Authorization", `Bearer ${token}`);
-  return fetch(input, { ...init, headers });
+  const send = async (refresh: boolean) => {
+    const headers = new Headers(init.headers);
+    const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken(refresh));
+    if (token) headers.set("Authorization", `Bearer ${token}`);
+    return fetch(input, { ...init, headers });
+  };
+  let unauthorized = false;
+  const response = await requestWithTokenRefresh(send, () => { unauthorized = true; });
+  if (unauthorized) {
+    window.dispatchEvent(new CustomEvent("gj-api-token-rejected"));
+    rejectedRequest = { input, init };
+  } else if (response.ok) window.dispatchEvent(new CustomEvent("gj-api-token-accepted"));
+  return response;
+}
+
+let rejectedRequest: { input: string; init: RequestInit } | null = null;
+async function reconnectAndRetry(): Promise<void> {
+  const failed = rejectedRequest;
+  if (!failed) return;
+  await localSystemToken(true);
+  rejectedRequest = null;
+  await apiFetch(failed.input, failed.init);
 }
 
 const SIGN_IN_MESSAGES: Record<string, string> = {
@@ -306,10 +327,25 @@ function Workspace({ edition }: { edition: Edition }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [humanSupportAllowed, setHumanSupportAllowed] = useState(false);
+  const [tokenRejected, setTokenRejected] = useState(false);
+  const [reconnecting, setReconnecting] = useState(false);
+  useEffect(() => {
+    const rejected = () => setTokenRejected(true);
+    const accepted = () => setTokenRejected(false);
+    window.addEventListener("gj-api-token-rejected", rejected);
+    window.addEventListener("gj-api-token-accepted", accepted);
+    return () => { window.removeEventListener("gj-api-token-rejected", rejected); window.removeEventListener("gj-api-token-accepted", accepted); };
+  }, []);
   const [sidebarHover, setSidebarHover] = useState(false);
   useEffect(() => {
     let active = true;
     apiFetch(`${API_URL}/notifications`).then((r) => r.ok ? r.json() : Promise.reject(new Error("notifications"))).then((items: unknown[]) => { if (active) setNotificationCount(items.length); }).catch(() => { if (active) setNotificationCount(0); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/human-support`).then((r) => { if (active) setHumanSupportAllowed(r.ok); }).catch(() => { if (active) setHumanSupportAllowed(false); });
     return () => { active = false; };
   }, []);
   useEffect(() => {
@@ -338,7 +374,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [providers, setProviders] = useState<ProviderStatus[] | null>(null);
   const [modelCatalogue, setModelCatalogue] = useState<CatalogueProvider[] | null>(null);
   const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
-  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
+  const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
   const deletedConversationIdsRef = useRef(new Set<string>());
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
@@ -348,9 +384,13 @@ function Workspace({ edition }: { edition: Edition }) {
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [pendingConversation, setPendingConversation] = useState<Conversation | null>(null);
   const [historyMenu, setHistoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
+  const historyNoticeTimer = useRef<number | null>(null);
+  const serverConversationIdsRef = useRef(new Set<string>());
+  const serverConversationListLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!historyMenu) return;
@@ -368,19 +408,22 @@ function Workspace({ edition }: { edition: Edition }) {
 
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    if (!item || !window.confirm("Excluir esta conversa e todo o hist\u00f3rico? N\u00e3o d\u00e1 para desfazer.")) return;
-    deletedConversationIdsRef.current.add(id);
-    if (isServerConversationId(id)) {
+    if (!item) return;
+    const deletionPlan = planConversationDeletion(id, serverConversationListLoadedRef.current, serverConversationIdsRef.current);
+    if (deletionPlan === "keep-and-report") {
+      showHistoryNotice(deletionErrorMessage(true));
+      return;
+    }
+    if (deletionPlan === "delete-server") {
       try {
         const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-        if (!response.ok && response.status !== 404) throw new Error("falhou");
+        if (conversationDeletionResult(response.status) !== "remove") throw new Error("falhou");
       } catch {
-        deletedConversationIdsRef.current.delete(id);
-        setHistoryNotice("N\u00e3o foi poss\u00edvel excluir a conversa. Tente de novo.");
-        window.setTimeout(() => setHistoryNotice(null), 3000);
+        showHistoryNotice(deletionErrorMessage(true));
         return;
       }
     }
+    deletedConversationIdsRef.current.add(id);
     const remaining = conversations.filter((c) => c.id !== id);
     setConversations(remaining);
     setPendingConversation((current) => current?.id === id ? null : current);
@@ -389,8 +432,11 @@ function Workspace({ edition }: { edition: Edition }) {
       localStorage.setItem(STORAGE_KEY, serializeWorkspace(removeConversationFromWorkspace(workspace, id)));
     } catch { /* o estado em mem\u00f3ria j\u00e1 foi atualizado */ }
     if (activeConversation === id) { abortRef.current?.abort(); setActiveConversation(null); setPage("conversations"); }
-    setHistoryNotice("Conversa exclu\u00edda.");
-    window.setTimeout(() => setHistoryNotice(null), 2500);
+  }
+  function showHistoryNotice(message: string | null) {
+    if (historyNoticeTimer.current !== null) window.clearTimeout(historyNoticeTimer.current);
+    setHistoryNotice(message);
+    if (message) historyNoticeTimer.current = window.setTimeout(() => { setHistoryNotice(null); historyNoticeTimer.current = null; }, 3000);
   }
   const [historyQuery, setHistoryQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(readStoredValue("grupo-jadson.sidebar-width")) || SIDEBAR_DEFAULT_WIDTH));
@@ -502,8 +548,10 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const remote = (await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[])
-          .filter((item) => !deletedConversationIdsRef.current.has(item.id));
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
+        serverConversationListLoadedRef.current = true;
+        const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -697,6 +745,7 @@ function Workspace({ edition }: { edition: Edition }) {
         const body = await response.json().catch(() => ({})) as { message?: string };
         throw new Error(body.message ?? `A API respondeu com HTTP ${response.status}.`);
       }
+      if (conversationId && isServerConversationId(conversationId)) serverConversationIdsRef.current.add(conversationId);
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
       const decoder = new TextDecoder(); let answer = ""; let pending = ""; let eventName = ""; let streamError: string | null = null;
@@ -796,6 +845,13 @@ function Workspace({ edition }: { edition: Edition }) {
   function saveAgent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!agentEditor) return;
     const saved = agentEditor;
+    const routing = saved.modelRouting;
+    const targets = [
+      ...(saved.provider && saved.model ? [{ providerId: saved.provider, model: saved.model }] : []),
+      ...(routing?.fallbacks ?? []),
+      ...Object.values(routing?.taskModels ?? {}).filter((target): target is AgentModelTarget => Boolean(target)),
+    ];
+    if (targets.some((target) => selectableProviders.find((provider) => provider.providerId === target.providerId)?.models.find((item) => item.id === target.model)?.availability === "indisponivel")) return;
     setAgents((items) => items.some((item) => item.id === saved.id) ? items.map((item) => item.id === saved.id ? saved : item) : [saved, ...items]);
     void persistAgent(saved);
     setAgentEditor(null);
@@ -888,6 +944,8 @@ function Workspace({ edition }: { edition: Edition }) {
           ))}
         </nav>
 
+        {humanSupportAllowed && <button className={`nav-item ${page === "human-support" ? "active" : ""}`} onClick={() => changePage("human-support")}><Bell size={17} /><span>Atendimento</span></button>}
+
         <button className="nav-item" onClick={() => setNotificationsOpen((open) => !open)} aria-expanded={notificationsOpen} title={railCollapsed ? "Notificações" : undefined}><Bell size={17} /><span>Notificações{notificationCount > 0 ? ` (${notificationCount})` : ""}</span></button>
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
@@ -933,9 +991,11 @@ function Workspace({ edition }: { edition: Edition }) {
                   </button>
                 );
                 const matches = (item: Conversation) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase());
+                const agentChats = sections.agents.filter(matches);
+                const fixedAgentNames = agents.filter((agent) => agent.name.toLowerCase().includes(historyQuery.trim().toLowerCase()));
                 return <>
-                  {sections.agents.some(matches) && <div className="history-section-title">Agentes</div>}
-                  {sections.agents.filter(matches).slice(0, 30).map(renderConversation)}
+                  {(fixedAgentNames.length > 0 || agentChats.length > 0) && <div className="history-section-title">Agentes</div>}
+                  {agentChats.slice(0, 30).map(renderConversation)}
                   {sections.conversations.some(matches) && <div className="history-section-title">Conversas</div>}
                   {sections.conversations.filter(matches).slice(0, 30).map(renderConversation)}
                 </>;
@@ -955,7 +1015,7 @@ function Workspace({ edition }: { edition: Edition }) {
                     setRenamingId(historyMenu.id);
                     setHistoryMenu(null);
                   }}>Renomear</button>
-                  <button role="menuitem" className="history-item" onClick={() => { const id = historyMenu.id; setHistoryMenu(null); deleteConversation(id); }}>Excluir</button>
+                  <button role="menuitem" className="history-item" onClick={() => { setDeleteCandidate(historyMenu.id); setHistoryMenu(null); }}>Excluir</button>
                 </div>
               )}
             </div>
@@ -988,6 +1048,19 @@ function Workspace({ edition }: { edition: Edition }) {
 
       </aside>
 
+      {deleteCandidate && (
+        <div className="delete-confirm-backdrop" onClick={() => setDeleteCandidate(null)}>
+          <section className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-conversation-title" aria-describedby="delete-conversation-description" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") setDeleteCandidate(null); }} tabIndex={-1} ref={(element) => element?.focus()}>
+            <h2 id="delete-conversation-title">Excluir conversa?</h2>
+            <p id="delete-conversation-description">Excluir esta conversa e todo o histórico? Não dá para desfazer.</p>
+            <div className="delete-confirm-actions">
+              <button type="button" onClick={() => setDeleteCandidate(null)}>Cancelar</button>
+              <button type="button" className="delete-confirm-danger" onClick={() => { const id = deleteCandidate; setDeleteCandidate(null); void deleteConversation(id); }}>Excluir</button>
+            </div>
+          </section>
+        </div>
+      )}
+
       {/* ÁREA PRINCIPAL */}
       <main className="main">
         <header className="topbar">
@@ -1001,6 +1074,11 @@ function Workspace({ edition }: { edition: Edition }) {
             {serviceLabel}
           </div>
         </header>
+
+        {tokenRejected && <div role="status" className="api-token-reconnect" style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, margin: "8px 20px", padding: "9px 12px", borderRadius: 10, background: "#28251d", color: "#e8d7a2", fontSize: 13 }}>
+          <span>O backend recusou a sessão local. Reconecte para tentar novamente.</span>
+          <button type="button" disabled={reconnecting} onClick={() => { setReconnecting(true); void reconnectAndRetry().finally(() => setReconnecting(false)); }} style={{ border: 0, borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>{reconnecting ? "Conectando…" : "Reconectar"}</button>
+        </div>}
 
         {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
         {page === "dashboard" && (
@@ -1079,6 +1157,7 @@ function Workspace({ edition }: { edition: Edition }) {
             onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
           />
         )}
+        {page === "human-support" && humanSupportAllowed && <HumanSupportPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
@@ -2223,6 +2302,26 @@ function AgentSharingPanel({ agent }: { agent: Agent }) {
 /* =========================================================================
    PÁGINAS AUXILIARES (CONVERSAS, MODELOS, CONFIGURAÇÕES, ETC)
    ========================================================================= */
+type HumanSupportItem = { id: string; conversationId: string | null; agentId: string | null; requestedBy: string; reason: string; status: "aberto" | "assumido"; claimedBy: string | null; createdAt: string };
+function HumanSupportPage({ apiFetch, apiUrl }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string }) {
+  const [items, setItems] = useState<HumanSupportItem[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    new HumanSupportApi((input, init) => apiFetch(input, { ...init, signal: controller.signal }), apiUrl).list().then((rows) => { setItems(rows); setError(""); }).catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Falha ao carregar atendimentos."); });
+    return () => controller.abort();
+  }, [apiFetch, apiUrl, version]);
+  async function act(id: string, action: "claim" | "resolve") {
+    setBusy(id); setError("");
+    try { await new HumanSupportApi(apiFetch, apiUrl).update(id, action); setVersion((n) => n + 1); }
+    catch (e) { setError(e instanceof Error ? e.message : "Não foi possível atualizar o atendimento."); }
+    finally { setBusy(null); }
+  }
+  return <main className="page-content"><header className="page-heading"><div><span className="section-label">FILA DE ATENDIMENTO</span><h1>Atendimento</h1><p>{items.filter((item) => item.status === "aberto").length} pedidos abertos</p></div></header>{error && <div className="gallery-notice-pill" role="status">{error}</div>}<div className="settings-box">{items.length ? items.map((item) => <article key={item.id} className="workspace-fact" style={{ alignItems:"flex-start", gap:16 }}><div style={{ flex:1 }}><b>{item.status === "aberto" ? "Aberto" : "Assumido"} · {new Date(item.createdAt).toLocaleString("pt-BR")}</b><p style={{ margin:"8px 0" }}>{item.reason}</p><small>Conversa: {item.conversationId ?? "não informada"} · Agente: {item.agentId ?? "não informado"}</small></div><span style={{ display:"flex", gap:8 }}>{item.status === "aberto" && <button className="btn-outline-sm" disabled={busy === item.id} onClick={() => void act(item.id,"claim")}>Assumir</button>}{item.status === "assumido" && <button className="btn-primary-gold" disabled={busy === item.id} onClick={() => void act(item.id,"resolve")}>Resolver</button>}</span></article>) : <p>Nenhum pedido pendente.</p>}</div></main>;
+}
+
 function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversations: Conversation[]; agents: Agent[]; onNew: () => void; onOpen: (id: string) => void }) {
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
   return (
@@ -2278,6 +2377,12 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
     finally { setTesting(null); }
   }
+  async function verifyModels(id: string) {
+    setTesting(id); setError(null); setNotice(null);
+    try { await api.checkModels(id); await onRefresh(); setNotice("Checagem de modelos concluída."); }
+    catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível verificar os modelos."); }
+    finally { setTesting(null); }
+  }
   async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
   async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
@@ -2296,8 +2401,8 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
         {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
           <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
-          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
-          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id}) — <strong>{model.availability === "disponivel" ? "Disponível" : model.availability === "indisponivel" ? "Indisponível" : "Não verificado"}</strong>{model.checkedAt ? ` · ${new Date(model.checkedAt).toLocaleString()}` : ""}</li>)}</ul>
         </article>)}
       </div>
       <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
@@ -2911,7 +3016,7 @@ function ConnectAppsDialog({ onClose, onOpenSettings }: { onClose: () => void; o
 }
 
 /** Foto do bot na lista; se a imagem não carregar, mostra a inicial no mesmo círculo. */
-type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean };
+type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean; attendant?: boolean };
 const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
 
 /** Pessoas e papéis. O token de cada pessoa aparece uma única vez, ao criar ou trocar. */
@@ -3011,6 +3116,9 @@ function AccessSettings({ edition }: { edition: Edition }) {
             <button className="icon-btn-close" onClick={() => void send(`/users/${person.id}/active`, "PUT", { active: !person.active })}>
               {person.active ? "Desativar" : "Ativar"}
             </button>
+            {person.role !== "admin" && <button className="icon-btn-close" onClick={() => void send(`/users/${person.id}/attendant`, "PUT", { enabled: !person.attendant })}>
+              {person.attendant ? "Remover atendente" : "Liberar atendimento"}
+            </button>}
           </span>
         </div>
       ))}
@@ -3531,7 +3639,7 @@ function MonitoringItem({ label, status, detail }: { label: string; status: Heal
 /* =========================================================================
    MODAIS & HELPERS
    ========================================================================= */
-type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string }[] };
+type AgentModelProviderOption = { providerId: string; providerName: string; models: { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }[] };
 function isCodeFileName(name: string): boolean { return /\.(?:c|cc|cpp|cs|go|h|java|js|jsx|php|py|rb|rs|sh|sql|ts|tsx|json|yaml|yml|toml|md)$/i.test(name); }
 
 function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, label }: { value?: AgentModelTarget | undefined; providers: AgentModelProviderOption[]; onChange: (value?: AgentModelTarget) => void; allowPrimary?: boolean; label: string }) {
@@ -3539,6 +3647,7 @@ function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, l
   const missingProvider = value && !providers.some((provider) => provider.providerId === value.providerId);
   const selectedProvider = value && providers.find((provider) => provider.providerId === value.providerId);
   const missingModel = value && selectedProvider && !selectedProvider.models.some((model) => model.id === value.model);
+  const selectedModel = value && selectedProvider?.models.find((model) => model.id === value.model);
   return <label><span>{label}</span><select value={selected} onChange={(event) => {
     if (!event.target.value) { onChange(undefined); return; }
     const [providerId, model] = event.target.value.split("|");
@@ -3548,8 +3657,8 @@ function ModelTargetSelect({ value, providers, onChange, allowPrimary = false, l
     {allowPrimary && <option value="">Usar o principal</option>}
     {missingProvider && <option value={selected}>Provedor desabilitado ou indisponível: {value?.providerId}</option>}
     {missingModel && <option value={selected}>Modelo atual: {value?.model}</option>}
-    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
-  </select>{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
+    {providers.map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((model) => <option key={`${provider.providerId}|${model.id}`} value={`${provider.providerId}|${model.id}`}>{model.label}{model.availability === "indisponivel" ? " (indisponível)" : ""}</option>)}{!provider.models.length && <option value={`${provider.providerId}|${value?.model ?? "custom-model"}`}>{value?.model || "Informe um modelo customizado no campo abaixo"}</option>}</optgroup>)}
+  </select>{selectedModel?.availability === "indisponivel" && <small role="alert">O modelo “{value?.model}” está indisponível em {selectedProvider?.providerName}. Escolha outro modelo antes de salvar.</small>}{selectedProvider && !selectedProvider.models.length && <input value={value?.model ?? ""} onChange={(event) => value && onChange({ ...value, model: event.target.value })} placeholder="ID do modelo customizado" aria-label={`${label}: ID do modelo customizado`} />}{missingProvider && <small role="alert">Este provedor foi desabilitado ou removido. Escolha outro para salvar.</small>}</label>;
 }
 
 function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: Agent; providers: AgentModelProviderOption[]; onChange: (agent: Agent) => void; onClose: () => void; onSubmit: (event: FormEvent<HTMLFormElement>) => void }) {
@@ -3559,6 +3668,11 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
   const fallbacks = routing.fallbacks;
   const setRouting = (next: NonNullable<Agent["modelRouting"]>) => onChange({ ...agent, modelRouting: next });
   const primaryProvider = providers.find((provider) => provider.providerId === agent.provider);
+  const unavailableTargets = [
+    ...(agent.provider && agent.model ? [{ providerId: agent.provider, model: agent.model }] : []),
+    ...fallbacks,
+    ...Object.values(routing.taskModels ?? {}).filter((target): target is AgentModelTarget => Boolean(target)),
+  ].filter((target) => providers.find((provider) => provider.providerId === target.providerId)?.models.find((model) => model.id === target.model)?.availability === "indisponivel");
   const primaryModelValue = agent.provider && agent.model && primaryProvider
     ? { providerId: agent.provider, model: agent.model } : undefined;
   const updatePrimary = (target?: AgentModelTarget) => onChange({ ...agent, provider: target?.providerId ?? "openai", model: target?.model ?? "" });
@@ -3626,7 +3740,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
         </div>
         <div className="modal-footer">
           <button type="button" className="btn-outline-sm" onClick={onClose}>Cancelar</button>
-          <button type="submit" className="btn-primary-gold">{agent.name ? "Salvar" : "Criar"}</button>
+          <button type="submit" className="btn-primary-gold" disabled={unavailableTargets.length > 0}>{agent.name ? "Salvar" : "Criar"}</button>
         </div>
       </form>
     </div>

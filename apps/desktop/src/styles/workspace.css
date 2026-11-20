@@ -2099,6 +2099,15 @@
   padding: 20px;
 }
 
+.delete-confirm-backdrop { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 20px; background: rgba(0,0,0,.72); backdrop-filter: blur(6px); }
+.delete-confirm-dialog { width: min(420px, 100%); padding: 22px; border: 1px solid #34312b; border-radius: 16px; background: #171614; color: #f2f0eb; box-shadow: 0 24px 70px rgba(0,0,0,.65); outline: none; }
+.delete-confirm-dialog h2 { margin: 0 0 10px; font-size: 18px; }
+.delete-confirm-dialog p { margin: 0; color: #aaa69e; line-height: 1.5; }
+.delete-confirm-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
+.delete-confirm-actions button { padding: 9px 16px; border: 1px solid #383631; border-radius: 9px; background: #22211e; color: #eee; font: inherit; cursor: pointer; }
+.delete-confirm-actions .delete-confirm-danger { border-color: #a52b2b; background: #b83232; color: white; font-weight: 600; }
+.delete-confirm-actions .delete-confirm-danger:hover { background: #ce3b3b; }
+
 .agent-modal-dialog {
   width: min(540px, 100%);
   background: #141311;

@@ -227,7 +227,7 @@ Validação: jest completo em apps/backend com 29 suítes e 126 testes, exit 0; 
 
 **Item 4 — preferências gerais:** nova tabela por principal autenticado com instruções de até 3000 caracteres e estilo `concise|balanced|detailed`; rotas GET/PUT não aceitam escolher outro owner. Preferências entram no prompt antes da guidance de segurança. Migração `017-user-preferences` aplicada e registrada no PostgreSQL de teste (validação de 2026-11-19); nenhuma chamada de serviço externo.
 
-**Item 5 — escalonamento humano:** ferramenta sensível `atendimento.humano` gera aprovação; só a execução aprovada grava `human_support.requested` internamente. Não há envio externo. Validado com dublês de aprovação, banco e auditoria.
+**Item 5 — escalonamento humano:** Feito na tarefa 80. A aprovação cria pedido persistente com motivo mascarado; o administrador sempre atende e pode liberar atendentes por pessoa. Fila interna notifica atendentes, permite assumir uma única vez com atualização condicional e resolver pelo responsável ou admin, notificando quem pediu. API protegida, tela Atendimento com contagem e ações, auditoria e testes unitários. Sem envio externo. PostgreSQL real pendente por ausência de `TEST_DATABASE_URL` neste ambiente.
 
 **Item 6 — disponibilidade do modelo:** providers oficiais OpenAI e Anthropic consultam `/models/{id}` antes do POST de chat e devolvem erro claro em modelo ausente, chave recusada ou checagem inconclusiva. Endpoints OpenAI-compatible/customizados e Gemini não usam essa verificação, pois não compartilham contrato garantido. Testes usam `fetch` dublado; nenhuma API real foi chamada.
 

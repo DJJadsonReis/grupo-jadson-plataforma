@@ -17,6 +17,7 @@ import { environmentSecrets, maskSecrets, maskSecretValues } from "../../common/
 import { NotificationsService } from "../notifications/notifications.service";
 import { readPage } from "./page-reader";
 import { ConnectionSharesService } from "../connection-shares/connection-shares.service";
+import { HumanSupportService } from "../human-support/human-support.service";
 
 /** O id da pessoa vem sempre do servidor (`requesterId`), nunca do corpo da requisição. */
 function scopeInput(input: Record<string, unknown>, requesterId?: string): Record<string, unknown> {
@@ -71,6 +72,7 @@ export class ToolsService {
     private readonly google: GoogleService,
     @Optional() private readonly notifications?: NotificationsService,
     @Optional() private readonly shares?: ConnectionSharesService,
+    @Optional() private readonly humanSupport?: HumanSupportService,
   ) {}
 
   catalog(): ToolDefinition[] {
@@ -110,6 +112,7 @@ export class ToolsService {
     const tool = this.catalog().find((item) => item.name === name) ?? findTool(name);
     if (!tool) throw new NotFoundException({ code: "NOT_FOUND", message: "Ferramenta não encontrada." });
     const input = scopeInput(rawInput, requesterId);
+    if (name === "atendimento.humano" && typeof input.motivo === "string") input.motivo = (await this.maskSecretText(input.motivo)).slice(0, 1000);
     const id = randomUUID();
 
     // Regra do agente vem antes de tudo: "deny" recusa e fica na auditoria; "allow" dispensa aprovação.
@@ -211,23 +214,16 @@ export class ToolsService {
       const motivo = String(input.motivo ?? "").trim().slice(0, 1000);
       if (!motivo) return { erro: true, mensagem: "Descreva o motivo do atendimento humano." };
       const requestedBy = typeof input.pessoaId === "string" ? input.pessoaId : "sistema";
-      const conversationId = typeof input.conversaId === "string" ? input.conversaId : null;
-      await this.audit.record({ actor: requestedBy, action: "human_support.requested", subject: conversationId, details: { motivo } });
-      if (this.notifications) {
-        const body = (await this.maskSecretText(motivo)).slice(0, 300);
-        let adminIds: string[] = [];
-        try {
-          const admins = await this.database.getPool().query("SELECT id FROM users WHERE role='admin' AND active=true");
-          adminIds = admins.rows.map((row: { id: string }) => row.id);
-        } catch { /* instalação pessoal sem tabela users */ }
-        const recipients = adminIds.length ? adminIds : ["sistema"];
-        await Promise.all(recipients.map((owner) => this.notifications!.create({
-          owner,
-          kind: "human_support.requested",
-          title: "Atendimento humano solicitado",
-          body,
-          details: { conversationId, requestedBy },
-        }).catch(() => undefined)));
+      const conversationId = typeof input.conversaId === "string" ? input.conversaId : typeof input.conversationId === "string" ? input.conversationId : null;
+      if (this.humanSupport) await this.humanSupport.open({ conversationId, agentId: typeof input.agentId === "string" ? input.agentId : typeof input.agenteId === "string" ? input.agenteId : null, requestedBy, reason: motivo });
+      else {
+        await this.audit.record({ actor: requestedBy, action: "human_support.requested", subject: conversationId, details: { motivo: await this.maskSecretText(motivo) } });
+        if (this.notifications) {
+          const admins = await this.database.getPool().query("SELECT id FROM users WHERE role='admin' AND active=true").catch(() => ({ rows: [] as { id: string }[] }));
+          const recipients = admins.rows.length ? admins.rows.map((row: { id: string }) => row.id) : ["sistema"];
+          const body = (await this.maskSecretText(motivo)).slice(0,300);
+          await Promise.all(recipients.map((owner: string) => this.notifications!.create({ owner, kind: "human_support.requested", title: "Atendimento humano solicitado", body, details:{ conversationId, requestedBy } }).catch(() => undefined)));
+        }
       }
       return { registrada: true, mensagem: "Pedido de atendimento humano registrado internamente." };
     }

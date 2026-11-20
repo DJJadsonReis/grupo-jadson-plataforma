@@ -6,6 +6,18 @@ export type ModelStatus = { state: "missing" | "downloading" | "ready" | "error"
 export type DictationClient = { status(): Promise<ModelStatus>; download(): Promise<ModelStatus>; transcribe(samples: Float32Array): Promise<string> };
 export type DictationEvents = { state: (state: DictationState, status?: ModelStatus) => void; text: (text: string) => void; error: (message: string) => void };
 
+export function dictationErrorMessage(error: unknown, stage: "status" | "download" | "transcription"): string {
+  const details = typeof error === "object" && error !== null ? error as { status?: unknown; code?: unknown } : {};
+  const status = typeof details.status === "number" ? ` (HTTP ${details.status})` : "";
+  if (details.status === 401 || details.code === "UNAUTHORIZED") return `O token local foi recusado. Use “Reconectar” e tente novamente${status}.`;
+  if (details.status === 404 || details.code === "MODEL_NOT_FOUND") return "O serviço local de ditado ou o modelo não está instalado.";
+  if (details.code === "MODEL_NOT_READY") return "O modelo local de ditado não está disponível. Baixe o modelo e tente novamente.";
+  if (details.status === 503 || details.status === 502 || details.status === 0) return `O serviço local de ditado está indisponível${status}. Verifique se o backend está aberto.`;
+  if (stage === "download") return `O download do modelo local falhou${status}. Tente novamente.`;
+  if (stage === "transcription") return `A transcrição deste trecho falhou${status}. Tente novamente.`;
+  return `Não foi possível consultar o serviço local de ditado${status}. Verifique se o backend está aberto.`;
+}
+
 export class DictationSession {
   private state: DictationState = "idle";
   private previousText = "";
@@ -31,7 +43,7 @@ export class DictationSession {
       if (status.state === "missing" || status.state === "error") { this.setState("confirm-download", status); return; }
       if (status.state === "downloading") { await this.waitForDownload(generation); return; }
       await this.startRecording(generation);
-    } catch { if (generation === this.generation) this.fail("Não foi possível falar com o serviço local de ditado."); }
+    } catch (error) { if (generation === this.generation) this.fail(dictationErrorMessage(error, "status")); }
   }
 
   async confirmDownload(): Promise<void> {
@@ -41,7 +53,7 @@ export class DictationSession {
     try {
       await this.client.download();
       if (generation === this.generation) await this.waitForDownload(generation);
-    } catch { if (generation === this.generation) this.fail("Não foi possível baixar o modelo local. Tente novamente."); }
+    } catch (error) { if (generation === this.generation) this.fail(dictationErrorMessage(error, "download")); }
   }
 
   cancelDownload(): void { if (this.state === "confirm-download") this.setState("idle"); }
@@ -89,7 +101,7 @@ export class DictationSession {
         if ((error as { status?: number }).status === 429) {
           try { this.append(await this.client.transcribe(samples)); }
           catch { this.events.error("O serviço está ocupado. O trecho não foi transcrito; tente novamente."); }
-        } else this.events.error("Não foi possível transcrever este trecho. Continue ou tente novamente.");
+        } else this.events.error(dictationErrorMessage(error, "transcription"));
       }
     });
   }

@@ -79,7 +79,12 @@ describe("managed model provider routing", () => {
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
     try {
       const { port } = server.address() as AddressInfo;
-      const query = jest.fn(async (_sql: string, values: unknown[] = []) => ({ rows: [{ id: values[0], kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, secretCiphertext: "fake", models: [], enabled: true }], rowCount: 1 }));
+    const availability: { provider_id: unknown; model_id: unknown; status: unknown }[] = [];
+    const query = jest.fn(async (sql: string, values: unknown[] = []) => {
+      if (sql.startsWith("INSERT INTO model_availability")) { availability.push({ provider_id: values[0], model_id: values[1], status: values[2] }); return { rows: [], rowCount: 1 }; }
+      if (sql.startsWith("SELECT status")) return { rows: availability.filter((row) => row.provider_id === values[0] && row.model_id === values[1]).map((row) => ({ status: row.status })), rowCount: 1 };
+      return { rows: [{ id: values[0], kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, secretCiphertext: "fake", models: [{ id: "modelo-local", label: "Local" }], enabled: true }], rowCount: 1 };
+    });
       const managed = new ModelProvidersService({ getPool: () => ({ query }) } as never);
       (managed as any).box = { decrypt: () => "chave-chat-falsa" };
       const service = new ProvidersService({} as OpenAiProvider, {} as AnthropicProvider, {} as IntegrationsService, managed);
@@ -91,11 +96,12 @@ describe("managed model provider routing", () => {
       expect(requests).toBe(1);
 
       mode = "bad-model";
-      await expect(service.stream(input)).rejects.toMatchObject({ response: { code: "AI_PROVIDER_REQUEST_FAILED", modelUnavailable: true } });
+      await expect(service.stream(input)).rejects.toMatchObject({ response: { code: "MODEL_UNAVAILABLE" } });
+      await expect(managed.availability("123e4567-e89b-42d3-a456-426614174010", "modelo-local")).resolves.toBe("indisponivel");
       expect(requests).toBe(2);
 
       mode = "redirect";
-      await expect(service.stream(input)).rejects.toMatchObject({ response: { code: "AI_PROVIDER_REQUEST_FAILED" } });
+      await managed.checkModels("123e4567-e89b-42d3-a456-426614174010");
       expect(requests).toBe(3);
     } finally {
       await new Promise<void>((resolve) => server.close(() => resolve()));

@@ -183,6 +183,16 @@ export class ChatController {
     const agent = agentId ? await this.agents.get(agentId) : null;
     if (agentId && !agent) throw new BadRequestException("O agente associado não foi encontrado.");
     if (agent && !agent.enabled) throw new BadRequestException("O agente está inativo.");
+    const requestedModel = model ?? (agent?.model || undefined);
+    if (agent?.providerKind !== "endpoint" && agent && requestedModel && UUID.test(agent.provider) && typeof this.providers.validateManagedModel === "function") {
+      try { await this.providers.validateManagedModel(agent.provider, requestedModel); } catch (error) { throw this.modelUnavailableException(error); }
+    }
+    if (agent?.providerKind !== "endpoint" && agent?.modelRouting && typeof this.providers.validateManagedModel === "function") {
+      const targets = [...(agent.modelRouting.fallbacks ?? []), ...Object.values(agent.modelRouting.taskModels ?? {}).filter((target): target is NonNullable<typeof target> => Boolean(target))];
+      for (const target of targets) if (UUID.test(target.providerId)) {
+        try { await this.providers.validateManagedModel(target.providerId, target.model); } catch (error) { throw this.modelUnavailableException(error); }
+      }
+    }
 
     // System policy comes from the persisted profile, never from a desktop-provided prompt.
     const messages: ProviderMessage[] = clientMessages.filter((message) => message.role !== "system");
@@ -206,6 +216,9 @@ export class ChatController {
     const memoryLines = agent?.providerKind === "endpoint" ? [] : await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
     const effectiveModel = model ?? (agent?.model || undefined);
+    if (!agent && modelProviderId && model && typeof this.providers.validateManagedModel === "function") {
+      try { await this.providers.validateManagedModel(modelProviderId, model); } catch (error) { throw this.modelUnavailableException(error); }
+    }
     if (attachments.length) {
       const text = typeof latestUser.content === "string" ? latestUser.content : "";
       const contentParts: ({ type: "text"; text: string } | { type: "image_url"; image_url: { url: string; detail: "auto" } })[] = [];
@@ -457,12 +470,15 @@ export class ChatController {
             continue;
           }
           try {
+            const toolInput = canonicalName === "atendimento.humano"
+              ? { ...input, ...(conversationId ? { conversationId } : {}), ...(agentId ? { agentId } : {}) }
+              : input;
             if (allAvailableTools.risks.get(call.function.name) === "sensitive") {
-              const pending = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", undefined, request.principal?.id);
+              const pending = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", undefined, request.principal?.id);
               workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, pending) });
               continue;
             }
-            const run = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", agentId, request.principal?.id);
+            const run = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", agentId, request.principal?.id);
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, run) });
           } catch (error) {
             const message = await this.toolsService.maskSecretText(error instanceof Error ? error.message : "Ferramenta recusada.");
@@ -493,14 +509,24 @@ export class ChatController {
         res.write(SSE_DONE);
         res.end();
       }
-    } catch {
-      const message = "Não foi possível obter uma resposta do provedor de IA.";
+    } catch (error) {
+      const payload = error && typeof error === "object" && "getResponse" in error && typeof (error as { getResponse?: unknown }).getResponse === "function"
+        ? (error as { getResponse: () => unknown }).getResponse() : null;
+      const unavailable = payload && typeof payload === "object" && (payload as { code?: unknown }).code === "MODEL_UNAVAILABLE"
+        ? { code: "MODEL_UNAVAILABLE", message: String((payload as { message?: unknown }).message ?? "O modelo está indisponível. Escolha outro modelo antes de continuar.") }
+        : { code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível obter uma resposta do provedor de IA." };
       if (!abort.signal.aborted && !res.writableEnded) {
-        res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AI_PROVIDER_REQUEST_FAILED", message })}\n\n`));
+        res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify(unavailable)}\n\n`));
         res.write(SSE_DONE);
         res.end();
       }
     } finally { /* each provider stream reader is released after its response is consumed */ }
+  }
+
+  private modelUnavailableException(error: unknown): BadRequestException {
+    const payload = error && typeof error === "object" && "getResponse" in error && typeof (error as { getResponse?: unknown }).getResponse === "function" ? (error as { getResponse: () => unknown }).getResponse() : null;
+    if (payload && typeof payload === "object" && (payload as { code?: unknown }).code === "MODEL_UNAVAILABLE") return new BadRequestException(payload);
+    return new BadRequestException({ code: "MODEL_UNAVAILABLE", message: "O modelo está indisponível neste provedor. Escolha outro modelo antes de continuar." });
   }
 
   private parseMessages(body: unknown): ProviderMessage[] {

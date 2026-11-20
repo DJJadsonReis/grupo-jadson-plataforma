@@ -39,6 +39,23 @@ describe("desktop first-run configuration", () => {
     expect(env.API_TOKEN).toBe("b".repeat(64));
   });
 
+  it("keeps the saved desktop token authoritative over a stale process token", () => {
+    const savedToken = "c".repeat(64);
+    writeFileSync(configPath, JSON.stringify({ databaseUrl: "postgresql://local/db", apiToken: savedToken }));
+    const env: NodeJS.ProcessEnv = { GJ_DESKTOP_SETUP_PATH: configPath, DATABASE_URL: "postgresql://stale/db", API_TOKEN: "d".repeat(64) };
+    expect(applyDesktopSetup(env)).toBe(true);
+    expect(env.API_TOKEN).toBe(savedToken);
+    expect(env.DATABASE_URL).toBe("postgresql://local/db");
+  });
+
+  it("uses the saved desktop token when the process has no API token", () => {
+    const savedToken = "e".repeat(64);
+    writeFileSync(configPath, JSON.stringify({ databaseUrl: "postgresql://local/db", apiToken: savedToken }));
+    const env: NodeJS.ProcessEnv = { GJ_DESKTOP_SETUP_PATH: configPath };
+    expect(applyDesktopSetup(env)).toBe(true);
+    expect(env.API_TOKEN).toBe(savedToken);
+  });
+
   it("does nothing when no desktop configuration path exists", () => {
     expect(applyDesktopSetup({})).toBe(false);
   });

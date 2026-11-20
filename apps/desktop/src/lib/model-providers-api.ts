@@ -1,5 +1,5 @@
 export interface ManagedProvider { id: string; kind: string; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: string; models: ModelOption[]; discoveryMessage?: string }
-export interface ModelOption { id: string; label: string }
+export interface ModelOption { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }
 export interface ModelTestResult { ok: boolean; models?: ModelOption[]; message?: string }
 export class ModelProvidersApi {
   constructor(private readonly apiFetch: (input: string, init?: RequestInit) => Promise<Response>, private readonly baseUrl: string) {}
@@ -14,4 +14,5 @@ export class ModelProvidersApi {
   patch(id: string, body: unknown): Promise<ManagedProvider> { return this.request(`/${encodeURIComponent(id)}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }); }
   remove(id: string): Promise<void> { return this.request(`/${encodeURIComponent(id)}`, { method: "DELETE" }); }
   test(id: string): Promise<ModelTestResult> { return this.request(`/${encodeURIComponent(id)}/test`, { method: "POST" }); }
+  checkModels(id: string): Promise<ManagedProvider> { return this.request(`/${encodeURIComponent(id)}/check-models`, { method: "POST" }); }
 }

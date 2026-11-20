@@ -19,6 +19,7 @@ export interface UserRecord {
   active: boolean;
   email: string | null;
   createdAt: string;
+  attendant?: boolean;
 }
 
 export function hashToken(token: string): string {
@@ -29,7 +30,7 @@ function newToken(): string {
   return randomBytes(32).toString("hex");
 }
 
-const COLUMNS = `id, name, role, active, email, created_at AS "createdAt"`;
+const COLUMNS = `id, name, role, active, email, created_at AS "createdAt", EXISTS(SELECT 1 FROM human_support_attendants h WHERE h.user_id=users.id) AS attendant`;
 const SESSION_TTL_MS = 12 * 60 * 60 * 1000;
 
 export function normalizeEmail(value: string): string | null {
