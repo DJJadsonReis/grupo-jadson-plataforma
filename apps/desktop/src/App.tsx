@@ -7,6 +7,7 @@ import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
+import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
 import {
@@ -952,6 +953,7 @@ function Workspace() {
         )}
       </main>
 
+      <StarterTour onNavigate={(pageId) => changePage(pageId)} />
       {agentEditor && (
         <AgentModal agent={agentEditor} onChange={setAgentEditor} onClose={() => setAgentEditor(null)} onSubmit={saveAgent} />
       )}
