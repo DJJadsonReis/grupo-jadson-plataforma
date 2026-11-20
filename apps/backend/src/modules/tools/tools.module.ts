@@ -17,6 +17,6 @@ import { ConnectionSharesModule } from "../connection-shares/connection-shares.m
   imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule, GoogleModule, NotificationsModule, ConnectionSharesModule],
   controllers: [ToolsController, AgentPoliciesController, McpController],
   providers: [ToolsService, McpService, AgentPolicyService],
-  exports: [ToolsService],
+  exports: [ToolsService, AgentPolicyService],
 })
 export class ToolsModule {}
