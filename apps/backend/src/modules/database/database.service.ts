@@ -48,6 +48,7 @@ import { migrationId as modelPricesMigrationId, up as addModelPrices } from "./m
 import { migrationId as conversationEffortMigrationId, up as addConversationEffort } from "./migrations/044-conversation-effort";
 import { migrationId as conversationModelMigrationId, up as addConversationModel } from "./migrations/045-conversation-model";
 import { migrationId as providerTestStatusMigrationId, up as addProviderTestStatus } from "./migrations/046-provider-test-status";
+import { migrationId as mcpServerTokensMigrationId, up as addMcpServerTokens } from "./migrations/047-mcp-server-tokens";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -116,6 +117,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: conversationEffortMigrationId, apply: async () => addConversationEffort(this.pool!) },
         { id: conversationModelMigrationId, apply: async () => addConversationModel(this.pool!) },
         { id: providerTestStatusMigrationId, apply: async () => addProviderTestStatus(this.pool!) },
+        { id: mcpServerTokensMigrationId, apply: async () => addMcpServerTokens(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

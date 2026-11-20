@@ -9,5 +9,6 @@ import { NotificationsModule } from "../notifications/notifications.module";
   imports: [DatabaseModule, ToolsModule, NotificationsModule],
   controllers: [RoutinesController],
   providers: [RoutinesService],
+  exports: [RoutinesService],
 })
 export class RoutinesModule {}

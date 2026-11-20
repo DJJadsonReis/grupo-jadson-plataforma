@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92 e tela de provedores na tarefa 93). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92, tela de provedores na tarefa 93 e servidor MCP na tarefa 94). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -28,6 +28,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Esforço por conversa (tarefa 91):** valores baixo/médio/alto persistidos por conversa, suporte explícito por modelo no backend, parâmetros por provedor, seletor desktop condicionado a `supportsEffort` e fluxo de chat coberto. Evidências: `docs/MODELO_E_ESFORCO_POR_CHAT.md`, `apps/backend/src/modules/chat/model-effort.ts`, `apps/backend/src/modules/database/migrations/044-conversation-effort.ts`, `apps/backend/src/modules/chat/effort.e2e.spec.ts` e `apps/desktop/src/lib/conversation-effort.test.ts`.
 - **Troca de IA por conversa (tarefa 92):** escolha de provedor/modelo salva no servidor, precedência sobre agente e fallback quando indisponível. Evidências: `docs/TROCA_DE_IA_POR_CHAT.md`, `apps/backend/src/modules/database/migrations/045-conversation-model.ts`, `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversation-model.e2e.spec.ts` e `apps/desktop/src/lib/conversation-model.test.ts`.
 - **Tela de provedores com lista sempre visível (tarefa 93):** status por chave, data do último teste, contagem de modelos, formulário independente e diálogo de remoção. Evidências: `apps/backend/src/modules/database/migrations/046-provider-test-status.ts`, `apps/backend/src/modules/providers/provider-key-status.ts`, `apps/backend/src/modules/providers/model-providers.service.ts`, `apps/backend/src/modules/providers/provider-status.e2e.spec.ts`, `apps/desktop/src/lib/provider-status.ts` e `apps/desktop/src/App.tsx` (`ModelsPage`).
+- **Servidor MCP do Grupo Jadson (tarefa 94):** transporte HTTP JSON-RPC com tokens individuais revogáveis, ferramentas limitadas às tarefas, memória, agentes, rotinas, notificações e status, recursos de agentes visíveis e prompts fixos. Evidências: `apps/backend/src/modules/mcp-server/`, migration `047-mcp-server-tokens`, painel `apps/desktop/src/components/mcp/McpAccessPanel.tsx` e `docs/MCP_GRUPO_JADSON.md`. O cliente MCP de terceiros continua em `apps/backend/src/modules/mcp/` e `apps/desktop/src/components/mcp/McpServersPanel.tsx`.
 
 ### Parcial
 
@@ -39,7 +40,6 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 Decisão 29, na ordem obrigatória:
 
 1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
-5. **MCP server do Grupo Jadson** (Decisão 24) — INTERNO.
 6. **Design no estilo Grok com revisão de textos** (Decisões 23 e 23b), mantendo a marca do Grupo Jadson — INTERNO.
 
 Depois dos itens 1–6, Decisão 30:
@@ -124,7 +124,8 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 
 | Funcionalidade | Referência OpenBot | Status | Evidência no nosso código | O que falta | Tipo | Tamanho |
 |---|---|---|---|---|---|---|
-| Servidores MCP | `server/src/plugins/mcp.ts` | Feito | `apps/backend/src/modules/mcp/mcp.service.ts` (stdio, Streamable HTTP e SSE); `apps/desktop/src/components/mcp/McpServersPanel.tsx` | Nenhuma lacuna interna conhecida | — | — |
+| Servidores MCP (cliente) | `server/src/plugins/mcp.ts` | Feito | `apps/backend/src/modules/mcp/mcp.service.ts` (stdio, Streamable HTTP e SSE); `apps/desktop/src/components/mcp/McpServersPanel.tsx` | Nenhuma lacuna interna conhecida | — | — |
+| Servidor MCP da plataforma | Decisão 24 | Feito | `apps/backend/src/modules/mcp-server/`, migration `047-mcp-server-tokens`, `apps/desktop/src/components/mcp/McpAccessPanel.tsx`, `docs/MCP_GRUPO_JADSON.md` | Stdio, conversa com agente, Google Drive/Docs e escrita de rotinas estão fora desta etapa | — | — |
 | Catálogo de conectores (Composio, Arcade) | `server/src/plugins/composio.ts`, `arcade.ts` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |
 | Google Agenda e Drive | `server/src/plugins/google-drive-rest.ts` | Feito | `apps/backend/src/modules/google/google.service.ts` e `apps/backend/src/modules/tools/tools.registry.ts` (agenda e criação de Google Doc com aprovação) | — | — | — |
 | Notion | `docs/plugins/notion.md` | Feito | `apps/backend/src/modules/tools/notion.ts` (buscar, ler, criar página e anexar texto) | — | — | — |
@@ -190,8 +191,8 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 
 ## Resumo da tabela
 
-- **Total:** 67 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a troca de IA por conversa concluída na tarefa 92.
-- **Feito:** 43; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 0. Os próximos itens autorizados seguem listados na fila; esforço por conversa foi concluído na tarefa 91 e troca de IA por conversa na tarefa 92.
+- **Total:** 68 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a troca de IA por conversa concluída na tarefa 92.
+- **Feito:** 44; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 0. Os próximos itens autorizados seguem listados na fila; esforço por conversa foi concluído na tarefa 91, troca de IA por conversa na tarefa 92 e MCP server na tarefa 94.
 - A fila autorizada está no topo deste documento; itens EXTERNO/PESADO que permanecem na tabela são apenas referência.
 ## Histórico anterior à auditoria de 2026-11-20
 
