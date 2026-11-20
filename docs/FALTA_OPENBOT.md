@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92, tela de provedores na tarefa 93 e servidor MCP na tarefa 94). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92, tela de provedores na tarefa 93, servidor MCP na tarefa 94 e encerramento ordenado na tarefa 111). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -29,6 +29,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Troca de IA por conversa (tarefa 92):** escolha de provedor/modelo salva no servidor, precedência sobre agente e fallback quando indisponível. Evidências: `docs/TROCA_DE_IA_POR_CHAT.md`, `apps/backend/src/modules/database/migrations/045-conversation-model.ts`, `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversation-model.e2e.spec.ts` e `apps/desktop/src/lib/conversation-model.test.ts`.
 - **Tela de provedores com lista sempre visível (tarefa 93):** status por chave, data do último teste, contagem de modelos, formulário independente e diálogo de remoção. Evidências: `apps/backend/src/modules/database/migrations/046-provider-test-status.ts`, `apps/backend/src/modules/providers/provider-key-status.ts`, `apps/backend/src/modules/providers/model-providers.service.ts`, `apps/backend/src/modules/providers/provider-status.e2e.spec.ts`, `apps/desktop/src/lib/provider-status.ts` e `apps/desktop/src/App.tsx` (`ModelsPage`).
 - **Servidor MCP do Grupo Jadson (tarefa 94):** transporte HTTP JSON-RPC com tokens individuais revogáveis, ferramentas limitadas às tarefas, memória, agentes, rotinas, notificações e status, recursos de agentes visíveis e prompts fixos. Evidências: `apps/backend/src/modules/mcp-server/`, migration `047-mcp-server-tokens`, painel `apps/desktop/src/components/mcp/McpAccessPanel.tsx` e `docs/MCP_GRUPO_JADSON.md`. O cliente MCP de terceiros continua em `apps/backend/src/modules/mcp/` e `apps/desktop/src/components/mcp/McpServersPanel.tsx`.
+- **Tela de status e encerramento ordenado (tarefa 111):** `StatusPanel.tsx` confirma antes de parar serviços locais registrados; `stop_local_services` executa `scripts/stop.ps1`, exibe o resultado e atualiza `/health`. A lógica pura está em `apps/desktop/src/lib/shutdown-plan.ts` e tem testes unitários.
 
 ### Parcial
 
@@ -50,7 +51,7 @@ Depois dos itens 1–6, Decisão 30:
 11. **Agente próprio por endpoint (AG-UI)** — INTERNO, M.
 12. **Tarefas e fila de trabalho integrada** — INTERNO, M.
 13. **Painel administrativo completo** — INTERNO, M.
-14. **Tela de status e encerramento ordenado** — INTERNO, P.
+14. **Tela de status e encerramento ordenado** — Feito na tarefa 111; evidências: `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs` (`stop_local_services`), `scripts/stop.ps1` e testes `apps/desktop/src/lib/shutdown-plan.test.ts`.
 15. **Gráficos interativos e galeria de componentes** — INTERNO, G.
 16. **Check-ins proativos** — INTERNO, G.
 
@@ -187,7 +188,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 | Atualização automática do app | `desktop/src/UpdateOffer.tsx`; `docs/desktop-updates.md` | Parcial | `apps/desktop/src/lib/updates.ts`, `apps/desktop/src-tauri/tauri.conf.json` | Configurar repositório público de releases e publicar manifesto e artefatos | EXTERNO/PESADO | P |
 | Primeira execução guiada | `desktop/src/Welcome.tsx`, `SetupProgress.tsx`; `server/src/setup/` | Feito | `apps/desktop/src/Welcome.tsx`, `apps/desktop/src-tauri/src/lib.rs` (instala PostgreSQL portátil com confirmação; início de serviços também confirmado) | — | — | — |
 | Verificação de requisitos do Windows | `desktop/src/WindowsBlocker.tsx` | Feito | `apps/desktop/src/lib/windows-requirements.ts`, `apps/desktop/src/Welcome.tsx` | — | — | — |
-| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Parcial | `apps/desktop/src/components/status/StatusPanel.tsx` | Encerramento ordenado dos serviços locais pelo app | INTERNO | P |
+| Tela de status e encerramento | `desktop/src/StatusWindow.tsx`, `ShuttingDown.tsx` | Feito | `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs`, `scripts/stop.ps1` | — | — | — |
 
 ## Resumo da tabela
 
