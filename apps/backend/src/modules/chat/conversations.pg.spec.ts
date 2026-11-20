@@ -4,6 +4,10 @@ import { DatabaseService } from "../database/database.service";
 import { ConversationsService } from "./conversations.service";
 
 const databaseUrl = process.env.TEST_DATABASE_URL?.trim();
+const testDatabaseName = databaseUrl ? decodeURIComponent(new URL(databaseUrl).pathname.replace(/^\//, "")) : "";
+if (databaseUrl && (!testDatabaseName || !/(?:^|[_-])test(?:$|[_-])/i.test(testDatabaseName))) {
+  throw new Error("TEST_DATABASE_URL precisa apontar para uma base separada cujo nome contenha 'test'.");
+}
 const describeWithPostgres = databaseUrl ? describe : describe.skip;
 
 describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL", () => {
@@ -28,6 +32,11 @@ describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL
   it("lists, appends, titles and deletes only for the owning principal", async () => {
     await conversations.create(conversationId, "private chat", undefined, undefined, ownerA);
     await conversations.addMessage(conversationId, "user", "segredo local", {}, ownerA);
+    const usageId = randomUUID();
+    await database.getPool().query(
+      "INSERT INTO usage_events(id,conversation_id,provider,model) VALUES($1,$2,'test','test-model')",
+      [usageId, conversationId],
+    );
 
     expect((await conversations.list(ownerA)).some((item) => item.id === conversationId)).toBe(true);
     expect((await conversations.list(ownerB)).some((item) => item.id === conversationId)).toBe(false);
@@ -41,7 +50,10 @@ describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL
     expect(await conversations.remove(conversationId, ownerA)).toBe(true);
     expect((await database.getPool().query("SELECT count(*)::int AS count FROM conversations WHERE id=$1", [conversationId])).rows[0].count).toBe(0);
     expect((await database.getPool().query("SELECT count(*)::int AS count FROM messages WHERE conversation_id=$1", [conversationId])).rows[0].count).toBe(0);
+    expect((await database.getPool().query("SELECT conversation_id FROM usage_events WHERE id=$1", [usageId])).rows[0].conversation_id).toBeNull();
+    await database.getPool().query("DELETE FROM usage_events WHERE id=$1", [usageId]);
     expect((await conversations.list(ownerA)).some((item) => item.id === conversationId)).toBe(false);
+    await expect(conversations.remove(randomUUID(), ownerA)).resolves.toBe(false);
   });
 
   it("keeps existing conversations assigned to the system principal", async () => {

@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials, deletionErrorMessage, isConversationDeletionComplete, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -354,6 +354,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
   const historyNoticeTimer = useRef<number | null>(null);
   const serverConversationIdsRef = useRef(new Set<string>());
+  const serverConversationListLoadedRef = useRef(false);
 
   useEffect(() => {
     if (!historyMenu) return;
@@ -372,16 +373,15 @@ function Workspace({ edition }: { edition: Edition }) {
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
     if (!item) return;
-    const isServerId = isServerConversationId(id);
-    const hasServerList = serverConversationIdsRef.current.size > 0;
-    if (isServerId && !hasServerList) {
+    const deletionPlan = planConversationDeletion(id, serverConversationListLoadedRef.current, serverConversationIdsRef.current);
+    if (deletionPlan === "keep-and-report") {
       showHistoryNotice(deletionErrorMessage(true));
       return;
     }
-    if (isPersistedConversation(id, serverConversationIdsRef.current)) {
+    if (deletionPlan === "delete-server") {
       try {
         const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-        if (!isConversationDeletionComplete(response.status)) throw new Error("falhou");
+        if (conversationDeletionResult(response.status) !== "remove") throw new Error("falhou");
       } catch {
         showHistoryNotice(deletionErrorMessage(true));
         return;
@@ -514,6 +514,7 @@ function Workspace({ edition }: { edition: Edition }) {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
         const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
+        serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));

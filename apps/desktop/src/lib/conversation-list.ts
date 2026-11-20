@@ -12,6 +12,18 @@ export function isPersistedConversation(id: string, serverConversationIds: Itera
   return isServerConversationId(id) && new Set(serverConversationIds).has(id);
 }
 
+export type ConversationDeletionPlan = "delete-server" | "remove-local" | "keep-and-report";
+
+/** A lista remota carregada (inclusive vazia) é suficiente para decidir se o UUID é remoto. */
+export function planConversationDeletion(
+  id: string,
+  serverListLoaded: boolean,
+  serverConversationIds: Iterable<string>,
+): ConversationDeletionPlan {
+  if (isServerConversationId(id) && !serverListLoaded) return "keep-and-report";
+  return isPersistedConversation(id, serverConversationIds) ? "delete-server" : "remove-local";
+}
+
 export function deletionErrorMessage(failed: boolean): string | null {
   return failed ? "Não foi possível excluir a conversa. Tente de novo." : null;
 }
@@ -19,6 +31,10 @@ export function deletionErrorMessage(failed: boolean): string | null {
 /** A API considera ausência como estado concluído para exclusão local. */
 export function isConversationDeletionComplete(status: number): boolean {
   return (status >= 200 && status < 300) || status === 404;
+}
+
+export function conversationDeletionResult(status: number): "remove" | "keep-and-report" {
+  return isConversationDeletionComplete(status) ? "remove" : "keep-and-report";
 }
 
 /** IDs locais não podem ser enviados a rotas cujo identificador no banco é UUID. */

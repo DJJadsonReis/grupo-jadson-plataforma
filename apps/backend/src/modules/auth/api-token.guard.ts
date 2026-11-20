@@ -44,7 +44,7 @@ export class ApiTokenGuard implements CanActivate {
     }
     const teamRoomWrite = request.url?.split("?")[0]?.startsWith("/api/v1/team-rooms") === true;
     if (principal.role === "viewer" && request.method !== "GET" && !teamRoomWrite) {
-      throw new ForbiddenException({ code: "FORBIDDEN", message: "Leitores só podem consultar." });
+      throw new ForbiddenException({ code: "FORBIDDEN", message: "Seu perfil permite apenas consultas. Peça ao administrador para liberar a exclusão desta conversa." });
     }
     return true;
   }
