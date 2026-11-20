@@ -3205,3 +3205,20 @@ select:focus-visible {
   .page-content[aria-labelledby] .page-header-row { align-items: flex-start; flex-direction: column; }
   .modal-actions > button { flex: 1 1 auto; }
 }
+.checkins-panel { margin-top: 22px; padding: var(--gj-space-5); border: 1px solid var(--gj-border); border-radius: var(--gj-radius-lg); background: var(--gj-surface); display: grid; gap: 16px; }
+.checkins-heading h2,.checkin-suggestions h3 { margin: 4px 0; }
+.checkins-heading p,.checkin-row p,.checkin-suggestion p { color: var(--gj-text-muted); margin: 5px 0 0; }
+.checkin-row,.checkin-suggestion { padding: 14px; border: 1px solid var(--gj-border); border-radius: var(--gj-radius-md); }
+.checkin-row { display:flex; justify-content:space-between; gap:16px; align-items:center; }
+.checkin-actions { display:flex; flex-wrap:wrap; gap:8px; }
+.checkin-actions button,.notification-actions button { color:var(--gj-text); background:var(--gj-surface-raised); border:1px solid var(--gj-border); border-radius:10px; padding:7px 10px; cursor:pointer; }
+.checkin-actions button:hover,.notification-actions button:hover { border-color:var(--gj-gold); }
+.checkin-disabled-reason,.checkins-error { color:var(--gj-danger); }
+.checkin-form { display:grid; gap:12px; }
+.checkin-form label { display:grid; gap:6px; }
+.checkin-form textarea,.checkin-form input { color:var(--gj-text); background:var(--gj-surface-raised); border:1px solid var(--gj-border); border-radius:10px; padding:10px; font:inherit; }
+.checkin-suggestions { display:grid; gap:10px; }
+.checkin-suggestion h4 { margin:0; }
+.checkin-suggestion a { display:inline-block; margin-top:8px; }
+.notification-actions { display:flex; flex-wrap:wrap; gap:8px; }
+@media(max-width:720px){.checkin-row{align-items:flex-start;flex-direction:column}.checkins-panel{padding:16px}}

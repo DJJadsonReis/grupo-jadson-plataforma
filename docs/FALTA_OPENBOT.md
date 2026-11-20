@@ -53,7 +53,7 @@ Depois dos itens 1–6, Decisão 30:
 13. **Painel administrativo completo** — Feito na tarefa 112; evidências: `apps/backend/src/modules/team-rooms/team-rooms.service.ts` e testes `team-rooms.service.spec.ts`/`team-rooms.e2e.spec.ts` (criação de sala e mudanças de membros auditadas), além de `apps/desktop/src/lib/audit-labels.ts` (rótulos pt-BR; filtro por ação aceita texto livre).
 14. **Tela de status e encerramento ordenado** — Feito na tarefa 111; evidências: `apps/desktop/src/components/status/StatusPanel.tsx`, `apps/desktop/src-tauri/src/lib.rs` (`stop_local_services`), `scripts/stop.ps1` e testes `apps/desktop/src/lib/shutdown-plan.test.ts`.
 15. **Gráficos interativos e galeria de componentes** — Feito na tarefa 113. Evidências: `apps/desktop/src/components/RichComponent.tsx`, `apps/desktop/src/components/rich/ComponentsGallery.tsx`, `apps/desktop/src/lib/chart-geometry.ts`, `apps/backend/src/modules/chat/rich-components-guidance.ts`; testes de geometria, validação e guidance.
-16. **Check-ins proativos** — INTERNO, G.
+16. **Check-ins proativos** — Feito na tarefa 114. Evidências: `apps/backend/src/modules/checkins/checkins.service.ts` (agenda com claim, limite diário, execução somente com ferramentas de leitura, sugestões e auditoria), `apps/backend/src/modules/checkins/checkins.controller.ts` (rotas escopadas ao principal), `apps/backend/src/modules/database/migrations/053-checkins.ts`, `apps/desktop/src/components/checkins/CheckinsPanel.tsx` e `apps/desktop/src/lib/checkins.ts`. Testes: specs de serviço, controller, migração e PostgreSQL; `apps/desktop/src/lib/checkins.test.ts`. Sem pendências funcionais conhecidas; validação PostgreSQL depende de fornecer uma URL do banco descartável com autenticação utilizável.
 
 Nenhum item EXTERNO/PESADO está nesta fila.
 
@@ -139,7 +139,7 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 |---|---|---|---|---|---|---|
 | Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts` | Feito | `apps/backend/src/modules/routines/routines.service.ts` (agenda, persistência e claim) | — | — | — |
 | Responsabilidades contínuas | `server/src/responsibilities/` | Feito | `apps/backend/src/modules/responsibilities/responsibilities.service.ts`, `apps/desktop/src/components/responsibilities/ResponsibilitiesPage.tsx` | — | — | — |
-| Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | Não encontrado | Mensagens iniciadas pelo bot dentro do app | INTERNO | G |
+| Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Feito (tarefa 114) | Backend `modules/checkins/`, migração 053, painel por bot, biblioteca desktop e testes | — | — | — |
 | Notificações | `server/src/delivery/` | Feito | `apps/backend/src/modules/notifications/notifications.service.ts`, `apps/desktop/src/components/notifications/NotificationsPanel.tsx` | Entrega ao celular não existe (app móvel CORTADO) | — | — |
 | Tarefas e fila de trabalho | `server/src/tasks/`, `server/src/work/` | Autorizado / na fila (Decisão 30) | `apps/backend/src/modules/tasks/tasks.service.ts`, `apps/desktop/src/components/tasks/TasksPage.tsx` | Fila de trabalho integrada (`work/`) | INTERNO | M |
 | Aplicativo móvel | `mobile/` | CORTADO | Decisão do dono, 2026-11-20 | CORTADO por decisão do dono, 2026-11-20 | — | — |

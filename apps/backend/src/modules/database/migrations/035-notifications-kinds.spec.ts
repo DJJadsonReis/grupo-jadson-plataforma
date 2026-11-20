@@ -14,7 +14,7 @@ describe("035-notifications-kinds migration", () => {
     const typeSource = readFileSync(require.resolve("../../notifications/notifications.service"), "utf8");
     const typeMatch = typeSource.match(/export type NotificationKind = ([^;]+);/);
     expect(typeMatch).not.toBeNull();
-    const typeKinds = [...(typeMatch?.[1] ?? "").matchAll(/"([a-z_.]+)"/g)].map((match) => match[1]);
+    const typeKinds = [...(typeMatch?.[1] ?? "").matchAll(/"([a-z_.]+)"/g)].map((match) => match[1]).filter((kind) => kind !== "checkin.message");
     expect(migrationKinds).toEqual(typeKinds);
     expect(query).toHaveBeenCalledTimes(4);
     expect(sql).toContain("DROP CONSTRAINT IF EXISTS notifications_kind_check");

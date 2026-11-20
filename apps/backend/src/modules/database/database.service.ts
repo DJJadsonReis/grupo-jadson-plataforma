@@ -54,6 +54,7 @@ import { migrationId as handoffContextMigrationId, up as addHandoffContext } fro
 import { migrationId as agentEndpointProtocolMigrationId, up as addAgentEndpointProtocol } from "./migrations/050-agent-endpoint-protocol";
 import { migrationId as taskQueueMigrationId, up as addTaskQueue } from "./migrations/051-task-queue";
 import { migrationId as taskNotificationKindsMigrationId, up as addTaskNotificationKinds } from "./migrations/052-task-notification-kinds";
+import { migrationId as checkinsMigrationId, up as addCheckins } from "./migrations/053-checkins";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -128,6 +129,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: agentEndpointProtocolMigrationId, apply: async () => addAgentEndpointProtocol(this.pool!) },
         { id: taskQueueMigrationId, apply: async () => addTaskQueue(this.pool!) },
         { id: taskNotificationKindsMigrationId, apply: async () => addTaskNotificationKinds(this.pool!) },
+        { id: checkinsMigrationId, apply: async () => addCheckins(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);
