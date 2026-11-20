@@ -149,8 +149,8 @@ describeWithPostgres("desvinculação de habilidades no PostgreSQL", () => {
     const pool = database.getPool();
     await pool.query("INSERT INTO agents(id,name,owner_id) VALUES($1,$2,$3)", [agentId, `detach-${agentId}`, ownerId]);
     await pool.query(
-      "INSERT INTO skills(id,owner_id,slug,title,instructions,global,tools) VALUES($1,$2,$3,$4,$5,true,'{}'),($6,$2,$3,$7,$5,false,'{}')",
-      [globalSkillId, "admin-detach-test", "research", "Global", "Use fontes.", ownSkillId, "Pessoal"],
+      "INSERT INTO skills(id,owner_id,slug,title,instructions,global,tools) VALUES($1,$2,$3,$4,$5,true,'{}'),($6,$7,$3,$8,$5,false,'{}')",
+      [globalSkillId, "admin-detach-test", "research", "Global", "Use fontes.", ownSkillId, ownerId, "Pessoal"],
     );
     await pool.query("INSERT INTO agent_skills(agent_id,skill_id,owner_id) VALUES($1,$2,$3)", [agentId, globalSkillId, ownerId]);
   });
