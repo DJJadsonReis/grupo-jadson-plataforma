@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { confirmPostgresInstall, createLocalApiToken, describeLocalServicesCommand, describePostgresInstallCommand, isPostgresUrl, isSha256, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
+import { confirmPostgresInstall, createLocalApiToken, describeLocalServicesCommand, describePostgresInstallCommand, isPostgresUrl, isSha256, plainWindowsPath, shouldAskServicesConsent, summarizeProcessOutput } from "./first-run";
 
 describe("first run setup helpers", () => {
   it("accepts PostgreSQL URLs and rejects other or incomplete URLs", () => {
@@ -40,6 +40,12 @@ describe("first run setup helpers", () => {
     expect(isSha256(`${"a".repeat(63)}z`)).toBe(false);
     expect(describePostgresInstallCommand("scripts\\install-postgresql-portable.ps1", "T:\\project\\.cache\\downloads\\pg.zip", hash, "tools\\postgresql"))
       .toContain("-ExpectedSha256 " + hash + "\nDestino: tools\\postgresql");
+  });
+
+  it("normalizes verbatim Windows drive and UNC paths", () => {
+    expect(plainWindowsPath("\\\\?\\C:\\data\\archive.zip")).toBe("C:\\data\\archive.zip");
+    expect(plainWindowsPath("\\\\?\\UNC\\server\\share\\archive.zip")).toBe("\\\\server\\share\\archive.zip");
+    expect(plainWindowsPath("C:\\data\\archive.zip")).toBe("C:\\data\\archive.zip");
   });
 
   it("does not invoke PostgreSQL installation when confirmation is canceled", async () => {

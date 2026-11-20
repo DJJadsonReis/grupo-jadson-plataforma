@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 use std::process::{Command, Stdio};
 
-use grupo_core::{parse_callback, parse_reg_build, setup_config::merge_setup_config, valid_postgres_archive_path, valid_sha256};
+use grupo_core::{parse_callback, parse_reg_build, plain_windows_path, setup_config::merge_setup_config, valid_postgres_archive_path, valid_sha256};
 
 /// Resultado do login aguardado pelo app: a sessão recebida ou o motivo da falha.
 struct SignIn(Mutex<Option<Receiver<Result<String, String>>>>);
@@ -183,7 +183,7 @@ fn run_postgresql_installer(archive_path: &str, expected_sha256: &str) -> Result
     let output = Command::new("powershell")
         .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
         .arg(script)
-        .arg("-ArchivePath").arg(archive)
+        .arg("-ArchivePath").arg(plain_windows_path(&archive.to_string_lossy()))
         .arg("-ExpectedSha256").arg(expected_sha256)
         .current_dir(&root)
         .output().map_err(|_| "não foi possível iniciar o instalador do PostgreSQL".to_string())?;

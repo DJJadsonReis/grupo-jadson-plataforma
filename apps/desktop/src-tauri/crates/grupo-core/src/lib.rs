@@ -12,6 +12,15 @@ pub fn valid_postgres_archive_path(path: &std::path::Path, downloads: &std::path
         && path != downloads
 }
 
+/// Remove o prefixo verbatim do Windows para APIs e ferramentas que não o aceitam.
+pub fn plain_windows_path(path: &str) -> String {
+    if let Some(unc_path) = path.strip_prefix(r"\\?\UNC\") {
+        format!(r"\\{}", unc_path)
+    } else {
+        path.strip_prefix(r"\\?\").unwrap_or(path).to_string()
+    }
+}
+
 /// Interpreta o valor `CurrentBuild` emitido por `reg query`.
 pub fn parse_reg_build(output: &str) -> Option<u32> {
     output.lines().find_map(|line| {
@@ -48,7 +57,14 @@ pub fn parse_callback(target: &str) -> Option<Result<String, String>> {
 
 #[cfg(test)]
 mod tests {
-    use super::{parse_callback, parse_reg_build, valid_postgres_archive_path, valid_sha256};
+    use super::{parse_callback, parse_reg_build, plain_windows_path, valid_postgres_archive_path, valid_sha256};
+
+    #[test]
+    fn removes_verbatim_prefix_from_windows_paths() {
+        assert_eq!(plain_windows_path(r"\\?\C:\data\archive.zip"), r"C:\data\archive.zip");
+        assert_eq!(plain_windows_path(r"\\?\UNC\server\share\archive.zip"), r"\\server\share\archive.zip");
+        assert_eq!(plain_windows_path(r"C:\data\archive.zip"), r"C:\data\archive.zip");
+    }
 
     #[test]
     fn parses_reg_query_build() {
