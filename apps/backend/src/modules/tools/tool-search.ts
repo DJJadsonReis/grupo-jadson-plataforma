@@ -19,9 +19,13 @@ export function readToolsOf(defs: readonly ToolDefinition[]): ToolDefinition[] {
   return defs.filter((definition) => definition.risk === "read");
 }
 
+export function searchEnabled(defs: readonly ToolDefinition[]): boolean {
+  return readToolsOf(defs).length > TOOL_SEARCH_FLOOR;
+}
+
 export function visibleTools(defs: readonly ToolDefinition[], found: ReadonlySet<string>): ToolDefinition[] {
   const readTools = readToolsOf(defs);
-  if (readTools.length <= TOOL_SEARCH_FLOOR) return readTools;
+  if (!searchEnabled(defs)) return readTools;
 
   const coreNames = new Set(readToolsOf(TOOL_DEFINITIONS).map((definition) => definition.name));
   const byName = new Map(readTools.map((definition) => [definition.name, definition]));

@@ -102,6 +102,19 @@ describe("ChatController tool loop", () => {
     expect(invoke).not.toHaveBeenCalled();
   });
 
+  it("recusa busca local quando o catálogo está abaixo do limite", async () => {
+    const invoke = jest.fn();
+    const { controller, inputs } = setup({ invoke, streams: [
+      sseResponse([toolCall("ferramentas.buscar", { consulta: "arquivos" })]),
+      sseResponse([{ choices: [{ delta: { content: "indisponível" } }] }]),
+    ] });
+    await complete(controller);
+    expect(inputs[0].tools.some((tool: any) => tool.function.name === "ferramentas__buscar")).toBe(false);
+    const result = inputs[1].messages.find((message: any) => message.role === "tool");
+    expect(JSON.parse(result.content)).toEqual({ status: "failed", message: "Ferramenta indisponível." });
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("mascara padrões de segredo na resposta final antes de enviá-la ao cliente", async () => {
     const { controller } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: "A chave é sk-1234567890abcdefghijkl" } }] }])] });
     const response = await complete(controller);

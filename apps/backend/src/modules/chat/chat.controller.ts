@@ -22,7 +22,7 @@ import { Principal } from "../auth/users.service";
 import { AgentSkillsService } from "../skills/agent-skills.service";
 import { buildSkillsSystemMessage } from "../skills/skill-prompt";
 import { DatabaseService } from "../database/database.service";
-import { foundFrom, searchTools, visibleTools } from "../tools/tool-search";
+import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -201,6 +201,7 @@ export class ChatController {
     }
 
     const toolCatalog = this.toolsService.catalog();
+    const searchActive = searchEnabled(toolCatalog);
     const allAvailableTools = providerTools(toolCatalog);
     const found = new Set<string>();
     const completion = {
@@ -253,7 +254,7 @@ export class ChatController {
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Argumentos da ferramenta inválidos." }) });
             continue;
           }
-          if (call.function.name === "ferramentas__buscar") {
+          if (searchActive && call.function.name === "ferramentas__buscar") {
             if (typeof input.consulta !== "string") {
               workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Informe a consulta da busca." }) });
               continue;

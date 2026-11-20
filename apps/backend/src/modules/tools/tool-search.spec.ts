@@ -1,5 +1,5 @@
 import { TOOL_DEFINITIONS, ToolDefinition } from "./tools.registry";
-import { FOUND_LIMIT, SEARCH_RESULTS, SEARCH_TOOL_NAME, TOOL_SEARCH_FLOOR, foundFrom, searchTools, visibleTools } from "./tool-search";
+import { FOUND_LIMIT, SEARCH_RESULTS, SEARCH_TOOL_NAME, TOOL_SEARCH_FLOOR, foundFrom, searchEnabled, searchTools, visibleTools } from "./tool-search";
 
 function mcpTools(count: number): ToolDefinition[] {
   return Array.from({ length: count }, (_, index) => ({ name: `mcp.ferramenta_${index}`, description: `Ferramenta de leitura ${index}`, risk: "read" as const }));
@@ -11,6 +11,8 @@ describe("tool-search", () => {
     const atLimit = [...TOOL_DEFINITIONS.filter((definition) => definition.risk === "read"), ...mcpTools(40)];
     const overLimit = [...atLimit, ...mcpTools(1)];
     expect(atLimit.filter((definition) => definition.risk === "read")).toHaveLength(50);
+    expect(searchEnabled(atLimit)).toBe(false);
+    expect(searchEnabled(overLimit)).toBe(true);
     expect(visibleTools(atLimit, new Set())).toEqual(atLimit.filter((definition) => definition.risk === "read"));
     const visible = visibleTools(overLimit, new Set());
     expect(visible.at(-1)?.name).toBe(SEARCH_TOOL_NAME);
