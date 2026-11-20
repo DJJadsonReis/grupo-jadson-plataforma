@@ -4,6 +4,7 @@ import { applyDesktopSetup } from "./modules/bootstrap/desktop-setup";
 import { NestFactory } from "@nestjs/core";
 import { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
+import { assertPersonalHost, parseEdition } from "./common/edition";
 
 applyDesktopSetup();
 
@@ -14,7 +15,12 @@ async function bootstrap() {
   app.enableCors({ origin: process.env.DESKTOP_ORIGIN ?? ["http://localhost:1420", "tauri://localhost", "http://tauri.localhost"] });
   const port = Number(process.env.API_PORT ?? 3333);
   const host = process.env.API_HOST ?? "127.0.0.1";
+  const edition = parseEdition(process.env.GRUPO_EDICAO);
+  assertPersonalHost(edition, host);
   await app.listen(port, host);
   console.log(`Grupo Jadson API disponível em http://${host}:${port}/api/v1`);
 }
-bootstrap();
+bootstrap().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : "Falha ao iniciar o backend.");
+  process.exitCode = 1;
+});

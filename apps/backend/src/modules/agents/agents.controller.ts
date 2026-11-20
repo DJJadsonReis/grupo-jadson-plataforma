@@ -1,7 +1,8 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Patch, Post, Put, Req, UseGuards } from "@nestjs/common";
 import { AgentInput, AgentsService } from "./agents.service";
 import { AgentPermissionsService, ShareRole } from "./agent-permissions.service";
 import { Principal } from "../auth/users.service";
+import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
 
 interface PrincipalRequest { principal?: Principal }
 
@@ -38,11 +39,15 @@ export class AgentsController {
     return { deleted: true };
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Get(":id/shares") listShares(@Param("id") id: string, @Req() request: PrincipalRequest) {
     this.assertId(id);
     return this.permissions.listShares(id, this.principal(request));
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Put(":id/shares") async grant(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
     this.assertId(id);
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new BadRequestException("Compartilhamento inválido.");
@@ -56,6 +61,8 @@ export class AgentsController {
     return { saved: true };
   }
 
+  @UseGuards(PersonalEditionGuard)
+  @TeamOnly()
   @Delete(":id/shares/:kind/:targetId") async revoke(@Param("id") id: string, @Param("kind") kind: string, @Param("targetId") targetId: string, @Req() request: PrincipalRequest) {
     this.assertId(id); this.assertId(targetId);
     if (kind !== "people" && kind !== "teams") throw new BadRequestException("Destino de compartilhamento inválido.");

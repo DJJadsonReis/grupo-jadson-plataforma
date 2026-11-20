@@ -1,7 +1,10 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, UseGuards } from "@nestjs/common";
 import { GroupMode, GroupsService } from "./groups.service";
+import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
 
 @Controller("groups")
+@UseGuards(PersonalEditionGuard)
+@TeamOnly()
 export class GroupsController {
   constructor(private readonly groups: GroupsService) {}
   @Get() list() { return this.groups.list(); }

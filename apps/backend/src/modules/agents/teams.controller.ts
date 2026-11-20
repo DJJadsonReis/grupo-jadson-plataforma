@@ -1,10 +1,13 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Req } from "@nestjs/common";
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Put, Req, UseGuards } from "@nestjs/common";
 import { Principal } from "../auth/users.service";
 import { AgentPermissionsService } from "./agent-permissions.service";
+import { PersonalEditionGuard, TeamOnly } from "../../common/personal-edition.guard";
 
 interface PrincipalRequest { principal?: Principal }
 
 @Controller("teams")
+@UseGuards(PersonalEditionGuard)
+@TeamOnly()
 export class TeamsController {
   constructor(private readonly permissions: AgentPermissionsService) {}
 

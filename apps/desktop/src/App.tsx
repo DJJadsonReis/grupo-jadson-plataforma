@@ -2,6 +2,7 @@ import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIco
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
+import { canShowSharing, needsSignIn, parseEditionResponse, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
@@ -72,7 +73,7 @@ function localSystemToken(): Promise<string> {
 /** Envia a sessão (se houver) ou o token local do sistema nas chamadas ao backend. */
 async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const headers = new Headers(init.headers);
-  const token = readSession() ?? (await localSystemToken());
+  const token = (currentEdition === "pessoal" ? null : readSession()) ?? (await localSystemToken());
   if (token) headers.set("Authorization", `Bearer ${token}`);
   return fetch(input, { ...init, headers });
 }
@@ -135,6 +136,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (token: string) => void }) {
 
 /** Decide se mostra a entrada. Sem provedores configurados, o app segue como antes. */
 const SIGN_IN_REQUIRED_KEY = "grupo-jadson.signin-required.v1";
+let currentEdition: Edition = "equipe";
 
 /** Lembra, neste computador, se a entrada com conta já foi exigida. Permite decidir na abertura, sem esperar a rede. */
 function readSignInRequired(): boolean {
@@ -158,6 +160,8 @@ function writeSignInRequired(required: boolean): void {
  * Sem provedores configurados, ou com o backend fora do ar, o app segue como antes.
  */
 export default function App() {
+  const [edition, setEdition] = useState<Edition>("equipe");
+  const [editionLoaded, setEditionLoaded] = useState(false);
   const [session, setSession] = useState<string | null>(() => readSession());
   const [needsLogin, setNeedsLogin] = useState<boolean>(() => readSignInRequired() && !readSession());
   const [firstRunComplete, setFirstRunComplete] = useState<boolean>(() => {
@@ -165,16 +169,33 @@ export default function App() {
   });
 
   useEffect(() => {
-    fetch(`${API_URL}/auth/providers`)
+    let active = true;
+    fetch(`${API_URL}/edition`)
+      .then((r) => (r.ok ? r.json() : Promise.reject(new Error("edition"))))
+      .then((body: unknown) => parseEditionResponse(body))
+      .catch(() => "equipe" as const)
+      .then((selectedEdition) => {
+        if (!active) return;
+        currentEdition = selectedEdition;
+        setEdition(selectedEdition);
+        setEditionLoaded(true);
+        if (selectedEdition === "pessoal") {
+          setSession(null);
+          setNeedsLogin(false);
+          return;
+        }
+        fetch(`${API_URL}/auth/providers`)
       .then((r) => (r.ok ? r.json() : null))
       .then((list: unknown[] | null) => {
-        if (!list) return;
+        if (!active || !list) return;
         const required = list.length > 0;
         writeSignInRequired(required);
-        setNeedsLogin(required && !readSession());
+        setNeedsLogin(needsSignIn(selectedEdition, list.length, Boolean(readSession())));
       })
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
-  }, [session]);
+      });
+    return () => { active = false; };
+  }, []);
 
   if (!firstRunComplete) {
     return <Welcome apiUrl={API_URL} onComplete={() => {
@@ -182,7 +203,8 @@ export default function App() {
       setFirstRunComplete(true);
     }} />;
   }
-  if (needsLogin) {
+  if (!editionLoaded) return <Welcome apiUrl={API_URL} onComplete={() => undefined} />;
+  if (editionLoaded && needsLogin && needsSignIn(edition, 1, Boolean(session))) {
     return (
       <LoginScreen
         onSignedIn={(token) => {
@@ -193,7 +215,7 @@ export default function App() {
       />
     );
   }
-  return <Workspace />;
+  return <Workspace edition={edition} />;
 }
 
 const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
@@ -250,7 +272,7 @@ function readFavoriteAgents(): string[] {
   } catch { return []; }
 }
 
-function Workspace() {
+function Workspace({ edition }: { edition: Edition }) {
   const [page, setPage] = useState<PageId>("chat");
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [connectOpen, setConnectOpen] = useState(false);
@@ -750,7 +772,7 @@ function Workspace() {
               <span className="section-label">CONVERSAS</span>
             </div>
             <div className="history-list">
-              {groups
+          {edition === "equipe" && groups
                 .filter((group) => group.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
                 .map((group) => {
                   const last = conversations.filter((c) => c.groupId === group.id && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
@@ -888,7 +910,7 @@ function Workspace() {
           <ChatPage
             conversation={active}
             agents={agents}
-            groups={groups}
+            groups={edition === "equipe" ? groups : []}
             draft={draft}
             busy={busy}
             activeAgentId={activeAgentId}
@@ -921,6 +943,7 @@ function Workspace() {
         )}
         {page === "agent-detail" && viewedAgent && (
           <AgentDetailPage
+            edition={edition}
             agent={viewedAgent}
             conversations={conversations}
             persistence={agentPersistence}
@@ -938,12 +961,12 @@ function Workspace() {
             onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
           />
         )}
-        {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
+        {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={!readSession()} />}
+        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={edition === "pessoal" || !readSession()} />}
         {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
-        {page === "settings" && <SettingsPage providers={providers} />}
+        {page === "settings" && <SettingsPage providers={providers} edition={edition} />}
         {page === "monitoring" && (
           <MonitoringPage
             health={health}
@@ -1985,15 +2008,16 @@ function AgentsPage({
    PERFIL DETALHADO DO AGENTE
    ========================================================================= */
 function AgentDetailPage({
-  agent, conversations, persistence, onBack, onEdit, onChat, onOpenConversation
+  agent, conversations, persistence, edition, onBack, onEdit, onChat, onOpenConversation
 }: {
   agent: Agent; conversations: Conversation[]; persistence: "checking" | "connected" | "local" | "error";
+  edition: Edition;
   onBack: () => void; onEdit: () => void; onChat: () => void;
   onOpenConversation: (id: string) => void;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
   const canEdit = canEditAgent(agent);
-  const canShare = canShareAgent(agent);
+  const canShare = canShowSharing(edition) && canShareAgent(agent);
   const history = conversations.filter((conversation) => conversation.agentId === agent.id);
   const persistenceLabel = persistence === "connected" ? "Sincronização Ativa" : "Armazenado Localmente";
 
@@ -2349,7 +2373,7 @@ function UpdateSettings() {
   );
 }
 
-function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
+function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | null; edition: Edition }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
   return (
     <div className="page-content settings-page">
@@ -2387,7 +2411,7 @@ function SettingsPage({ providers }: { providers: ProviderStatus[] | null }) {
               <p>Os agentes só leem e alteram arquivos dentro da pasta de trabalho do projeto (<code>workspace</code>). Qualquer escrita pede a sua aprovação antes.</p>
             </article>
           )}
-          {tab === "permissoes" && <AccessSettings />}
+          {tab === "permissoes" && <AccessSettings edition={edition} />}
           {tab === "cofre" && (
             <>
               <article className="settings-box">
@@ -2777,7 +2801,7 @@ type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "vie
 const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
 
 /** Pessoas e papéis. O token de cada pessoa aparece uma única vez, ao criar ou trocar. */
-function AccessSettings() {
+function AccessSettings({ edition }: { edition: Edition }) {
   const [people, setPeople] = useState<PersonEntry[]>([]);
   const [name, setName] = useState("");
   const [role, setRole] = useState<PersonEntry["role"]>("operator");
@@ -2876,7 +2900,7 @@ function AccessSettings() {
           </span>
         </div>
       ))}
-      <TeamManagementSettings />
+      {canShowSharing(edition) && <TeamManagementSettings />}
     </article>
   );
 }

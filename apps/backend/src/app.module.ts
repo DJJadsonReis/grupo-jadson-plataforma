@@ -15,6 +15,7 @@ import { GoogleModule } from "./modules/google/google.module";
 import { SkillsModule } from "./modules/skills/skills.module";
 import { TasksModule } from "./modules/tasks/tasks.module";
 import { ResponsibilitiesModule } from "./modules/responsibilities/responsibilities.module";
+import { EditionModule } from "./modules/edition/edition.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule, EditionModule] })
 export class AppModule {}
