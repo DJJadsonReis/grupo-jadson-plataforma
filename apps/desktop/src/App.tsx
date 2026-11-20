@@ -1757,6 +1757,7 @@ function ChatPage({
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
                   {currentGroup?.mode === "mention" ? <span className="gx-pill-select">Resposta por @menção</span> : (
                     <select className="gx-pill-select" aria-label={currentGroup?.mode === "manual" ? "Participante do grupo" : "Perfil associado"} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                      {currentGroup?.mode === "manual" && <option value="" disabled>Escolha o participante</option>}
                       {!currentGroup && <option value="">Sem perfil</option>}
                       {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
                     </select>
