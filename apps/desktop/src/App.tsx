@@ -37,6 +37,7 @@ import { DictationSession, isLoopbackBackend, type DictationState, type ModelSta
 import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
 import { ConversationEffortApi, CONVERSATION_EFFORT_OPTIONS, effortLabel, shouldShowEffort, type ConversationEffort } from "./lib/conversation-effort";
+import { ConversationModelApi, initialConversationModel, modelChoiceForSelection, modelSelectionError } from "./lib/conversation-model";
 import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -598,7 +599,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null; reasoningEffort?: ConversationEffort | null }[];
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null; reasoningEffort?: ConversationEffort | null; modelProviderId?: string | null; model?: string | null }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
         serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
@@ -612,6 +613,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
               ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
               ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {}),
+              ...(item.modelProviderId !== undefined ? { modelProviderId: item.modelProviderId } : {}),
+              ...(item.model !== undefined ? { model: item.model } : {}),
               title: item.title || saved.title,
               messages: saved.messages.length >= messages.length ? saved.messages : messages,
               updatedAt: Math.max(saved.updatedAt, Date.parse(item.updatedAt) || 0)
@@ -622,7 +625,9 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               updatedAt: Date.parse(item.updatedAt) || Date.now(),
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
               ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
-              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {})
+              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {}),
+              ...(item.modelProviderId !== undefined ? { modelProviderId: item.modelProviderId } : {}),
+              ...(item.model !== undefined ? { model: item.model } : {})
             };
           });
           const remoteIds = new Set(remote.map((item) => item.id));
@@ -1178,6 +1183,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
             apiUrl={API_URL}
             persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
             persistLocalReasoningEffort={(id, effort) => setConversations((items) => items.map((item) => item.id === id ? { ...item, reasoningEffort: effort } : item))}
+            persistLocalModelChoice={(id, choice) => setConversations((items) => items.map((item) => item.id === id ? { ...item, modelProviderId: choice?.providerId ?? null, model: choice?.model ?? null } : item))}
             isPersistedConversation={(id) => serverConversationIdsRef.current.has(id)}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
@@ -1586,7 +1592,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, persistLocalReasoningEffort, isPersistedConversation, focusMode, setFocusMode, onOpenAutomations, onEditAgent
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, persistLocalReasoningEffort, persistLocalModelChoice, isPersistedConversation, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
@@ -1602,13 +1608,16 @@ function ChatPage({
   apiUrl: string;
   persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
   persistLocalReasoningEffort: (id: string, effort: ConversationEffort | null) => void;
+  persistLocalModelChoice: (id: string, choice: { providerId: string; model: string } | null) => void;
   isPersistedConversation: (id: string) => boolean;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
-  const [modelSelection, setModelSelection] = useState("");
+  const [modelSelection, setModelSelection] = useState(() => initialConversationModel(conversation?.modelProviderId, conversation?.model));
   const [operationMode, setOperationMode] = useState<DesktopOperationMode>(conversation?.operationMode ?? "automatico");
   const [reasoningEffort, setReasoningEffort] = useState<ConversationEffort | null>(conversation?.reasoningEffort ?? null);
   const [effortError, setEffortError] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelTimer = useRef<number | undefined>(undefined);
   const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false);
   const [ignoreConfirmation, setIgnoreConfirmation] = useState("");
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -1690,6 +1699,32 @@ function ChatPage({
   }
 
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
+
+  useEffect(() => {
+    setModelSelection(initialConversationModel(conversation?.modelProviderId, conversation?.model));
+    setModelError(null);
+    if (!conversation || !isPersistedConversation(conversation.id) || conversation.modelProviderId !== undefined) return;
+    void new ConversationModelApi(apiFetch, apiUrl).get(conversation.id).then((choice) => {
+      setModelSelection(initialConversationModel(choice?.providerId, choice?.model));
+      persistLocalModelChoice(conversation.id, choice);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.modelProviderId, conversation?.model]);
+
+  async function changeModelSelection(value: string) {
+    setModelError(null);
+    const choice = modelChoiceForSelection(value);
+    if (conversation && isPersistedConversation(conversation.id)) {
+      try { await new ConversationModelApi(apiFetch, apiUrl).set(conversation.id, choice); }
+      catch {
+        setModelError(modelSelectionError());
+        window.clearTimeout(modelTimer.current);
+        modelTimer.current = window.setTimeout(() => setModelError(null), 4000);
+        return;
+      }
+    }
+    setModelSelection(value);
+    if (conversation) persistLocalModelChoice(conversation.id, choice);
+  }
 
   useEffect(() => {
     if (!conversation) { setOperationMode("automatico"); return; }
@@ -1987,11 +2022,12 @@ function ChatPage({
                 </label>
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
-                    <option value="">Modelo padrão</option>
-                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{item.label}</option>)}</optgroup>)}
+                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => void changeModelSelection(event.target.value)}>
+                    <option value="">{selectedAgent ? "Padrão do agente" : "Padrão"}</option>
+                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{provider.providerName} · {item.label}</option>)}</optgroup>)}
                   </select>
                 </label>
+                {modelError && <span className="gx-inline-error" role="status">{modelError}</span>}
                 {effortSupported && <label className="gx-pill" title="Esforço de raciocínio do modelo">
                   <select className="gx-pill-select" aria-label="Esforço de raciocínio" value={reasoningEffort ?? ""} onChange={(event) => void changeReasoningEffort((event.target.value || null) as ConversationEffort | null)}>
                     <option value="">Padrão</option>{CONVERSATION_EFFORT_OPTIONS.map((item) => <option key={item.value} value={item.value}>{effortLabel(item.value)}</option>)}

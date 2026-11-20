@@ -8,7 +8,7 @@ import { ReasoningEffort } from "./model-effort";
 export type StoredRole = "system" | "user" | "assistant";
 export interface StoredAttachment { id: string; name: string; type: string; size: number; dataUrl: string; }
 export interface StoredMessage { id: string; role: StoredRole; content: string; createdAt: string; agentId?: string | null; attachments?: StoredAttachment[]; mentions?: { agentId: string; agentName: string; start: number; end: number }[]; error?: string; }
-export interface StoredConversation { id: string; title: string; agentId?: string | null; groupId?: string | null; reasoningEffort?: ReasoningEffort | null; messages: StoredMessage[]; createdAt: string; updatedAt: string; }
+export interface StoredConversation { id: string; title: string; agentId?: string | null; groupId?: string | null; reasoningEffort?: ReasoningEffort | null; modelProviderId?: string | null; model?: string | null; messages: StoredMessage[]; createdAt: string; updatedAt: string; }
 export interface OperationModeState { mode: OperationMode; inherited: boolean; }
 
 @Injectable()
@@ -17,7 +17,7 @@ export class ConversationsService {
 
   async list(ownerId = "sistema"): Promise<StoredConversation[]> {
     const pool = this.database.getPool();
-    const result = await pool.query(`SELECT c.id,c.title,c.agent_id AS "agentId",c.group_id AS "groupId",c.operation_mode AS "operationMode",c.reasoning_effort AS "reasoningEffort",c.created_at AS "createdAt",c.updated_at AS "updatedAt",
+    const result = await pool.query(`SELECT c.id,c.title,c.agent_id AS "agentId",c.group_id AS "groupId",c.operation_mode AS "operationMode",c.reasoning_effort AS "reasoningEffort",c.model_provider_id AS "modelProviderId",c.model,c.created_at AS "createdAt",c.updated_at AS "updatedAt",
       COALESCE(json_agg(json_build_object('id',m.id,'role',m.role,'content',m.content,'createdAt',m.created_at,'agentId',m.agent_id,'attachments',m.attachments,'mentions',m.mentions) ORDER BY m.created_at) FILTER (WHERE m.id IS NOT NULL),'[]') AS messages
       FROM conversations c LEFT JOIN messages m ON m.conversation_id=c.id WHERE c.owner_id=$1 GROUP BY c.id ORDER BY c.updated_at DESC`, [ownerId]);
     return result.rows as StoredConversation[];
@@ -34,6 +34,18 @@ export class ConversationsService {
     const result = await this.database.getPool().query("UPDATE conversations SET reasoning_effort=$3,updated_at=now() WHERE id=$1 AND owner_id=$2 RETURNING id", [id, ownerId, effort]);
     if (!result.rowCount) throw new NotFoundException("Conversa não encontrada.");
     return { effort };
+  }
+
+  async modelChoice(id: string, ownerId: string): Promise<{ providerId: string | null; model: string | null }> {
+    const result = await this.database.getPool().query('SELECT model_provider_id AS "providerId",model FROM conversations WHERE id=$1 AND owner_id=$2', [id, ownerId]);
+    if (!result.rows[0]) throw new NotFoundException("Conversa não encontrada.");
+    return { providerId: result.rows[0].providerId as string | null, model: result.rows[0].model as string | null };
+  }
+
+  async setModelChoice(id: string, ownerId: string, choice: { providerId: string; model: string } | null): Promise<{ providerId: string | null; model: string | null }> {
+    const result = await this.database.getPool().query("UPDATE conversations SET model_provider_id=$3,model=$4,updated_at=now() WHERE id=$1 AND owner_id=$2 RETURNING id", [id, ownerId, choice?.providerId ?? null, choice?.model ?? null]);
+    if (!result.rowCount) throw new NotFoundException("Conversa não encontrada.");
+    return { providerId: choice?.providerId ?? null, model: choice?.model ?? null };
   }
 
   async operationMode(id: string, ownerId: string): Promise<OperationModeState> {

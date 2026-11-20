@@ -73,3 +73,30 @@ describe("ConversationsController.reasoningEffort", () => {
     expect(conversations.setReasoningEffort).toHaveBeenCalledWith(id, "other-person", "alto");
   });
 });
+
+describe("ConversationsController.modelChoice", () => {
+  const id = "123e4567-e89b-42d3-a456-426614174000";
+  const providerId = "123e4567-e89b-42d3-a456-426614174010";
+  it("saves a validated model and allows reset to default", async () => {
+    const conversations = { setModelChoice: jest.fn().mockImplementation(async (_id, _owner, choice) => choice ?? { providerId: null, model: null }) } as any;
+    const providers = { validateManagedModel: jest.fn() } as any;
+    const controller = new ConversationsController(conversations, providers);
+    await expect(controller.setModelChoice(id, { providerId, model: "o3" }, { principal: { id: "owner" } as any })).resolves.toEqual({ providerId, model: "o3" });
+    await expect(controller.setModelChoice(id, { providerId: null, model: null }, { principal: { id: "owner" } as any })).resolves.toEqual({ providerId: null, model: null });
+    expect(providers.validateManagedModel).toHaveBeenCalledWith(providerId, "o3");
+  });
+  it.each([1, "bad", { providerId, model: "" }, { providerId, model: "o3", extra: true }, { providerId, model: null }])("rejects malformed choices without echo", async (body) => {
+    await expect(new ConversationsController({ setModelChoice: jest.fn() } as any).setModelChoice(id, body, { principal: { id: "owner" } as any })).rejects.toMatchObject({ status: 400, response: { message: "Escolha de modelo inválida." } });
+  });
+  it("returns a fixed conflict when the selected model is unavailable", async () => {
+    const controller = new ConversationsController({ setModelChoice: jest.fn() } as any, { validateManagedModel: jest.fn().mockRejectedValue(new Error("private details")) } as any);
+    await expect(controller.setModelChoice(id, { providerId, model: "o3" }, { principal: { id: "owner" } as any })).rejects.toMatchObject({ status: 409, response: { message: "O modelo selecionado está indisponível." } });
+  });
+  it("reads and writes using the authenticated owner", async () => {
+    const conversations = { modelChoice: jest.fn().mockResolvedValue({ providerId, model: "o3" }), setModelChoice: jest.fn().mockRejectedValue(new NotFoundException("Conversa não encontrada.")) } as any;
+    const controller = new ConversationsController(conversations);
+    await expect(controller.modelChoice(id, { principal: { id: "owner" } as any })).resolves.toEqual({ providerId, model: "o3" });
+    expect(conversations.modelChoice).toHaveBeenCalledWith(id, "owner");
+    await expect(controller.setModelChoice(id, { providerId: null, model: null }, { principal: { id: "other" } as any })).rejects.toBeInstanceOf(NotFoundException);
+  });
+});

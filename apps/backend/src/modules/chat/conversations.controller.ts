@@ -1,12 +1,13 @@
-import { BadRequestException, Body, Controller, Delete, Get, NotFoundException, Param, Post, Put, Req } from "@nestjs/common";
+import { BadRequestException, Body, ConflictException, Controller, Delete, Get, NotFoundException, Optional, Param, Post, Put, Req } from "@nestjs/common";
 import { ConversationsService, StoredRole } from "./conversations.service";
 import { Principal } from "../auth/users.service";
+import { ProvidersService } from "../providers/providers.service";
 
 interface PrincipalRequest { principal?: Principal }
 
 @Controller("conversations")
 export class ConversationsController {
-  constructor(private readonly conversations: ConversationsService) {}
+  constructor(private readonly conversations: ConversationsService, @Optional() private readonly providers?: ProvidersService) {}
 
   @Get() list(@Req() request: PrincipalRequest) { return this.conversations.list(request.principal?.id ?? "sistema"); }
 
@@ -34,6 +35,23 @@ export class ConversationsController {
     const effort = (body as { effort: unknown }).effort;
     if (effort !== null && effort !== "baixo" && effort !== "medio" && effort !== "alto") throw new BadRequestException("Nível de esforço inválido.");
     return this.conversations.setReasoningEffort(id, request.principal?.id ?? "sistema", effort);
+  }
+
+  @Get(":id/model") modelChoice(@Param("id") id: string, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    return this.conversations.modelChoice(id, request.principal?.id ?? "sistema");
+  }
+
+  @Put(":id/model") async setModelChoice(@Param("id") id: string, @Body() body: unknown, @Req() request: PrincipalRequest) {
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa não encontrada.");
+    const invalid = () => new BadRequestException("Escolha de modelo inválida.");
+    if (!body || typeof body !== "object" || Array.isArray(body)) throw invalid();
+    const value = body as { providerId?: unknown; model?: unknown };
+    if (value.providerId === null && value.model === null && Object.keys(body).length === 2) return this.conversations.setModelChoice(id, request.principal?.id ?? "sistema", null);
+    if (Object.keys(body).length !== 2 || typeof value.providerId !== "string" || !this.isUuid(value.providerId) || typeof value.model !== "string" || !value.model.trim()) throw invalid();
+    if (this.providers) try { await this.providers.validateManagedModel(value.providerId, value.model); }
+    catch { throw new ConflictException("O modelo selecionado está indisponível."); }
+    return this.conversations.setModelChoice(id, request.principal?.id ?? "sistema", { providerId: value.providerId, model: value.model });
   }
 
   @Post() create(@Body() body: unknown, @Req() request: PrincipalRequest) {

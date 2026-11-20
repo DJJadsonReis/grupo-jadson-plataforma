@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91 e troca de IA por conversa na tarefa 92). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -26,6 +26,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Escalonamento para pessoa / fila humana (tarefa 80):** `apps/backend/src/modules/human-support/human-support.service.ts` (`claim`, `resolve`) e `apps/backend/src/modules/human-support/human-support.service.spec.ts`.
 - **Token único app-backend (tarefa 81, commit `83d89d1`):** implementado no código. A reprodução no PC está pendente (ação do dono).
 - **Esforço por conversa (tarefa 91):** valores baixo/médio/alto persistidos por conversa, suporte explícito por modelo no backend, parâmetros por provedor, seletor desktop condicionado a `supportsEffort` e fluxo de chat coberto. Evidências: `docs/MODELO_E_ESFORCO_POR_CHAT.md`, `apps/backend/src/modules/chat/model-effort.ts`, `apps/backend/src/modules/database/migrations/044-conversation-effort.ts`, `apps/backend/src/modules/chat/effort.e2e.spec.ts` e `apps/desktop/src/lib/conversation-effort.test.ts`.
+- **Troca de IA por conversa (tarefa 92):** escolha de provedor/modelo salva no servidor, precedência sobre agente e fallback quando indisponível. Evidências: `docs/TROCA_DE_IA_POR_CHAT.md`, `apps/backend/src/modules/database/migrations/045-conversation-model.ts`, `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversation-model.e2e.spec.ts` e `apps/desktop/src/lib/conversation-model.test.ts`.
 
 ### Parcial
 
@@ -37,7 +38,6 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 Decisão 29, na ordem obrigatória:
 
 1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
-3. **Troca de IA por conversa salva no servidor** (Decisão 26) — INTERNO.
 4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.
 5. **MCP server do Grupo Jadson** (Decisão 24) — INTERNO.
 6. **Design no estilo Grok com revisão de textos** (Decisões 23 e 23b), mantendo a marca do Grupo Jadson — INTERNO.
@@ -190,8 +190,8 @@ Nenhum item EXTERNO/PESADO está nesta fila.
 
 ## Resumo da tabela
 
-- **Total:** 67 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a linha autorizada.
-- **Feito:** 42; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 1 (demais itens autorizados seguem listados na fila; esforço por conversa concluído na tarefa 91).
+- **Total:** 67 linhas de funcionalidade, incluindo a linha de mapeamento futuro e a troca de IA por conversa concluída na tarefa 92.
+- **Feito:** 43; **Parcial:** 9; **Falta:** 4; **CORTADO:** 10; **Mapeado, não autorizado:** 1; **Autorizado / na fila:** 0. Os próximos itens autorizados seguem listados na fila; esforço por conversa foi concluído na tarefa 91 e troca de IA por conversa na tarefa 92.
 - A fila autorizada está no topo deste documento; itens EXTERNO/PESADO que permanecem na tabela são apenas referência.
 ## Histórico anterior à auditoria de 2026-11-20
 

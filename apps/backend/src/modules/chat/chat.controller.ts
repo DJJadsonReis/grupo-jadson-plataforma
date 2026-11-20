@@ -160,7 +160,7 @@ export class ChatController {
   async complete(@Body() body: unknown, @Req() request: ChatRequest, @Res() res: Response) {
     const clientMessages = this.parseMessages(body);
     const model = this.parseModel(body);
-    const modelProviderId = this.parseUuidField(body, "modelProviderId");
+    let modelProviderId = this.parseUuidField(body, "modelProviderId");
     if (modelProviderId && !model) throw new BadRequestException("Informe também o modelo correspondente ao provedor selecionado.");
     if (modelProviderId) {
       try { await this.providers.validateManagedProvider(modelProviderId); }
@@ -190,6 +190,31 @@ export class ChatController {
     const alreadyPersisted = conversationId && typeof this.conversations.isPersisted === "function"
       ? await this.conversations.isPersisted(conversationId, conversationOwner).catch(() => false)
       : false;
+    let savedModelChoice: { providerId: string; model: string } | null = null;
+    if (conversationId && !modelProviderId && !model && alreadyPersisted && typeof this.conversations.modelChoice === "function") {
+      const stored = await this.conversations.modelChoice(conversationId, conversationOwner).catch(() => null);
+      if (stored?.providerId && stored.model) {
+        try {
+          await this.providers.validateManagedModel(stored.providerId, stored.model);
+          savedModelChoice = { providerId: stored.providerId, model: stored.model };
+          this.logger.log("Roteamento de modelo: escolha salva da conversa.");
+        } catch {
+          this.logger.warn("Escolha salva indisponível; usando o modelo do agente ou o padrão.");
+        }
+      }
+    }
+    if (modelProviderId && model && conversationId) {
+      try { await this.providers.validateManagedModel(modelProviderId, model); }
+      catch (error) { throw this.modelUnavailableException(error); }
+      try {
+        if (typeof this.conversations.setModelChoice !== "function") throw new Error("conversation model persistence unavailable");
+        await this.conversations.setModelChoice(conversationId, conversationOwner, { providerId: modelProviderId, model });
+      }
+      catch { throw new BadRequestException("Não foi possível salvar o modelo da conversa."); }
+      savedModelChoice = { providerId: modelProviderId, model };
+      this.logger.log("Roteamento de modelo: escolha explícita da conversa.");
+    }
+    if (!savedModelChoice) this.logger.log(agent?.model ? "Roteamento de modelo: modelo principal do agente e fallbacks." : "Roteamento de modelo: padrão atual do chat.");
     const requestedMode = body && typeof body === "object" ? (body as { operationMode?: unknown }).operationMode : undefined;
     const validatedRequestedMode = requestedMode === "manual" || requestedMode === "aceitar_edicoes" || requestedMode === "planejamento" || requestedMode === "automatico" ? requestedMode : undefined;
     const activeOperationMode = conversationId && alreadyPersisted && typeof this.toolsService.operationModeForChat === "function"
@@ -227,7 +252,8 @@ export class ChatController {
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
     const memoryLines = agent?.providerKind === "endpoint" ? [] : await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
-    const effectiveModel = model ?? (agent?.model || undefined);
+    const effectiveModel = model ?? savedModelChoice?.model ?? (agent?.model || undefined);
+    if (!modelProviderId && savedModelChoice) modelProviderId = savedModelChoice.providerId;
     if (!agent && modelProviderId && model && typeof this.providers.validateManagedModel === "function") {
       try { await this.providers.validateManagedModel(modelProviderId, model); } catch (error) { throw this.modelUnavailableException(error); }
     }
@@ -338,9 +364,14 @@ export class ChatController {
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
       const task = classifyTask(messageText, attachments.some((item) => item.type.startsWith("image/")), attachments);
-      const attempts = agent && !modelProviderId && effectiveModel
-        ? modelAttempts({ providerId: UUID.test(agent.provider) ? agent.provider : "legacy", model: effectiveModel }, agent.modelRouting, task)
+      const agentAttempts = agent && effectiveModel
+        ? modelAttempts({ providerId: savedModelChoice?.providerId ?? (UUID.test(agent.provider) ? agent.provider : "legacy"), model: effectiveModel }, agent.modelRouting, task)
         : [{ providerId: primaryProvider, model: effectiveModel ?? "", fallback: false }];
+      const attempts = savedModelChoice && agent
+        ? [{ providerId: savedModelChoice.providerId, model: savedModelChoice.model, fallback: false }, ...modelAttempts({ providerId: UUID.test(agent.provider) ? agent.provider : "legacy", model: agent.model ?? "" }, agent.modelRouting, task).slice(1)]
+        : savedModelChoice
+          ? [{ providerId: savedModelChoice.providerId, model: savedModelChoice.model, fallback: false }]
+        : agentAttempts;
       let attemptIndex = 0;
       let usedFallback: { providerId: string; model: string; reason: string } | null = null;
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {

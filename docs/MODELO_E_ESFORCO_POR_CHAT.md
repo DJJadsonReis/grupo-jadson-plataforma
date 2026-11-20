@@ -1,5 +1,9 @@
 # Modelo e esforço por chat
 
+## Troca de IA por conversa
+
+A escolha de provedor e modelo persistida por conversa, sua precedência sobre o agente e o comportamento de indisponibilidade estão documentados em [Troca de IA por conversa](TROCA_DE_IA_POR_CHAT.md).
+
 Atualizado em 2026-11-20, tarefa 91 (Decisão 26, item 2).
 
 ## Comportamento

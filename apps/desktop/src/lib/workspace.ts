@@ -24,6 +24,8 @@ export interface Conversation {
   type?: "individual" | "group";
   operationMode?: import("./operation-modes").DesktopOperationMode;
   reasoningEffort?: import("./conversation-effort").ConversationEffort | null;
+  modelProviderId?: string | null;
+  model?: string | null;
 }
 
 export interface Agent {
