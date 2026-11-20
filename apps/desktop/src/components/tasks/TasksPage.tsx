@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { buildCreateBody, buildPatch, readErrorMessage, statusLabel, TASK_STATUSES, validateDescription, validateTitle, type EditedTask, type TaskRecord, type TaskStatus } from "../../lib/tasks";
+import { acoesDaTarefa, botsDisponiveis, resumoResultado } from "../../lib/task-queue";
 
 type TasksPageProps = {
   apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
@@ -18,6 +19,9 @@ export function TasksPage({ apiFetch, apiUrl }: TasksPageProps) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [edited, setEdited] = useState<EditedTask | null>(null);
   const [savingId, setSavingId] = useState<string | null>(null);
+  const [agents, setAgents] = useState<{ id: string; name: string; enabled: boolean }[]>([]);
+  const [selectedAgents, setSelectedAgents] = useState<Record<string, string>>({});
+  const [busyTaskId, setBusyTaskId] = useState<string | null>(null);
 
   const loadTasks = useCallback(async () => {
     setLoading(true);
@@ -37,6 +41,32 @@ export function TasksPage({ apiFetch, apiUrl }: TasksPageProps) {
   }, [apiFetch, apiUrl]);
 
   useEffect(() => { void loadTasks(); }, [loadTasks]);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void apiFetch(`${apiUrl}/agents`, { signal: controller.signal }).then(async (response) => {
+      if (response.ok) setAgents(await response.json() as { id: string; name: string; enabled: boolean }[]);
+    }).catch(() => undefined);
+    return () => controller.abort();
+  }, [apiFetch, apiUrl]);
+
+  useEffect(() => {
+    if (!tasks.some((task) => task.status === "na_fila" || task.status === "em_andamento")) return;
+    const timer = window.setInterval(() => void loadTasks(), 10_000);
+    return () => window.clearInterval(timer);
+  }, [tasks, loadTasks]);
+
+  async function queueAction(task: TaskRecord, action: "queue" | "cancel" | "retry") {
+    setBusyTaskId(task.id); setActionError(null);
+    try {
+      const url = `${apiUrl}/tasks/${encodeURIComponent(task.id)}/${action}`;
+      const response = await apiFetch(url, { method: "POST", ...(action === "queue" ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify({ agentId: selectedAgents[task.id] }) } : {}) });
+      const body: unknown = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(readErrorMessage(body, "Não foi possível atualizar a fila da tarefa."));
+      await loadTasks();
+    } catch (reason) { setActionError(reason instanceof Error ? reason.message : "Não foi possível atualizar a fila da tarefa."); }
+    finally { setBusyTaskId(null); }
+  }
 
   async function submitCreate(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -172,9 +202,20 @@ export function TasksPage({ apiFetch, apiUrl }: TasksPageProps) {
                 <div>
                   <h2>{task.title}</h2>
                   <p>{task.description}</p>
-                  <p>Status: {statusLabel(task.status)}</p>
-                  <button type="button" onClick={() => startEditing(task)}>Editar</button>
-                  <button type="button" onClick={() => void archive(task)}>Arquivar</button>
+                  <p><span className="task-status-badge">{statusLabel(task.status)}</span></p>
+                  {task.status === "falhou" && task.failureMessage && <p role="alert">{task.failureMessage}</p>}
+                  {task.status === "concluida" && task.result && <details><summary>Resultado: {resumoResultado(task.result)}</summary><pre>{task.result}</pre></details>}
+                  {acoesDaTarefa(task.status).includes("enviar") && <div>
+                    <label htmlFor={`task-agent-${task.id}`}>Enviar para o bot</label>
+                    <select id={`task-agent-${task.id}`} value={selectedAgents[task.id] ?? ""} onChange={(event) => setSelectedAgents((current) => ({ ...current, [task.id]: event.target.value }))}>
+                      <option value="">Selecione um bot</option>{botsDisponiveis(agents).map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                    </select>
+                    <button type="button" disabled={!selectedAgents[task.id] || busyTaskId === task.id} onClick={() => void queueAction(task, "queue")}>Enviar para a fila</button>
+                  </div>}
+                  {acoesDaTarefa(task.status).includes("cancelar") && <button type="button" disabled={busyTaskId === task.id} onClick={() => void queueAction(task, "cancel")}>Cancelar envio</button>}
+                  {acoesDaTarefa(task.status).includes("tentar_de_novo") && <button type="button" disabled={busyTaskId === task.id} onClick={() => void queueAction(task, "retry")}>Tentar de novo</button>}
+                  {task.status !== "na_fila" && task.status !== "em_andamento" && <button type="button" onClick={() => startEditing(task)}>Editar</button>}
+                  {task.status !== "na_fila" && task.status !== "em_andamento" && <button type="button" onClick={() => void archive(task)}>Arquivar</button>}
                 </div>
               )}
             </li>

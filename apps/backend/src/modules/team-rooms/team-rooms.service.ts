@@ -7,8 +7,7 @@ import { AgentRecord } from "../agents/agents.service";
 import { Principal } from "../auth/users.service";
 import { ProvidersService } from "../providers/providers.service";
 import { ProviderMessage } from "../providers/provider.types";
-import { callAgentEndpoint, streamAgUiEndpoint } from "../agents/agent-endpoint";
-import { SecretBox } from "../integrations/secret-box";
+import { replyAsAgent } from "../agents/agent-reply";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROOM_MISSING = { code: "ROOM_NOT_FOUND", message: "Sala não encontrada." };
@@ -17,7 +16,6 @@ type Message = { id: string; room_id: string; author_kind: "person" | "bot"; aut
 
 @Injectable()
 export class TeamRoomsService {
-  private readonly secretBox = new SecretBox();
   constructor(private readonly database: DatabaseService, private readonly permissions: AgentPermissionsService, private readonly providers: ProvidersService) {}
 
   private pool() { return this.database.getPool(); }
@@ -116,20 +114,7 @@ export class TeamRoomsService {
             { role: "system", content: bot.instructions || `Você é ${bot.name}. Responda na conversa da equipe.` },
             ...(history.rows as Array<{ author_kind: string; author_name: string; content: string }>).map((item) => ({ role: item.author_kind === "bot" ? "assistant" as const : "user" as const, content: item.author_kind === "person" ? `${item.author_name}: ${item.content}` : item.content })),
           ];
-          let text: string;
-          if (bot.providerKind === "endpoint" && bot.endpointUrl) {
-            const token = bot.endpointTokenSecret ? this.secretBox.decrypt(bot.endpointTokenSecret) : undefined;
-            const endpointMessages = messages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "") }));
-            if (bot.endpointProtocol === "agui") {
-              text = "";
-              for await (const delta of streamAgUiEndpoint({ url: bot.endpointUrl, ...(token ? { token } : {}), conversationId: roomId, messages: endpointMessages, agent: { id: bot.id, name: bot.name } })) text += delta;
-            } else {
-              text = await callAgentEndpoint({ url: bot.endpointUrl, ...(token ? { token } : {}), conversationId: roomId, messages: endpointMessages, agent: { id: bot.id, name: bot.name } });
-            }
-          } else {
-            const response = await this.providers.stream({ messages, provider: bot.provider === "anthropic" ? "anthropic" : "openai", ...(bot.model ? { model: bot.model } : {}), tools: [], generationConfig: bot.generationConfig });
-            text = await readProviderText(response);
-          }
+          const text = await replyAsAgent({ agent: bot, messages, providers: this.providers, conversationId: roomId });
           await this.saveBot(roomId, bot, text);
           botMessages.push({ id: randomUUID(), room_id: roomId, author_kind: "bot", author_id: bot.id, author_name: bot.name, content: text, created_at: new Date() });
         } catch {
@@ -154,27 +139,3 @@ export class TeamRoomsService {
 }
 
 function escapeRegExp(text: string) { return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
-async function readProviderText(response: Response): Promise<string> {
-  if (!response.body) throw new Error("provider unavailable");
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let pending = "", output = "";
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      pending += decoder.decode(value, { stream: true });
-      const lines = pending.split("\n"); pending = lines.pop() ?? "";
-      for (const line of lines) output += completionDelta(line);
-    }
-    pending += decoder.decode(); output += completionDelta(pending);
-  } finally { reader.releaseLock(); }
-  if (!output.trim()) throw new Error("empty completion");
-  return output.trim().slice(0, 4000);
-}
-function completionDelta(line: string): string {
-  if (!line.startsWith("data:")) return "";
-  const payload = line.slice(5).trim();
-  if (!payload || payload === "[DONE]") return "";
-  try { const event = JSON.parse(payload) as { choices?: { delta?: { content?: string } }[] }; return event.choices?.[0]?.delta?.content ?? ""; } catch { return ""; }
-}
