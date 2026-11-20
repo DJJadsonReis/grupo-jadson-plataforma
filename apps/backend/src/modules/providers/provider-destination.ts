@@ -1,6 +1,7 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { isPrivateAgentAddress } from "../agents/agent-endpoint";
+import { pinnedFetch } from "../tools/page-reader";
 
 export type ProviderLookup = (host: string) => Promise<string[]>;
 export type ProviderDestination = { url: URL; address: string; local: boolean };
@@ -30,4 +31,14 @@ export async function resolveProviderDestination(
 
 export function isProviderRedirect(status: number): boolean {
   return status >= 300 && status < 400;
+}
+
+/** Converts the pinned HTTP result to the standard web Response API used by provider code. */
+export function toProviderResponse(response: Awaited<ReturnType<typeof pinnedFetch>>): Response {
+  const status = response.status >= 200 && response.status <= 599 ? response.status : 502;
+  const bodylessStatus = status === 204 || status === 205 || status === 304;
+  return new Response(bodylessStatus ? null : response.body ?? null, {
+    status,
+    headers: response.headers,
+  });
 }

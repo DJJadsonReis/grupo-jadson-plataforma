@@ -1,6 +1,8 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { ModelProvidersService } from "./model-providers.service";
+import { createServer, Server } from "node:http";
+import { AddressInfo } from "node:net";
 
 const secretKey = Buffer.alloc(32, 7);
 class TestSecretBox {
@@ -8,7 +10,7 @@ class TestSecretBox {
   decrypt(value: string): string { const [, iv, tag, body] = value.split(":"); const decipher = createDecipheriv("aes-256-gcm", secretKey, Buffer.from(iv!, "base64")); decipher.setAuthTag(Buffer.from(tag!, "base64")); return Buffer.concat([decipher.update(Buffer.from(body!, "base64")), decipher.final()]).toString(); }
 }
 const fakeKey = "sk-teste-falso-000";
-function setup() {
+function setup(useDefaultFetcher = false) {
   const rows: Record<string, unknown>[] = [];
   const query = jest.fn(async (sql: string, values: unknown[] = []) => {
     if (sql.startsWith("INSERT INTO model_providers")) {
@@ -32,7 +34,7 @@ function setup() {
   const database = { getPool: () => ({ query }) } as never;
   const service = new ModelProvidersService(database);
   service.setTestSecretBox(new TestSecretBox() as never);
-  service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["8.8.8.8"]);
+  if (!useDefaultFetcher) service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["8.8.8.8"]);
   return { service, rows, query };
 }
 
@@ -154,6 +156,65 @@ describe("ModelProvidersService", () => {
     service.setTestDependencies(fetcher, jest.fn(async () => { throw new Error("localhost must not resolve"); }));
     await service.test(created.id);
     expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("localhost:11434/v1/models"), expect.objectContaining({ address: "127.0.0.1", redirect: "manual" }));
+  });
+  it("uses the default pinned fetcher as a complete Response for local discovery", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.setHeader("content-type", "application/json");
+      res.setHeader("x-provider-test", "present");
+      res.end(JSON.stringify({ data: [{ id: "modelo-local", display_name: "Modelo local" }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      const created = await service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, allowLocal: true, apiKey: fakeKey });
+      expect(created.models).toEqual([{ id: "modelo-local", label: "Modelo local" }]);
+      const fetcher = (service as unknown as { fetcher: (url: string, init: RequestInit) => Promise<Response> }).fetcher;
+      const response = await fetcher(`http://localhost:${port}/v1/models`, { method: "GET", headers: {}, signal: new AbortController().signal, redirect: "manual", address: "127.0.0.1" } as RequestInit & { address: string });
+      expect(response).toBeInstanceOf(Response);
+      expect(response.headers.get("x-provider-test")).toBe("present");
+      expect(response.body).not.toBeNull();
+      expect(await response.clone().json()).toEqual({ data: [{ id: "modelo-local", display_name: "Modelo local" }] });
+      expect(await response.text()).toContain("modelo-local");
+      expect(requests).toBe(2);
+      expect(JSON.stringify(created)).not.toContain(fakeKey);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("rejects a local discovery URL without allowLocal before reaching the server using the default fetcher", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => { requests += 1; res.end("{}"); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      await expect(service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, apiKey: fakeKey })).rejects.toBeInstanceOf(BadRequestException);
+      expect(requests).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("does not follow a local discovery redirect with the default fetcher", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.writeHead(302, { location: "http://127.0.0.1:1/redirect-target" });
+      res.end("redirect");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      const created = await service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, allowLocal: true, apiKey: fakeKey });
+      expect(created.discoveryMessage).toMatch(/redirecionou/i);
+      expect(requests).toBe(1);
+      expect(JSON.stringify(created)).not.toContain(fakeKey);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
   });
   it("rejects local hosts without explicit allowance before making a request", async () => {
     const { service } = setup();

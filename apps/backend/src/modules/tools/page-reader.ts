@@ -10,7 +10,7 @@ export const PAGE_READ_MAX_TEXT = 20_000;
 export const PAGE_READ_TIMEOUT_MS = 8_000;
 
 type Lookup = (hostname: string) => Promise<string[]>;
-type FetchResponse = { ok: boolean; status: number; headers: { get(name: string): string | null }; body?: ReadableStream<Uint8Array> | null; text(): Promise<string> };
+type FetchResponse = { ok: boolean; status: number; headers: Headers; body?: ReadableStream<Uint8Array> | null; text(): Promise<string> };
 /** `address` é o IP já validado: a conexão usa esse IP, sem resolver o nome de novo (evita DNS rebinding). */
 type FetchInit = { signal: AbortSignal; redirect: "manual"; headers: Record<string, string>; address: string; method?: string; body?: string };
 type Fetcher = (url: string, init: FetchInit) => Promise<FetchResponse>;
@@ -31,12 +31,10 @@ export function pinnedFetch(url: string, init: FetchInit): Promise<FetchResponse
   return new Promise((resolve, reject) => {
     const req = send(target, { method: init.method ?? "GET", headers: init.headers, signal: init.signal, lookup: pinned as never }, (res) => {
       const status = res.statusCode ?? 0;
-      const headers = {
-        get: (name: string) => {
-          const value = res.headers[name.toLowerCase()];
-          return Array.isArray(value) ? value.join(", ") : value ?? null;
-        },
-      };
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(res.headers)) {
+        if (value !== undefined) headers.append(name, Array.isArray(value) ? value.join(", ") : value);
+      }
       resolve({
         ok: status >= 200 && status < 300,
         status,

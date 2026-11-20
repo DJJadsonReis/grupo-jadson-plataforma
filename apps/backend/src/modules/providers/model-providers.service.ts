@@ -5,7 +5,7 @@ import { DatabaseService } from "../database/database.service";
 import { SecretBox } from "../integrations/secret-box";
 import { modelsForProvider, ManagedProviderKind, SelectableModel } from "./model-catalogue";
 import { validateAgentEndpoint } from "../agents/agent-endpoint";
-import { isProviderRedirect, resolveProviderDestination } from "./provider-destination";
+import { isProviderRedirect, resolveProviderDestination, toProviderResponse } from "./provider-destination";
 import { pinnedFetch } from "../tools/page-reader";
 
 export interface ModelProviderRow { id: string; kind: ManagedProviderKind; name: string; baseUrl: string | null; secretCiphertext: string; models: SelectableModel[]; enabled: boolean; createdAt: Date; updatedAt: Date }
@@ -18,7 +18,7 @@ const DEFAULT_URL: Partial<Record<ManagedProviderKind, string>> = { openai: "htt
 @Injectable()
 export class ModelProvidersService {
   private box = new SecretBox();
-  private fetcher: Fetcher = ((input, init) => pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]) as unknown as Promise<Response>);
+  private fetcher: Fetcher = async (input, init) => toProviderResponse(await pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]));
   private lookupHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address);
   private readonly testTimeoutMs = 8000;
   constructor(private readonly database: DatabaseService) {}

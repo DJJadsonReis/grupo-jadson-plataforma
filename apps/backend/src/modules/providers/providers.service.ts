@@ -6,13 +6,13 @@ import { IntegrationsService } from "../integrations/integrations.service";
 import { DEFAULT_MODELS, MODEL_CATALOGUE, MODEL_PROVIDER_NAMES, ModelProviderId } from "./model-catalogue";
 import { ModelProvidersService } from "./model-providers.service";
 import { modelsForProvider } from "./model-catalogue";
-import { isProviderRedirect, resolveProviderDestination } from "./provider-destination";
+import { isProviderRedirect, resolveProviderDestination, toProviderResponse } from "./provider-destination";
 import { pinnedFetch } from "../tools/page-reader";
 import { lookup } from "node:dns/promises";
 
 @Injectable()
 export class ProvidersService {
-  private fetcher: typeof fetch = ((input: string | Request | URL, init?: RequestInit) => pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]) as unknown as Promise<Response>) as typeof fetch;
+  private fetcher: typeof fetch = async (input: string | Request | URL, init?: RequestInit) => toProviderResponse(await pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]));
   private lookupHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map(({ address }) => address);
   constructor(private readonly openAi: OpenAiProvider, private readonly anthropic: AnthropicProvider, private readonly integrations: IntegrationsService, private readonly modelProviders?: ModelProvidersService) {}
 
