@@ -130,6 +130,10 @@ function sseTextChunk(text: string): Uint8Array {
 
 const SSE_DONE = new TextEncoder().encode("data: [DONE]\n\n");
 
+function sseMetadata(value: unknown): Uint8Array {
+  return new TextEncoder().encode(`event: metadata\ndata: ${JSON.stringify(value)}\n\n`);
+}
+
 const ALLOWED_ROLES = new Set<ProviderMessageRole>(["system", "user", "assistant"]);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
@@ -246,6 +250,7 @@ export class ChatController {
     res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
     res.setHeader("Cache-Control", "no-cache, no-transform");
     res.setHeader("Connection", "keep-alive");
+    if (groupId) res.write(sseMetadata({ type: "group-routing", agentId, mentions: mentionRecords }));
     let answer = "";
     let reportedModel = effectiveModel ?? "", usageReport = null as { promptTokens: number; completionTokens: number; totalTokens: number } | null;
     try {

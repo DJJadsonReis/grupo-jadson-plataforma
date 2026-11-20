@@ -1,6 +1,7 @@
 import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIcon, LockBoldIcon, ChartBoldIcon, RefreshBoldIcon } from "@solar-icons/react";
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
+import { buildGroupRequest, readGroupMentions } from "./lib/groups";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
@@ -556,18 +557,31 @@ function Workspace({ edition }: { edition: Edition }) {
       setConversations((items) => [conversation, ...items]);
     }
     const id = conversationId;
-    const userMessage: ChatMessage = { role: "user", content: content || "Analise a imagem anexada." };
     const current = conversations.find((item) => item.id === id) ?? (pendingConversation && pendingConversation.id === id ? pendingConversation : undefined);
+    const currentGroup = groups.find((item) => item.id === current?.groupId);
+    const groupRequest = currentGroup ? buildGroupRequest(currentGroup, content, currentGroup.mode === "manual" ? agent?.id : undefined) : null;
+    if (currentGroup && !groupRequest) {
+      setError(currentGroup.mode === "manual" ? "Escolha um participante ativo deste grupo." : "Digite uma mensagem antes de enviar.");
+      return;
+    }
+    const routedMention = currentGroup?.mode === "mention"
+      ? readGroupMentions(content, agents.filter((item) => item.enabled && currentGroup.agentIds.includes(item.id)))[0]
+      : undefined;
+    const responseAgent = currentGroup?.mode === "mention" ? agents.find((item) => item.id === routedMention?.agentId) : agent;
+    const userMessage: ChatMessage = {
+      role: "user", content: content || "Analise a imagem anexada.",
+      ...(currentGroup && routedMention ? { mentions: [routedMention] } : {}),
+    };
     // Mensagens de erro são só para a tela: não voltam ao modelo.
     const prior = (current?.messages ?? []).filter((message) => !message.error);
     setConversations((items) => items.map((item) => item.id === id ? {
       ...item,
-      ...(agent ? { agentId: agent.id } : {}),
+      ...(responseAgent ? { agentId: responseAgent.id } : {}),
       title: item.messages.length ? item.title : (title || "Imagem enviada").slice(0, 48),
       messages: [...item.messages, userMessage],
       updatedAt: Date.now()
     } : item));
-    setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(agent?.id ?? null);
+    setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(responseAgent?.id ?? null);
     const controller = new AbortController(); abortRef.current = controller;
     try {
       const attachments = await Promise.all(selectedFiles.map(async (file) => ({
@@ -586,7 +600,7 @@ function Workspace({ edition }: { edition: Edition }) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: id,
-          ...(agent ? { agentId: agent.id } : {}),
+          ...(currentGroup?.mode === "manual" && groupRequest?.agentId ? { agentId: groupRequest.agentId } : !currentGroup && agent ? { agentId: agent.id } : {}),
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
           messages: [...prior, userMessage],
@@ -600,7 +614,7 @@ function Workspace({ edition }: { edition: Edition }) {
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
       const decoder = new TextDecoder(); let answer = ""; let pending = "";
-      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(agent ? { agentId: agent.id } : {}) }] } : item));
+      setConversations((items) => items.map((item) => item.id === id ? { ...item, messages: [...item.messages, { role: "assistant", content: "", ...(responseAgent ? { agentId: responseAgent.id } : {}) }] } : item));
       while (true) {
         const { value, done } = await reader.read();
         if (done) break;
@@ -629,7 +643,7 @@ function Workspace({ edition }: { edition: Edition }) {
         ...item,
         messages: [
           ...item.messages.filter((message) => message.role !== "assistant" || message.content.length > 0),
-          ...(aborted ? [] : [{ role: "assistant" as const, content: "", error: reason, ...(agent ? { agentId: agent.id } : {}) }]),
+          ...(aborted ? [] : [{ role: "assistant" as const, content: "", error: reason, ...(responseAgent ? { agentId: responseAgent.id } : {}) }]),
         ],
       } : item));
     } finally { setBusy(false); setActiveAgentId(null); abortRef.current = null; }
@@ -1696,7 +1710,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined));
               setPdfDocs([]);
             }}
           >
@@ -1739,14 +1753,14 @@ function ChatPage({
                   <Sparkles size={13} />
                   <input className="gx-pill-input" aria-label="ID do modelo" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />
                 </label>
-                <label className="gx-pill" title="Agente que responde">
+                <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
-                  <select className="gx-pill-select" aria-label="Perfil associado" value={agentId} onChange={(event) => setAgentId(event.target.value)}>
-                    <option value="">Sem perfil</option>
-                    {availableAgents.map((agent) => (
-                      <option key={agent.id} value={agent.id}>{agent.name}</option>
-                    ))}
-                  </select>
+                  {currentGroup?.mode === "mention" ? <span className="gx-pill-select">Resposta por @menção</span> : (
+                    <select className="gx-pill-select" aria-label={currentGroup?.mode === "manual" ? "Participante do grupo" : "Perfil associado"} value={agentId} onChange={(event) => setAgentId(event.target.value)}>
+                      {!currentGroup && <option value="">Sem perfil</option>}
+                      {availableAgents.map((agent) => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
+                    </select>
+                  )}
                 </label>
               </div>
               {busy ? (
