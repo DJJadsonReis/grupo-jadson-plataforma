@@ -50,6 +50,12 @@ export function providersFromEnv(env: NodeJS.ProcessEnv = process.env): Provider
   return list;
 }
 
+/** URI que deve ser cadastrada no console do provedor OIDC. */
+export function redirectUriFor(id: ProviderId, env: NodeJS.ProcessEnv = process.env): string {
+  const base = env.OIDC_REDIRECT_BASE?.trim() || "http://127.0.0.1:3333";
+  return `${base.replace(/\/$/, "")}/api/v1/auth/callback/${id}`;
+}
+
 function base64url(buffer: Buffer): string {
   return buffer.toString("base64url");
 }
@@ -81,8 +87,7 @@ export class OidcService {
   }
 
   private redirectUri(id: ProviderId): string {
-    const base = process.env.OIDC_REDIRECT_BASE?.trim() || "http://127.0.0.1:3333";
-    return `${base.replace(/\/$/, "")}/api/v1/auth/callback/${id}`;
+    return redirectUriFor(id);
   }
 
   private async discovery(issuer: string): Promise<Record<string, string>> {

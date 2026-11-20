@@ -23,6 +23,7 @@ import { NotificationsPanel } from "./components/notifications/NotificationsPane
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
+import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
@@ -2489,6 +2490,20 @@ function UpdateSettings() {
 
 function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | null; edition: Edition }) {
   const [tab, setTab] = useState<SettingsTab>("geral");
+  const [identityProviders, setIdentityProviders] = useState<IdentityProvider[] | null>(null);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/identity-providers`, { signal: controller.signal })
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error("status")))
+      .then((data: unknown) => {
+        const result = groupIdentityProviders(data);
+        if (result.length) setIdentityProviders(result);
+      })
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, []);
+
   return (
     <div className="page-content settings-page">
       <div className="page-header-row">
@@ -2519,6 +2534,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
               <MemorySettings apiFetch={apiFetch} apiUrl={API_URL} />
             </>
           )}
+          {tab === "geral" && identityProviders && <IdentityProvidersSettings providers={identityProviders} />}
           {tab === "computador" && (
             <article className="settings-box">
               <h3>Computador do Bot</h3>
@@ -2564,6 +2580,35 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
 function signOutThisComputer() {
   try { window.localStorage.removeItem(SESSION_KEY); } catch { /* sem armazenamento */ }
   window.location.reload();
+}
+
+function IdentityProvidersSettings({ providers }: { providers: IdentityProvider[] }) {
+  const [copyError, setCopyError] = useState<string | null>(null);
+  async function copyRedirectUri(value: string) {
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopyError(null);
+    } catch {
+      setCopyError("N\u00e3o foi poss\u00edvel copiar");
+    }
+  }
+
+  return (
+    <article className="settings-box">
+      <h3>Provedores de identidade</h3>
+      {providers.map((provider) => (
+        <div className="security-notice" key={provider.id} style={{ display: "block", marginTop: 12 }}>
+          <strong>{provider.label}: {provider.configured ? "Configurado" : "N\u00e3o configurado"}</strong>
+          {!provider.configured && <p>Faltam: {provider.missingVars.join(", ")}</p>}
+          {!provider.configured && <p>Defina essas vari\u00e1veis no arquivo de configura\u00e7\u00e3o e reinicie o backend</p>}
+          {provider.issuer && <p>Emissor: <code>{provider.issuer}</code></p>}
+          <p>Endere\u00e7o de retorno: <code>{provider.redirectUri}</code></p>
+          <button type="button" className="icon-btn-close" onClick={() => void copyRedirectUri(provider.redirectUri)}>Copiar</button>
+        </div>
+      ))}
+      {copyError && <p role="status">{copyError}</p>}
+    </article>
+  );
 }
 
 type ModelField = { name: "modelo_chave" | "modelo_endereco" | "modelo_padrao"; label: string; hint: string; secret: boolean; placeholder: string };
