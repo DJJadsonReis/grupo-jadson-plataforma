@@ -6,12 +6,16 @@ import { NestExpressApplication } from "@nestjs/platform-express";
 import { AppModule } from "./app.module";
 import { assertPersonalHost, parseEdition } from "./common/edition";
 import { maskSecrets } from "./common/secret-masking";
+import { mcpServerBodyParserError } from "./modules/mcp-server/mcp-server.controller";
 
 applyDesktopSetup();
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
-  app.useBodyParser("json", { limit: "8mb" });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bodyParser: false });
+  app.useBodyParser("json", { limit: "8mb", verify: (request: Request, _response: Response, body: Buffer) => {
+    (request as Request & { rawBodyLength?: number }).rawBodyLength = body.length;
+  } });
+  app.use(mcpServerBodyParserError);
   app.setGlobalPrefix("api/v1");
   app.enableCors({ origin: process.env.DESKTOP_ORIGIN ?? ["http://localhost:1420", "tauri://localhost", "http://tauri.localhost"] });
   const port = Number(process.env.API_PORT ?? 3333);

@@ -18,6 +18,7 @@ import { TeamRoomsPage } from "./components/team/TeamRoomsPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
+import { McpAccessPanel } from "./components/mcp/McpAccessPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
@@ -2618,13 +2619,14 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "uso" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "atualizacoes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
   { id: "permissoes", label: "Permissões", icon: ShieldKeyholeBoldIcon },
   { id: "cofre", label: "Cofre", icon: LockBoldIcon },
   { id: "mcp", label: "Servidores MCP", icon: SettingsBoldIcon },
+  { id: "mcp-access", label: "Acesso MCP", icon: SettingsBoldIcon },
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
 ];
@@ -2906,6 +2908,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
           )}
           {tab === "uso" && <UsageSettings />}
           {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
+          {tab === "mcp-access" && <McpAccessPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "atualizacoes" && (
             <>
               <UpdateSettings />
