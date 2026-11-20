@@ -233,7 +233,7 @@ export class ChatController {
           tools: [...providerGranted.tools, ...sensitiveGranted.filter((tool) => !offeredNames.has(tool.function.name))],
         };
       } catch (error) {
-        this.logger.warn(`ConcessÃµes de ferramentas por habilidade ignoradas: ${error instanceof Error ? error.message : "falha ao consultar polÃ­tica"}`);
+        this.logger.warn(`Concessões de ferramentas por habilidade ignoradas: ${error instanceof Error ? error.message : "falha ao consultar política"}`);
       }
     }
     const found = new Set<string>();
