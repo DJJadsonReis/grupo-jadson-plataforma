@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -340,6 +340,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
   const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
+  const deletedConversationIdsRef = useRef(new Set<string>());
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
@@ -367,18 +368,28 @@ function Workspace({ edition }: { edition: Edition }) {
 
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    if (!item) return;
-    try {
-      const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 404) throw new Error("falhou");
-    } catch {
-      setHistoryNotice("Não foi possível excluir a conversa. Tente de novo.");
-      window.setTimeout(() => setHistoryNotice(null), 3000);
-      return;
+    if (!item || !window.confirm("Excluir esta conversa e todo o hist\u00f3rico? N\u00e3o d\u00e1 para desfazer.")) return;
+    deletedConversationIdsRef.current.add(id);
+    if (isServerConversationId(id)) {
+      try {
+        const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
+        if (!response.ok && response.status !== 404) throw new Error("falhou");
+      } catch {
+        deletedConversationIdsRef.current.delete(id);
+        setHistoryNotice("N\u00e3o foi poss\u00edvel excluir a conversa. Tente de novo.");
+        window.setTimeout(() => setHistoryNotice(null), 3000);
+        return;
+      }
     }
-    setConversations((items) => items.filter((c) => c.id !== id));
-    if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
-    setHistoryNotice("Conversa excluída.");
+    const remaining = conversations.filter((c) => c.id !== id);
+    setConversations(remaining);
+    setPendingConversation((current) => current?.id === id ? null : current);
+    try {
+      const workspace = parseWorkspace(localStorage.getItem(STORAGE_KEY));
+      localStorage.setItem(STORAGE_KEY, serializeWorkspace(removeConversationFromWorkspace(workspace, id)));
+    } catch { /* o estado em mem\u00f3ria j\u00e1 foi atualizado */ }
+    if (activeConversation === id) { abortRef.current?.abort(); setActiveConversation(null); setPage("conversations"); }
+    setHistoryNotice("Conversa exclu\u00edda.");
     window.setTimeout(() => setHistoryNotice(null), 2500);
   }
   const [historyQuery, setHistoryQuery] = useState("");
@@ -491,7 +502,8 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        const remote = (await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[])
+          .filter((item) => !deletedConversationIdsRef.current.has(item.id));
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -611,6 +623,8 @@ function Workspace({ edition }: { edition: Edition }) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
+    if (activeConversation && deletedConversationIdsRef.current.has(activeConversation)) return;
+    if (activeConversation && !conversations.some((item) => item.id === activeConversation) && pendingConversation?.id !== activeConversation) return;
     if (autoReadSupported) window.speechSynthesis.cancel();
     let conversationId = activeConversation;
     if (pendingConversation && pendingConversation.id === activeConversation) {
@@ -878,9 +892,6 @@ function Workspace({ edition }: { edition: Edition }) {
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
           <div className="history">
-            <div className="sidebar-section-header">
-              <span className="section-label">CONVERSAS</span>
-            </div>
             <div className="history-list">
           {edition === "equipe" && groups
                 .filter((group) => group.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
@@ -896,53 +907,39 @@ function Workspace({ edition }: { edition: Edition }) {
                     </button>
                   );
                 })}
+              {agents.some((agent) => agent.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase())) && <div className="history-section-title">Agentes</div>}
               {agents
                 .filter((agent) => agent.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
                 .map((agent) => (
                   <button key={"agent-" + agent.id} className="history-item history-agent" onClick={() => agent.enabled && newConversation(agent.id)} disabled={!agent.enabled} title={agent.name} aria-label={"Conversar com " + agent.name}>
-                    <AgentAvatar agent={agent} />
+                    <span className="history-conversation-avatar"><AgentAvatar agent={agent} /></span>
                     <span className="history-copy">
                       <strong>{agent.name}{agent.role ? <span className="agent-role-chip">{agent.role}</span> : null}</strong>
                       <small>{activeAgentId === agent.id ? "Em execução…" : agentPreview(agent.id)}</small>
                     </span>
                   </button>
                 ))}
-              {conversations
-                .filter((item) => item.messages.length > 0)
-                .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
-                .slice(0, 30)
-                .map((item) => renamingId === item.id ? (
+              {(() => {
+                const sections = splitConversationSections(conversations.filter((item) => item.messages.length > 0), agents.map((agent) => agent.id));
+                const renderConversation = (item: Conversation) => renamingId === item.id ? (
                   <div key={item.id} className="history-item">
-                    <MessageSquare size={14} />
-                    <input
-                      autoFocus
-                      aria-label="Novo nome da conversa"
-                      value={renameDraft}
-                      maxLength={80}
-                      onChange={(event) => setRenameDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") renameConversation(item.id, renameDraft);
-                        if (event.key === "Escape") setRenamingId(null);
-                      }}
-                      onBlur={() => renameConversation(item.id, renameDraft)}
-                      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
-                    />
+                    <span className="history-conversation-avatar">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
+                    <input autoFocus aria-label="Novo nome da conversa" value={renameDraft} maxLength={80} onChange={(event) => setRenameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") renameConversation(item.id, renameDraft); if (event.key === "Escape") setRenamingId(null); }} onBlur={() => renameConversation(item.id, renameDraft)} style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }} />
                   </div>
                 ) : (
-                  <button
-                    key={item.id}
-                    className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
-                    onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
-                    onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }}
-                    title={item.title}
-                  >
+                  <button key={item.id} className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`} onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }} onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }} title={item.title}>
                     <span className="history-conversation-avatar" aria-hidden="true">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
-                    <span className="history-copy">
-                      <strong>{item.title || "Nova conversa"}</strong>
-                      <small>{conversationRowPreview(item)}</small>
-                    </span>
+                    <span className="history-copy"><strong>{item.title || "Nova conversa"}</strong><small>{conversationRowPreview(item)}</small></span>
                   </button>
-                ))}
+                );
+                const matches = (item: Conversation) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase());
+                return <>
+                  {sections.agents.some(matches) && <div className="history-section-title">Agentes</div>}
+                  {sections.agents.filter(matches).slice(0, 30).map(renderConversation)}
+                  {sections.conversations.some(matches) && <div className="history-section-title">Conversas</div>}
+                  {sections.conversations.filter(matches).slice(0, 30).map(renderConversation)}
+                </>;
+              })()}
               {historyNotice && (
                 <div role="status" className="gallery-notice-pill" style={{ margin: "8px 0" }}>{historyNotice}</div>
               )}

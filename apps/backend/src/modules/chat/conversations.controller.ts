@@ -20,7 +20,7 @@ export class ConversationsController {
   }
 
   @Delete(":id") async remove(@Param("id") id: string, @Req() request: PrincipalRequest) {
-    if (!this.isUuid(id)) throw new BadRequestException("Identificador de conversa inválido.");
+    if (!this.isUuid(id)) throw new NotFoundException("Conversa n\u00e3o encontrada.");
     const removed = await this.conversations.remove(id, request.principal?.id ?? "sistema");
     if (!removed) throw new NotFoundException("Conversa não encontrada.");
     return { removed: true };
