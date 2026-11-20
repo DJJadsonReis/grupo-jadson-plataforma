@@ -12,7 +12,6 @@ import { MemoryModule } from "../memory/memory.module";
 import { ToolsModule } from "../tools/tools.module";
 import { PreferencesModule } from "../preferences/preferences.module";
 import { NotificationsModule } from "../notifications/notifications.module";
-import { AuditService } from "../audit/audit.service";
 
 @Module({ imports: [ProvidersModule, DatabaseModule, AgentsModule, AuditModule, MemoryModule, ToolsModule, PreferencesModule, NotificationsModule],controllers: [ChatController, ConversationsController, UsageController],providers: [ConversationsService, UsageService] })
 export class ChatModule {}

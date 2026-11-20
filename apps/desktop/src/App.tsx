@@ -22,6 +22,7 @@ import { ConnectionSharesPanel } from "./components/connections/ConnectionShares
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
+import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
 import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
@@ -2553,9 +2554,19 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
 function UsageSettings() {
   type UsageLine = { agentId?: string | null; conversationId?: string | null; personId?: string; title?: string; totalTokens: number; calls: number; costUsd: number | null; callsWithoutPrice: number };
+  type Price = { provider: string; model: string; inputUsdPerMillion: number; outputUsdPerMillion: number; updatedBy: string };
+  type MissingPrice = { provider: string; model: string; calls: number };
   const [summary, setSummary] = useState<{ byAgent: UsageLine[]; byConversation: UsageLine[]; byPerson?: UsageLine[] } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const [prices, setPrices] = useState<Price[]>([]);
+  const [missingPrices, setMissingPrices] = useState<MissingPrice[]>([]);
+  const [drafts, setDrafts] = useState<Record<string, { input: string; output: string }>>({});
+  const [priceNotice, setPriceNotice] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [pricesVersion, setPricesVersion] = useState(0);
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
@@ -2569,6 +2580,62 @@ function UsageSettings() {
     }).catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
     return () => controller.abort();
   }, []);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/auth/me`).then((response) => response.ok ? response.json() as Promise<{ role?: string }> : null)
+      .then((person) => { if (active) setIsAdmin(person?.role === "admin"); }).catch(() => { if (active) setIsAdmin(false); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    if (!isAdmin) return;
+    let active = true;
+    apiFetch(`${API_URL}/usage/prices`).then((response) => response.ok ? response.json() as Promise<{ prices: Price[]; modelsWithoutPrice: MissingPrice[] }> : Promise.reject(new Error("prices")))
+      .then((data) => { if (active) { setPrices(data.prices); setMissingPrices(data.modelsWithoutPrice); } })
+      .catch(() => { if (active) setPriceNotice("Não foi possível carregar os preços cadastrados."); });
+    return () => { active = false; };
+  }, [isAdmin, pricesVersion]);
+  useEffect(() => {
+    if (!priceNotice) return;
+    const timer = window.setTimeout(() => setPriceNotice(null), 5000);
+    return () => window.clearTimeout(timer);
+  }, [priceNotice]);
+  const savePrice = async (item: MissingPrice) => {
+    const key = `${item.provider}:${item.model}`;
+    const draft = drafts[key] ?? { input: "", output: "" };
+    const input = parsePriceField(draft.input);
+    const output = parsePriceField(draft.output);
+    if ("error" in input) { setPriceNotice(input.error); return; }
+    if ("error" in output) { setPriceNotice(output.error); return; }
+    setSaving(key);
+    try {
+      const response = await apiFetch(`${API_URL}/usage/prices`, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ provider: item.provider, model: item.model, inputUsdPerMillion: input.value, outputUsdPerMillion: output.value }) });
+      if (!response.ok) throw new Error();
+      setPriceNotice("Preço salvo.");
+      setPricesVersion((value) => value + 1);
+      const summaryResponse = await apiFetch(`${API_URL}/usage/summary?days=30`);
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json() as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+        setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      }
+    } catch { setPriceNotice("Não foi possível salvar. Confira os valores e tente novamente."); }
+    finally { setSaving(null); }
+  };
+  const removePrice = async (item: Price) => {
+    const key = `${item.provider}:${item.model}`;
+    try {
+      const response = await apiFetch(`${API_URL}/usage/prices/${encodeURIComponent(item.provider)}/${encodeURIComponent(item.model)}`, { method: "DELETE" });
+      if (!response.ok) throw new Error();
+      setRemoving(null);
+      setPriceNotice("Preço removido.");
+      setPricesVersion((value) => value + 1);
+      const summaryResponse = await apiFetch(`${API_URL}/usage/summary?days=30`);
+      if (summaryResponse.ok) {
+        const data = await summaryResponse.json() as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+        setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      }
+    } catch { setPriceNotice("Não foi possível remover o preço. Tente novamente."); }
+    void key;
+  };
   const rows = summary?.byAgent ?? [];
   const totalTokens = rows.reduce((sum, row) => sum + row.totalTokens, 0);
   const totalCalls = rows.reduce((sum, row) => sum + row.calls, 0);
@@ -2594,6 +2661,30 @@ function UsageSettings() {
       {renderLines("Por agente", summary.byAgent, (row) => row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente")}
       {renderLines("Por conversa", summary.byConversation, (row) => row.title ?? "Sem conversa")}
       {summary.byPerson && renderLines("Por pessoa", summary.byPerson, (row) => row.personId ?? "sistema")}
+      {isAdmin && <section className="usage-prices-panel">
+        <h4>Preços dos modelos</h4>
+        {priceNotice && <small className="usage-price-notice" role="status">{priceNotice}</small>}
+        <h5>Sem preço</h5>
+        {missingPrices.length === 0 ? <small className="sidebar-empty">Nenhum modelo sem preço nos últimos 30 dias.</small> : missingPrices.map((item) => {
+          const key = `${item.provider}:${item.model}`;
+          const draft = drafts[key] ?? { input: "", output: "" };
+          return <div className="usage-price-row" key={key}>
+            <b>{item.provider} · {item.model}</b><small>{item.calls} chamadas</small>
+            <label>Entrada (US$ por milhão)<input inputMode="decimal" value={draft.input} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, input: event.target.value } }))} /></label>
+            <label>Saída (US$ por milhão)<input inputMode="decimal" value={draft.output} onChange={(event) => setDrafts((current) => ({ ...current, [key]: { ...draft, output: event.target.value } }))} /></label>
+            <button className="btn-primary-gold" disabled={saving === key} onClick={() => void savePrice(item)}>{saving === key ? "Salvando…" : "Salvar"}</button>
+          </div>;
+        })}
+        <h5>Preços cadastrados</h5>
+        {prices.length === 0 ? <small className="sidebar-empty">Nenhum preço cadastrado.</small> : prices.map((price) => {
+          const key = `${price.provider}:${price.model}`;
+          return <div className="usage-price-row" key={key}>
+            <b>{price.provider} · {price.model}</b>
+            <small>Entrada {formatModelPriceUsd(Number(price.inputUsdPerMillion))} · saída {formatModelPriceUsd(Number(price.outputUsdPerMillion))}</small>
+            {removing === key ? <div><span>Remover este preço?</span> <button onClick={() => void removePrice(price)}>Confirmar</button> <button onClick={() => setRemoving(null)}>Cancelar</button></div> : <button onClick={() => setRemoving(key)}>Remover</button>}
+          </div>;
+        })}
+      </section>}
     </>}
   </article>;
 }

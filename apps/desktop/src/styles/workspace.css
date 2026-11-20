@@ -2964,6 +2964,13 @@ select:focus-visible {
 .usage-totals > div { display: grid; gap: 4px; padding: 14px; border-radius: 12px; background: #1c1c1c; }
 .usage-totals span { font-size: 12px; color: #96938a; }
 .usage-totals b { font-size: 20px; color: #f5ce55; font-weight: 600; }
+.usage-prices-panel { display: grid; gap: 10px; margin-top: 18px; }
+.usage-prices-panel h5 { margin: 10px 0 0; color: #d9d4c7; }
+.usage-price-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 8px 12px; align-items: center; padding: 12px; border-radius: 10px; background: #1c1c1c; }
+.usage-price-row > label { display: grid; gap: 5px; color: #96938a; font-size: 12px; }
+.usage-price-row input { min-width: 0; padding: 8px 10px; border: 1px solid #343434; border-radius: 8px; background: #141414; color: #eee; font: inherit; }
+.usage-price-row button { justify-self: start; }
+.usage-price-notice { color: #d9d4c7; }
 .usage-rows { display: grid; gap: 8px; }
 
 /* Menu da conta abre ao lado da barra, sem ser cortado por ela */
