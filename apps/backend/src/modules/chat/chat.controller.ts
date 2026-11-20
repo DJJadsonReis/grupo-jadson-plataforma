@@ -32,6 +32,7 @@ import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoi
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
+import { ReasoningEffort, supportsEffort } from "./model-effort";
 
 const MAX_TOOL_ITERATIONS = 4;
 export const MODEL_FIRST_RESPONSE_TIMEOUT_MS = 60_000;
@@ -159,7 +160,7 @@ export class ChatController {
   async complete(@Body() body: unknown, @Req() request: ChatRequest, @Res() res: Response) {
     const clientMessages = this.parseMessages(body);
     const model = this.parseModel(body);
-    const modelProviderId = this.parseUuidField(body, "modelProviderId");
+    let modelProviderId = this.parseUuidField(body, "modelProviderId");
     if (modelProviderId && !model) throw new BadRequestException("Informe também o modelo correspondente ao provedor selecionado.");
     if (modelProviderId) {
       try { await this.providers.validateManagedProvider(modelProviderId); }
@@ -189,6 +190,31 @@ export class ChatController {
     const alreadyPersisted = conversationId && typeof this.conversations.isPersisted === "function"
       ? await this.conversations.isPersisted(conversationId, conversationOwner).catch(() => false)
       : false;
+    let savedModelChoice: { providerId: string; model: string } | null = null;
+    if (conversationId && !modelProviderId && !model && alreadyPersisted && typeof this.conversations.modelChoice === "function") {
+      const stored = await this.conversations.modelChoice(conversationId, conversationOwner).catch(() => null);
+      if (stored?.providerId && stored.model) {
+        try {
+          await this.providers.validateManagedModel(stored.providerId, stored.model);
+          savedModelChoice = { providerId: stored.providerId, model: stored.model };
+          this.logger.log("Roteamento de modelo: escolha salva da conversa.");
+        } catch {
+          this.logger.warn("Escolha salva indisponível; usando o modelo do agente ou o padrão.");
+        }
+      }
+    }
+    if (modelProviderId && model && conversationId) {
+      try { await this.providers.validateManagedModel(modelProviderId, model); }
+      catch (error) { throw this.modelUnavailableException(error); }
+      try {
+        if (typeof this.conversations.setModelChoice !== "function") throw new Error("conversation model persistence unavailable");
+        await this.conversations.setModelChoice(conversationId, conversationOwner, { providerId: modelProviderId, model });
+      }
+      catch { throw new BadRequestException("Não foi possível salvar o modelo da conversa."); }
+      savedModelChoice = { providerId: modelProviderId, model };
+      this.logger.log("Roteamento de modelo: escolha explícita da conversa.");
+    }
+    if (!savedModelChoice) this.logger.log(agent?.model ? "Roteamento de modelo: modelo principal do agente e fallbacks." : "Roteamento de modelo: padrão atual do chat.");
     const requestedMode = body && typeof body === "object" ? (body as { operationMode?: unknown }).operationMode : undefined;
     const validatedRequestedMode = requestedMode === "manual" || requestedMode === "aceitar_edicoes" || requestedMode === "planejamento" || requestedMode === "automatico" ? requestedMode : undefined;
     const activeOperationMode = conversationId && alreadyPersisted && typeof this.toolsService.operationModeForChat === "function"
@@ -226,7 +252,8 @@ export class ChatController {
     // Memórias salvas pela pessoa entram como contexto, só quando a memória está ligada.
     const memoryLines = agent?.providerKind === "endpoint" ? [] : await this.memory.contextLines(request.principal?.id ?? "local").catch(() => []);
     if (memoryLines.length) messages.unshift({ role: "system", content: `Memórias salvas pela pessoa (use só se forem relevantes):\n${memoryLines.map((line) => `- ${line}`).join("\n")}` });
-    const effectiveModel = model ?? (agent?.model || undefined);
+    const effectiveModel = model ?? savedModelChoice?.model ?? (agent?.model || undefined);
+    if (!modelProviderId && savedModelChoice) modelProviderId = savedModelChoice.providerId;
     if (!agent && modelProviderId && model && typeof this.providers.validateManagedModel === "function") {
       try { await this.providers.validateManagedModel(modelProviderId, model); } catch (error) { throw this.modelUnavailableException(error); }
     }
@@ -246,6 +273,11 @@ export class ChatController {
     if (conversationId) {
       try {
         await this.conversations.create(conversationId, messageText.slice(0, 120) || (attachments.length ? "Imagem enviada" : "Nova conversa"), agentId ?? undefined, groupId ?? undefined, conversationOwner);
+        const rawEffort = body && typeof body === "object" && "reasoningEffort" in body ? (body as { reasoningEffort: unknown }).reasoningEffort : undefined;
+        if (rawEffort !== undefined) {
+          if (rawEffort !== null && rawEffort !== "baixo" && rawEffort !== "medio" && rawEffort !== "alto") throw new BadRequestException("Nível de esforço inválido.");
+          if (typeof this.conversations.setReasoningEffort === "function") await this.conversations.setReasoningEffort(conversationId, conversationOwner, rawEffort);
+        }
         if (!alreadyPersisted) {
           const initialMode = validatedRequestedMode ?? agent?.defaultOperationMode ?? "automatico";
           if (initialMode === "ignorar_permissoes") throw new BadRequestException("Ative Ignorar permissões pelo seletor com confirmação de administrador.");
@@ -254,6 +286,9 @@ export class ChatController {
         await this.conversations.addMessage(conversationId, "user", messageText || (attachments.length ? "[imagem anexada]" : ""), { ...(agentId ? { agentId } : {}), attachments, mentions: mentionRecords }, conversationOwner);
       } catch (error) { throw error; }
     }
+    const storedEffort = conversationId && typeof this.conversations.reasoningEffort === "function"
+      ? (await this.conversations.reasoningEffort(conversationId, conversationOwner).catch(() => ({ effort: null }))).effort
+      : null;
 
     const toolCatalog = this.toolsService.catalog();
     const modeVisibleTools = await Promise.all(toolCatalog.map(async (tool) => {
@@ -329,9 +364,14 @@ export class ChatController {
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
       const task = classifyTask(messageText, attachments.some((item) => item.type.startsWith("image/")), attachments);
-      const attempts = agent && !modelProviderId && effectiveModel
-        ? modelAttempts({ providerId: UUID.test(agent.provider) ? agent.provider : "legacy", model: effectiveModel }, agent.modelRouting, task)
+      const agentAttempts = agent && effectiveModel
+        ? modelAttempts({ providerId: savedModelChoice?.providerId ?? (UUID.test(agent.provider) ? agent.provider : "legacy"), model: effectiveModel }, agent.modelRouting, task)
         : [{ providerId: primaryProvider, model: effectiveModel ?? "", fallback: false }];
+      const attempts = savedModelChoice && agent
+        ? [{ providerId: savedModelChoice.providerId, model: savedModelChoice.model, fallback: false }, ...modelAttempts({ providerId: UUID.test(agent.provider) ? agent.provider : "legacy", model: agent.model ?? "" }, agent.modelRouting, task).slice(1)]
+        : savedModelChoice
+          ? [{ providerId: savedModelChoice.providerId, model: savedModelChoice.model, fallback: false }]
+        : agentAttempts;
       let attemptIndex = 0;
       let usedFallback: { providerId: string; model: string; reason: string } | null = null;
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
@@ -352,6 +392,9 @@ export class ChatController {
               provider: target.providerId === "anthropic" ? "anthropic" as const : "openai" as const,
               ...(UUID.test(target.providerId) ? { providerId: target.providerId } : {}),
               model: target.model,
+              ...(storedEffort && (UUID.test(target.providerId)
+                ? await this.providers.modelSupportsEffort(target.providerId, target.model).catch(() => false)
+                : supportsEffort(target.providerId === "anthropic" ? "anthropic" : "openai", target.model)) ? { reasoningEffort: storedEffort as ReasoningEffort } : {}),
               tools: availableTools.tools,
               messages: workingMessages,
             };

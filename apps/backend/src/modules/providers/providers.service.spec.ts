@@ -28,3 +28,29 @@ describe("ProvidersService.catalogue", () => {
     expect(local.find((provider) => provider.id === "endpoint")?.configured).toBe(true);
   });
 });
+
+describe("ProvidersService managed reasoning effort", () => {
+  it.each([
+    ["openai", "o3", { reasoning_effort: "high" }],
+    ["xai", "grok-3-mini", { reasoning_effort: "high" }],
+    ["gemini", "gemini-2.5-pro", { thinkingConfig: { thinkingBudget: 8192 } }],
+    ["xai", "grok-unknown", {}],
+    ["custom", "custom-model", {}],
+  ])("maps supported effort for %s / %s", async (kind, model, expected) => {
+    const fetcher = jest.fn(async (_input: string, _init?: RequestInit) => new Response("data: [DONE]\n\n"));
+    const modelProviders = {
+      forChat: async () => ({ kind, baseUrl: "https://provider.example/v1", apiKey: "fake-test-key" }),
+      assertAvailable: async () => undefined,
+      kindForChat: async () => kind,
+    };
+    const service = new ProvidersService({} as OpenAiProvider, {} as AnthropicProvider, {} as IntegrationsService, modelProviders as never);
+    service.setTestDependencies(fetcher as never, async () => ["93.184.216.34"]);
+    await service.stream({ providerId: "provider-id", model, reasoningEffort: "alto", messages: [{ role: "user", content: "oi" }] });
+    const body = JSON.parse(String(fetcher.mock.calls[0]?.[1]?.body));
+    expect(body).toMatchObject(expected);
+    if (!Object.keys(expected).length) {
+      expect(body).not.toHaveProperty("reasoning_effort");
+      expect(body).not.toHaveProperty("thinkingConfig");
+    }
+  });
+});

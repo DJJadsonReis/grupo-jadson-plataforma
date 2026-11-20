@@ -2,6 +2,7 @@ import { Injectable, ServiceUnavailableException } from "@nestjs/common";
 import { createHash } from "node:crypto";
 import { IntegrationsService } from "../integrations/integrations.service";
 import { CompletionInput, LanguageModelProvider } from "./provider.types";
+import { providerEffortValue, supportsEffort } from "../chat/model-effort";
 
 const DEFAULT_ENDPOINT = "https://api.openai.com/v1/chat/completions";
 const DEFAULT_MODEL = "gpt-4o-mini";
@@ -81,6 +82,7 @@ export class OpenAiProvider implements LanguageModelProvider {
           stream_options: { include_usage: true },
           ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }),
           ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }),
+          ...(input.reasoningEffort && new URL(endpoint).host === "api.openai.com" && supportsEffort("openai", selectedModel) ? { reasoning_effort: providerEffortValue(input.reasoningEffort) } : {}),
         }),
       });
     } catch (error) {

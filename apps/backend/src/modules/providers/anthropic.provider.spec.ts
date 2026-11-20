@@ -1,6 +1,15 @@
 import { anthropicStreamToOpenAi, AnthropicProvider, translateAnthropicRequest } from "./anthropic.provider";
 
 describe("Anthropic adapter", () => {
+  it.each([["baixo", 1024], ["medio", 4096], ["alto", 8192]] as const)("maps effort %s to a valid thinking budget", (reasoningEffort, budget) => {
+    const translated = translateAnthropicRequest({ model: "claude-sonnet-4-5", reasoningEffort, generationConfig: { maxTokens: 1024 }, messages: [{ role: "user", content: "oi" }] });
+    expect(translated.thinking).toEqual({ type: "enabled", budget_tokens: budget });
+    expect(translated.max_tokens).toBeGreaterThan(budget);
+  });
+  it("omits thinking for models outside the explicit support list", () => {
+    const translated = translateAnthropicRequest({ model: "claude-3-5-haiku-latest", reasoningEffort: "alto", messages: [{ role: "user", content: "oi" }] });
+    expect(translated).not.toHaveProperty("thinking");
+  });
   it("move system para campo próprio, traduz mensagens e tool calls para tool_use/result", () => {
     const translated = translateAnthropicRequest({ model: "claude-test", messages: [
       { role: "system", content: "Siga as regras" },

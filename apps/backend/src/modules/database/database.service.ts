@@ -45,6 +45,9 @@ import { migrationId as modelAvailabilityMigrationId, up as addModelAvailability
 import { migrationId as humanSupportMigrationId, up as addHumanSupport } from "./migrations/041-human-support";
 import { migrationId as operationModesMigrationId, up as addOperationModes } from "./migrations/042-operation-modes";
 import { migrationId as modelPricesMigrationId, up as addModelPrices } from "./migrations/043-model-prices";
+import { migrationId as conversationEffortMigrationId, up as addConversationEffort } from "./migrations/044-conversation-effort";
+import { migrationId as conversationModelMigrationId, up as addConversationModel } from "./migrations/045-conversation-model";
+import { migrationId as providerTestStatusMigrationId, up as addProviderTestStatus } from "./migrations/046-provider-test-status";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -110,6 +113,9 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: humanSupportMigrationId, apply: async () => addHumanSupport(this.pool!) },
         { id: operationModesMigrationId, apply: async () => addOperationModes(this.pool!) },
         { id: modelPricesMigrationId, apply: async () => addModelPrices(this.pool!) },
+        { id: conversationEffortMigrationId, apply: async () => addConversationEffort(this.pool!) },
+        { id: conversationModelMigrationId, apply: async () => addConversationModel(this.pool!) },
+        { id: providerTestStatusMigrationId, apply: async () => addProviderTestStatus(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

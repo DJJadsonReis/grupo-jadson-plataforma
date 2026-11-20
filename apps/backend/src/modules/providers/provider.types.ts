@@ -34,6 +34,7 @@ export interface CompletionInput {
   tools?: CompletionTool[];
   model?: string;
   generationConfig?: { temperature?: number; maxTokens?: number };
+  reasoningEffort?: "baixo" | "medio" | "alto";
 }
 
 export interface LanguageModelProvider {

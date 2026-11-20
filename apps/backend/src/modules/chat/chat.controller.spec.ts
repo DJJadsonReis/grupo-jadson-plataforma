@@ -100,7 +100,25 @@ async function completePersistedConversation(controller: ChatController, convers
   return response;
 }
 
+async function completePersistedConversationWithModel(controller: ChatController, conversationId: string, model: string) {
+  const response = new FakeResponse();
+  await controller.complete({ conversationId, model, messages: [{ role: "user", content: "pesquise" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+  return response;
+}
+
 describe("ChatController tool loop", () => {
+  it("applies stored effort only when the selected model supports it", async () => {
+    const { controller, inputs } = setup();
+    const conversations = (controller as any).conversations;
+    conversations.isPersisted.mockResolvedValue(true);
+    conversations.reasoningEffort = jest.fn().mockResolvedValue({ effort: "alto" });
+    await completePersistedConversationWithModel(controller, "123e4567-e89b-42d3-a456-426614174000", "o3");
+    expect(inputs[0]).toMatchObject({ model: "o3", reasoningEffort: "alto" });
+    inputs.length = 0;
+    await completePersistedConversationWithModel(controller, "123e4567-e89b-42d3-a456-426614174000", "gpt-4.1");
+    expect(inputs[0]).toMatchObject({ model: "gpt-4.1" });
+    expect(inputs[0]).not.toHaveProperty("reasoningEffort");
+  });
   it("tenta a reserva após 429, envia o modelo respondido e registra auditoria sem dados crus", async () => {
     const mainProvider = "123e4567-e89b-42d3-a456-426614174020";
     const reserveProvider = "123e4567-e89b-42d3-a456-426614174021";
@@ -257,6 +275,45 @@ describe("ChatController tool loop", () => {
     await controller.complete({ modelProviderId, model: "modelo-falso", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
     expect(validateManagedProvider).toHaveBeenCalledWith(modelProviderId);
     expect(inputs[0]).toMatchObject({ providerId: modelProviderId, model: "modelo-falso" });
+  });
+
+  it("usa a escolha salva da conversa antes do agente e mantém a reserva", async () => {
+    const main = "123e4567-e89b-42d3-a456-426614174020", reserve = "123e4567-e89b-42d3-a456-426614174021", selected = "123e4567-e89b-42d3-a456-426614174022";
+    const { controller, inputs, providers } = setup({ agent: {
+      instructions: "", enabled: true, model: "agent-model", generationConfig: null, provider: main,
+      modelRouting: { fallbacks: [{ providerId: reserve, model: "reserve-model" }] },
+    } });
+    (providers as any).validateManagedModel = jest.fn(async () => undefined);
+    (controller as any).conversations = {
+      isPersisted: jest.fn(async () => true), modelChoice: jest.fn(async () => ({ providerId: selected, model: "conversation-model" })),
+      create: jest.fn(), addMessage: jest.fn(), reasoningEffort: jest.fn(async () => ({ effort: null })),
+    };
+    await controller.complete({ conversationId: "123e4567-e89b-42d3-a456-426614174023", agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(inputs[0]).toMatchObject({ providerId: selected, model: "conversation-model" });
+    expect((providers as any).stream).toHaveBeenCalled();
+  });
+
+  it("cai para o agente quando a escolha salva ficou indisponível e não apaga a escolha", async () => {
+    const agentProvider = "123e4567-e89b-42d3-a456-426614174020", selected = "123e4567-e89b-42d3-a456-426614174022";
+    const { controller, inputs, providers } = setup({ agent: { instructions: "", enabled: true, model: "agent-model", generationConfig: null, provider: agentProvider } });
+    const validate = jest.fn(async (providerId: string) => { if (providerId === selected) throw new Error("unavailable"); });
+    (providers as any).validateManagedModel = validate;
+    const modelChoice = jest.fn(async () => ({ providerId: selected, model: "offline-model" }));
+    const setModelChoice = jest.fn();
+    (controller as any).conversations = { isPersisted: jest.fn(async () => true), modelChoice, setModelChoice, create: jest.fn(), addMessage: jest.fn(), reasoningEffort: jest.fn(async () => ({ effort: null })) };
+    await controller.complete({ conversationId: "123e4567-e89b-42d3-a456-426614174023", agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(inputs[0]).toMatchObject({ providerId: agentProvider, model: "agent-model" });
+    expect(modelChoice).toHaveBeenCalled();
+    expect(setModelChoice).not.toHaveBeenCalled();
+  });
+
+  it("grava uma escolha explícita antes do provedor e falha fechada se salvar falhar", async () => {
+    const { controller, providers } = setup();
+    (providers as any).validateManagedModel = jest.fn(async () => undefined);
+    (providers as any).validateManagedProvider = jest.fn(async () => undefined);
+    (controller as any).conversations = { isPersisted: jest.fn(async () => false), create: jest.fn(), setModelChoice: jest.fn(async () => { throw new Error("db"); }), addMessage: jest.fn() };
+    await expect(controller.complete({ conversationId: "123e4567-e89b-42d3-a456-426614174023", modelProviderId: "123e4567-e89b-42d3-a456-426614174022", model: "o3", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response)).rejects.toMatchObject({ response: { message: "Não foi possível salvar o modelo da conversa." } });
+    expect(providers.stream).not.toHaveBeenCalled();
   });
 
   it("recusa provedor inválido ou indisponível antes de chamar modelo", async () => {

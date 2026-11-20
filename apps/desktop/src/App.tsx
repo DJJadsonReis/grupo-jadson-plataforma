@@ -26,6 +26,7 @@ import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
 import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
+import { providerLastTestLabel, providerModelCountLabel, providerStatusLabel, providerStatusTone } from "./lib/provider-status";
 import { addFallback, moveFallback, removeFallback, type AgentModelTarget } from "./lib/agent-model-routing";
 import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
@@ -36,6 +37,8 @@ import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
+import { ConversationEffortApi, CONVERSATION_EFFORT_OPTIONS, effortLabel, shouldShowEffort, type ConversationEffort } from "./lib/conversation-effort";
+import { ConversationModelApi, initialConversationModel, modelChoiceForSelection, modelSelectionError } from "./lib/conversation-model";
 import { BackendHealthError, monitorBackendHealth, reconnectAndRetryRequest, repairHealthAndRetry, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
@@ -597,7 +600,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null }[];
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string; operationMode?: DesktopOperationMode | null; reasoningEffort?: ConversationEffort | null; modelProviderId?: string | null; model?: string | null }[];
         serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
         serverConversationListLoadedRef.current = true;
         const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
@@ -610,6 +613,9 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               ...saved,
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
               ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
+              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {}),
+              ...(item.modelProviderId !== undefined ? { modelProviderId: item.modelProviderId } : {}),
+              ...(item.model !== undefined ? { model: item.model } : {}),
               title: item.title || saved.title,
               messages: saved.messages.length >= messages.length ? saved.messages : messages,
               updatedAt: Math.max(saved.updatedAt, Date.parse(item.updatedAt) || 0)
@@ -619,7 +625,10 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
               messages,
               updatedAt: Date.parse(item.updatedAt) || Date.now(),
               ...(typeof item.agentId === "string" ? { agentId: item.agentId } : {}),
-              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {})
+              ...(typeof item.groupId === "string" ? { groupId: item.groupId, type: "group" as const } : {}),
+              ...(item.reasoningEffort !== undefined ? { reasoningEffort: item.reasoningEffort } : {}),
+              ...(item.modelProviderId !== undefined ? { modelProviderId: item.modelProviderId } : {}),
+              ...(item.model !== undefined ? { model: item.model } : {})
             };
           });
           const remoteIds = new Set(remote.map((item) => item.id));
@@ -716,7 +725,7 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -788,7 +797,8 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
           messages: [...prior, userMessage],
           ...(model.trim() ? { model: model.trim() } : {}),
           ...(modelProviderId ? { modelProviderId } : {}),
-          ...(operationMode ? { operationMode } : {})
+          ...(operationMode ? { operationMode } : {}),
+          ...(reasoningEffort !== undefined ? { reasoningEffort } : {})
         }),
       });
       if (!response.ok) {
@@ -1173,6 +1183,9 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
             apiFetch={apiFetch}
             apiUrl={API_URL}
             persistLocalOperationMode={(id, mode) => setConversations((items) => items.map((item) => item.id === id ? { ...item, operationMode: mode } : item))}
+            persistLocalReasoningEffort={(id, effort) => setConversations((items) => items.map((item) => item.id === id ? { ...item, reasoningEffort: effort } : item))}
+            persistLocalModelChoice={(id, choice) => setConversations((items) => items.map((item) => item.id === id ? { ...item, modelProviderId: choice?.providerId ?? null, model: choice?.model ?? null } : item))}
+            isPersistedConversation={(id) => serverConversationIdsRef.current.has(id)}
             focusMode={focusMode}
             onOpenAutomations={() => setPage("automations")}
             onEditAgent={setAgentEditor}
@@ -1580,31 +1593,40 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
 
 function ChatPage({
   conversation, agents, groups, draft, busy, activeAgentId, error, files, modelCatalogue, selectableProviders, autoReadEnabled, autoReadSupported, onToggleAutoRead,
-  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, focusMode, setFocusMode, onOpenAutomations, onEditAgent
+  setDraft, setFiles, onSend, onCancel, onDismissError, onChooseFiles, inputRef, isAdmin, apiFetch, apiUrl, persistLocalOperationMode, persistLocalReasoningEffort, persistLocalModelChoice, isPersistedConversation, focusMode, setFocusMode, onOpenAutomations, onEditAgent
 }: {
   onOpenAutomations: () => void;
   onEditAgent: (agent: Agent) => void;
   autoReadEnabled: boolean; autoReadSupported: boolean; onToggleAutoRead: () => void;
-  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string }[] }[];
+  conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string; supportsEffort?: boolean }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   isAdmin: boolean;
   apiFetch: (input: string, init?: RequestInit) => Promise<Response>;
   apiUrl: string;
   persistLocalOperationMode: (id: string, mode: DesktopOperationMode) => void;
+  persistLocalReasoningEffort: (id: string, effort: ConversationEffort | null) => void;
+  persistLocalModelChoice: (id: string, choice: { providerId: string; model: string } | null) => void;
+  isPersistedConversation: (id: string) => boolean;
   focusMode: boolean; setFocusMode: (updater: (value: boolean) => boolean) => void;
 }) {
-  const [modelSelection, setModelSelection] = useState("");
+  const [modelSelection, setModelSelection] = useState(() => initialConversationModel(conversation?.modelProviderId, conversation?.model));
   const [operationMode, setOperationMode] = useState<DesktopOperationMode>(conversation?.operationMode ?? "automatico");
+  const [reasoningEffort, setReasoningEffort] = useState<ConversationEffort | null>(conversation?.reasoningEffort ?? null);
+  const [effortError, setEffortError] = useState<string | null>(null);
+  const [modelError, setModelError] = useState<string | null>(null);
+  const modelTimer = useRef<number | undefined>(undefined);
   const [ignoreDialogOpen, setIgnoreDialogOpen] = useState(false);
   const [ignoreConfirmation, setIgnoreConfirmation] = useState("");
   const messageTextareaRef = useRef<HTMLTextAreaElement>(null);
   const modelOptions = groupSelectableProviders(selectableProviders);
   const selectedModelOption = modelOptions.find((option) => option.value === modelSelection);
   const model = selectedModelOption?.model ?? "";
+  const effortSupported = shouldShowEffort(selectedModelOption?.supportsEffort);
+  const effortTimer = useRef<number | undefined>(undefined);
   const [agentId, setAgentId] = useState(conversation?.agentId ?? "");
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [contextTab, setContextTab] = useState<"activity" | "library">("activity");
@@ -1680,6 +1702,32 @@ function ChatPage({
   useEffect(() => { setAgentId(conversation?.agentId ?? ""); }, [conversation?.id, conversation?.agentId]);
 
   useEffect(() => {
+    setModelSelection(initialConversationModel(conversation?.modelProviderId, conversation?.model));
+    setModelError(null);
+    if (!conversation || !isPersistedConversation(conversation.id) || conversation.modelProviderId !== undefined) return;
+    void new ConversationModelApi(apiFetch, apiUrl).get(conversation.id).then((choice) => {
+      setModelSelection(initialConversationModel(choice?.providerId, choice?.model));
+      persistLocalModelChoice(conversation.id, choice);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.modelProviderId, conversation?.model]);
+
+  async function changeModelSelection(value: string) {
+    setModelError(null);
+    const choice = modelChoiceForSelection(value);
+    if (conversation && isPersistedConversation(conversation.id)) {
+      try { await new ConversationModelApi(apiFetch, apiUrl).set(conversation.id, choice); }
+      catch {
+        setModelError(modelSelectionError());
+        window.clearTimeout(modelTimer.current);
+        modelTimer.current = window.setTimeout(() => setModelError(null), 4000);
+        return;
+      }
+    }
+    setModelSelection(value);
+    if (conversation) persistLocalModelChoice(conversation.id, choice);
+  }
+
+  useEffect(() => {
     if (!conversation) { setOperationMode("automatico"); return; }
     const localMode = conversation.operationMode ?? agents.find((item) => item.id === agentId)?.defaultOperationMode ?? "automatico";
     setOperationMode(localMode);
@@ -1689,6 +1737,25 @@ function ChatPage({
       persistLocalOperationMode(conversation.id, state.mode);
     }).catch(() => undefined);
   }, [conversation?.id, conversation?.operationMode, conversation?.agentId, agents, agentId]);
+
+  useEffect(() => {
+    setReasoningEffort(conversation?.reasoningEffort ?? null);
+    if (!conversation || conversation.reasoningEffort !== undefined || !isPersistedConversation(conversation.id)) return;
+    void new ConversationEffortApi(apiFetch, apiUrl).get(conversation.id).then((effort) => {
+      setReasoningEffort(effort);
+      persistLocalReasoningEffort(conversation.id, effort);
+    }).catch(() => undefined);
+  }, [conversation?.id, conversation?.reasoningEffort]);
+
+  async function changeReasoningEffort(value: ConversationEffort | null) {
+    setReasoningEffort(value);
+    setEffortError(null);
+    if (conversation && isPersistedConversation(conversation.id)) {
+      try { await new ConversationEffortApi(apiFetch, apiUrl).set(conversation.id, value); }
+      catch { setEffortError("Não foi possível salvar o esforço."); window.clearTimeout(effortTimer.current); effortTimer.current = window.setTimeout(() => setEffortError(null), 4000); return; }
+    }
+    if (conversation) persistLocalReasoningEffort(conversation.id, value);
+  }
 
   async function changeOperationMode(mode: DesktopOperationMode, confirmation?: string) {
     if (conversation && isServerConversationId(conversation.id)) {
@@ -1894,7 +1961,7 @@ function ChatPage({
               // O título da conversa usa o que você digitou (ou o nome do PDF), não o texto do documento.
               const typed = draft.trim();
               const docNames = pdfDocs.map((doc) => doc.name).join(", ");
-              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode);
+              onSend(message, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, typed || (docNames ? `PDF: ${docNames}` : undefined), selectedModelOption?.providerId, operationMode, effortSupported ? reasoningEffort : undefined);
               setPdfDocs([]);
             }}
           >
@@ -1956,11 +2023,17 @@ function ChatPage({
                 </label>
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
-                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => setModelSelection(event.target.value)}>
-                    <option value="">Modelo padrão</option>
-                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{item.label}</option>)}</optgroup>)}
+                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => void changeModelSelection(event.target.value)}>
+                    <option value="">{selectedAgent ? "Padrão do agente" : "Padrão"}</option>
+                    {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{provider.providerName} · {item.label}</option>)}</optgroup>)}
                   </select>
                 </label>
+                {modelError && <span className="gx-inline-error" role="status">{modelError}</span>}
+                {effortSupported && <label className="gx-pill" title="Esforço de raciocínio do modelo">
+                  <select className="gx-pill-select" aria-label="Esforço de raciocínio" value={reasoningEffort ?? ""} onChange={(event) => void changeReasoningEffort((event.target.value || null) as ConversationEffort | null)}>
+                    <option value="">Padrão</option>{CONVERSATION_EFFORT_OPTIONS.map((item) => <option key={item.value} value={item.value}>{effortLabel(item.value)}</option>)}
+                  </select>
+                </label>}
                 <label className="gx-pill" title={currentGroup?.mode === "mention" ? "Mencione o participante com @Nome" : "Agente que responde"}>
                   {selectedAgent && <AgentAvatar agent={selectedAgent} size="xs" />}
                   {currentGroup?.mode === "mention" ? <span className="gx-pill-select">Resposta por @menção</span> : (
@@ -1982,6 +2055,7 @@ function ChatPage({
                 </button>
               )}
             </div>
+            {effortError && <small className="gx-muted" role="status">{effortError}</small>}
           </form>
           {ignoreDialogOpen && (
             <div className="delete-confirm-backdrop" onClick={() => { setIgnoreDialogOpen(false); setIgnoreConfirmation(""); }}>
@@ -2483,6 +2557,8 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   const [notice, setNotice] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [removing, setRemoving] = useState<ManagedProvider | null>(null);
   const api = new ModelProvidersApi(apiFetch, API_URL);
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(null); setNotice(null);
@@ -2491,7 +2567,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     try {
       const body = { ...(editing ? {} : { kind: draft.kind }), name: draft.name, ...(draft.kind === "custom" ? { baseUrl: draft.baseUrl, allowLocal: draft.allowLocal } : {}), ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
       const saved = editing ? await api.patch(editing, body) : await api.create(body);
-      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice(saved.discoveryMessage ? `Provedor salvo, mas não foi possível listar os modelos: ${saved.discoveryMessage}` : "Provedor salvo com segurança."); await onRefresh();
+      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setFormOpen(false); setNotice(saved.discoveryMessage ? `Provedor salvo, mas não foi possível listar os modelos: ${saved.discoveryMessage}` : "Provedor salvo com segurança."); await onRefresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar o provedor."); }
   }
   async function test(id: string) {
@@ -2507,7 +2583,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     finally { setTesting(null); }
   }
   async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
-  async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
+  async function remove(provider: ManagedProvider) { setError(null); try { await api.remove(provider.id); setRemoving(null); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
     <div className="page-content">
       <div className="page-header-row">
@@ -2516,26 +2592,28 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
           <h1>Modelos & Provedores</h1>
           <p className="page-subtitle">Cadastre provedores e escolha modelos no chat. As chaves ficam cifradas no banco.</p>
         </div>
-        <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
+        <div className="model-provider-header-actions"><button type="button" className="btn-primary-gold" onClick={() => { setError(null); setNotice(null); setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setFormOpen(true); }}>Adicionar provedor</button><button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button></div>
       </div>
       {legacyExists && <div className="model-provider-notice"><strong>Configuração anterior</strong><span>A chave legada continua ativa e não pode ser exibida nem editada nesta tela.</span></div>}
       {error && <div className="gx-notice" role="alert">{error}</div>}{notice && <div className="model-provider-notice" role="status">{notice}</div>}
       <div className="model-provider-grid">
         {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
-          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
+          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"provider-key-status " + providerStatusTone(provider.keyStatus)}>{providerStatusLabel(provider.keyStatus)}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
-          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          <div className="provider-summary"><span>Último teste: {providerLastTestLabel(provider.lastTestAt)}</span><span>{providerModelCountLabel(provider.modelCount)}</span></div>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setError(null); setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); setFormOpen(true); }}>Editar</button><button type="button" onClick={() => setRemoving(provider)}>Remover</button></div>
           <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id}) — <strong>{model.availability === "disponivel" ? "Disponível" : model.availability === "indisponivel" ? "Indisponível" : "Não verificado"}</strong>{model.checkedAt ? ` · ${new Date(model.checkedAt).toLocaleString()}` : ""}</li>)}</ul>
         </article>)}
       </div>
-      <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
-        <h2>{editing ? "Editar provedor" : "Cadastrar provedor"}</h2>
+      {formOpen && <div className="provider-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setFormOpen(false); setEditing(null); setError(null); } }}><form className="model-provider-form provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-form-title" onSubmit={(event) => void submit(event)}>
+        <h2 id="provider-form-title">{editing ? "Editar provedor" : "Adicionar provedor"}</h2>
         <label>Tipo<select value={draft.kind} disabled={Boolean(editing)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ProviderDraft["kind"], baseUrl: "" })}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="xai">xAI</option><option value="custom">Custom compatível com OpenAI</option></select></label>
         <label>Nome<input value={draft.name} maxLength={80} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         {draft.kind === "custom" && <><label>URL base<input value={draft.baseUrl} maxLength={500} placeholder="https://provedor.invalid/v1" onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} /></label><label className="model-provider-local"><input type="checkbox" checked={draft.allowLocal} onChange={(event) => setDraft({ ...draft, allowLocal: event.target.checked })} /> Este endpoint é local (localhost)</label></>}
         <label>Chave de API<input type="password" autoComplete="new-password" value={draft.apiKey} placeholder={editing ? "Deixe vazio para manter a chave atual" : "Chave do provedor"} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} /></label>
-        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button>{editing && <button type="button" onClick={() => { setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar edição</button>}</div>
-      </form>
+        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button><button type="button" onClick={() => { setFormOpen(false); setEditing(null); setError(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar</button></div>
+      </form></div>}
+      {removing && <div className="provider-dialog-backdrop" role="presentation"><section className="provider-remove-dialog" role="alertdialog" aria-modal="true" aria-labelledby="provider-remove-title" aria-describedby="provider-remove-copy"><h2 id="provider-remove-title">Remover provedor</h2><p id="provider-remove-copy">Remover o provedor “{removing.name}”? Os modelos e chaves dele saem da lista. Não dá para desfazer.</p><div className="model-provider-actions"><button type="button" className="provider-remove-action" onClick={() => void remove(removing)}>Remover</button><button type="button" onClick={() => setRemoving(null)}>Cancelar</button></div></section></div>}
     </div>
   );
 }

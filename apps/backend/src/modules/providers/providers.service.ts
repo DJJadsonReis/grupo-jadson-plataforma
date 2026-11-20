@@ -9,6 +9,7 @@ import { modelsForProvider } from "./model-catalogue";
 import { isProviderRedirect, resolveProviderDestination, toProviderResponse } from "./provider-destination";
 import { pinnedFetch } from "../tools/page-reader";
 import { lookup } from "node:dns/promises";
+import { anthropicThinkingBudget, providerEffortValue, supportsEffort } from "../chat/model-effort";
 
 @Injectable()
 export class ProvidersService {
@@ -54,7 +55,7 @@ export class ProvidersService {
       const selectedModel = input.model || modelsForProvider(kind)[0]?.id || MODEL_CATALOGUE.find((model) => model.provider === kind)?.id || "";
       return this.modelProviders!.assertAvailable(input.providerId!, selectedModel).then(() => kind === "anthropic"
         ? this.streamManagedAnthropic(input, apiKey, selectedModel, signal)
-        : this.streamManagedCompatible(input, baseUrl ?? this.defaultUrl(kind), apiKey, selectedModel, signal));
+        : this.streamManagedCompatible(input, baseUrl ?? this.defaultUrl(kind), apiKey, selectedModel, signal, kind));
     });
     return input.provider === "anthropic" ? this.anthropic.stream(input, signal) : this.openAi.stream(input, signal);
   }
@@ -64,19 +65,26 @@ export class ProvidersService {
     await this.modelProviders.forChat(id);
   }
   async validateManagedModel(id: string, model: string): Promise<void> { await this.modelProviders?.assertAvailable(id, model); }
+  async modelSupportsEffort(providerId: string, model: string): Promise<boolean> {
+    const kind = await this.modelProviders?.kindForChat(providerId);
+    return kind ? supportsEffort(kind, model) : false;
+  }
 
   private defaultUrl(kind: string): string {
     const roots: Record<string, string> = { openai: "https://api.openai.com/v1", gemini: "https://generativelanguage.googleapis.com/v1beta/openai", xai: "https://api.x.ai/v1" };
     return roots[kind] ?? "";
   }
 
-  private async streamManagedCompatible(input: CompletionInput, baseUrl: string, apiKey: string, model: string, signal?: AbortSignal): Promise<Response> {
+  private async streamManagedCompatible(input: CompletionInput, baseUrl: string, apiKey: string, model: string, signal?: AbortSignal, kind = "custom"): Promise<Response> {
     let response: Response;
     try {
       const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
       const allowLocal = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(baseUrl);
       const destination = await resolveProviderDestination(url, allowLocal, this.lookupHost);
-      const pinnedResponse = await (this.fetcher as unknown as (url: string, init: RequestInit & { address: string }) => Promise<Response>)(destination.url.toString(), { method: "POST", signal: signal ?? new AbortController().signal, redirect: "manual", address: destination.address, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
+      const supportedEffort = input.reasoningEffort && supportsEffort(kind, model) ? input.reasoningEffort : undefined;
+      const reasoning_effort = supportedEffort && (kind === "openai" || kind === "xai") ? providerEffortValue(supportedEffort) : undefined;
+      const geminiThinking = supportedEffort && kind === "gemini" ? { thinkingConfig: { thinkingBudget: anthropicThinkingBudget(supportedEffort) } } : {};
+      const pinnedResponse = await (this.fetcher as unknown as (url: string, init: RequestInit & { address: string }) => Promise<Response>)(destination.url.toString(), { method: "POST", signal: signal ?? new AbortController().signal, redirect: "manual", address: destination.address, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }), ...(reasoning_effort ? { reasoning_effort } : {}), ...geminiThinking }) });
       response = pinnedResponse;
     } catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
     if (isProviderRedirect(response.status)) throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "O provedor de IA redirecionou a solicitação." });
@@ -92,7 +100,9 @@ export class ProvidersService {
   private async streamManagedAnthropic(input: CompletionInput, apiKey: string, model: string, signal?: AbortSignal): Promise<Response> {
     const { anthropicStreamToOpenAi, translateAnthropicRequest } = await import("./anthropic.provider");
     let response: Response;
-    try { response = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(translateAnthropicRequest({ ...input, model })) }); }
+    const prepared = { ...input, model };
+    const payload = translateAnthropicRequest(prepared);
+    try { response = await this.fetcher("https://api.anthropic.com/v1/messages", { method: "POST", signal: signal ?? null, headers: { "x-api-key": apiKey, "anthropic-version": "2023-06-01", "content-type": "application/json" }, body: JSON.stringify(payload) }); }
     catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor Anthropic." }); }
     if (!response.ok) {
       const modelUnavailable = (response.status === 400 || response.status === 404) && await this.modelUnavailable(response);
