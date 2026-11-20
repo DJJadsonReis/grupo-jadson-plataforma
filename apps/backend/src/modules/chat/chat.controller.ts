@@ -470,12 +470,15 @@ export class ChatController {
             continue;
           }
           try {
+            const toolInput = canonicalName === "atendimento.humano"
+              ? { ...input, ...(conversationId ? { conversationId } : {}), ...(agentId ? { agentId } : {}) }
+              : input;
             if (allAvailableTools.risks.get(call.function.name) === "sensitive") {
-              const pending = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", undefined, request.principal?.id);
+              const pending = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", undefined, request.principal?.id);
               workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, pending) });
               continue;
             }
-            const run = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", agentId, request.principal?.id);
+            const run = await this.toolsService.invoke(canonicalName, toolInput, request.principal?.name ?? "sistema", agentId, request.principal?.id);
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, run) });
           } catch (error) {
             const message = await this.toolsService.maskSecretText(error instanceof Error ? error.message : "Ferramenta recusada.");

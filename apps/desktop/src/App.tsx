@@ -33,6 +33,7 @@ import { Welcome } from "./Welcome";
 import { DictationHttpClient } from "./lib/dictation-api";
 import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
+import { HumanSupportApi } from "./lib/human-support-api";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -41,7 +42,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "human-support" | "groups" | "team-rooms" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -306,10 +307,16 @@ function Workspace({ edition }: { edition: Edition }) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notificationCount, setNotificationCount] = useState(0);
+  const [humanSupportAllowed, setHumanSupportAllowed] = useState(false);
   const [sidebarHover, setSidebarHover] = useState(false);
   useEffect(() => {
     let active = true;
     apiFetch(`${API_URL}/notifications`).then((r) => r.ok ? r.json() : Promise.reject(new Error("notifications"))).then((items: unknown[]) => { if (active) setNotificationCount(items.length); }).catch(() => { if (active) setNotificationCount(0); });
+    return () => { active = false; };
+  }, []);
+  useEffect(() => {
+    let active = true;
+    apiFetch(`${API_URL}/human-support`).then((r) => { if (active) setHumanSupportAllowed(r.ok); }).catch(() => { if (active) setHumanSupportAllowed(false); });
     return () => { active = false; };
   }, []);
   useEffect(() => {
@@ -908,6 +915,8 @@ function Workspace({ edition }: { edition: Edition }) {
           ))}
         </nav>
 
+        {humanSupportAllowed && <button className={`nav-item ${page === "human-support" ? "active" : ""}`} onClick={() => changePage("human-support")}><Bell size={17} /><span>Atendimento</span></button>}
+
         <button className="nav-item" onClick={() => setNotificationsOpen((open) => !open)} aria-expanded={notificationsOpen} title={railCollapsed ? "Notificações" : undefined}><Bell size={17} /><span>Notificações{notificationCount > 0 ? ` (${notificationCount})` : ""}</span></button>
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
@@ -1114,6 +1123,7 @@ function Workspace({ edition }: { edition: Edition }) {
             onOpen={(id) => { setActiveConversation(id); setPage("chat"); }}
           />
         )}
+        {page === "human-support" && humanSupportAllowed && <HumanSupportPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "groups" && edition === "equipe" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "team-rooms" && canShowSharing(edition) && <TeamRoomsPage apiFetch={apiFetch} apiUrl={API_URL} />}
@@ -2258,6 +2268,26 @@ function AgentSharingPanel({ agent }: { agent: Agent }) {
 /* =========================================================================
    PÁGINAS AUXILIARES (CONVERSAS, MODELOS, CONFIGURAÇÕES, ETC)
    ========================================================================= */
+type HumanSupportItem = { id: string; conversationId: string | null; agentId: string | null; requestedBy: string; reason: string; status: "aberto" | "assumido"; claimedBy: string | null; createdAt: string };
+function HumanSupportPage({ apiFetch, apiUrl }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string }) {
+  const [items, setItems] = useState<HumanSupportItem[]>([]);
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState<string | null>(null);
+  const [version, setVersion] = useState(0);
+  useEffect(() => {
+    const controller = new AbortController();
+    new HumanSupportApi((input, init) => apiFetch(input, { ...init, signal: controller.signal }), apiUrl).list().then((rows) => { setItems(rows); setError(""); }).catch((e: unknown) => { if (!controller.signal.aborted) setError(e instanceof Error ? e.message : "Falha ao carregar atendimentos."); });
+    return () => controller.abort();
+  }, [apiFetch, apiUrl, version]);
+  async function act(id: string, action: "claim" | "resolve") {
+    setBusy(id); setError("");
+    try { await new HumanSupportApi(apiFetch, apiUrl).update(id, action); setVersion((n) => n + 1); }
+    catch (e) { setError(e instanceof Error ? e.message : "Não foi possível atualizar o atendimento."); }
+    finally { setBusy(null); }
+  }
+  return <main className="page-content"><header className="page-heading"><div><span className="section-label">FILA DE ATENDIMENTO</span><h1>Atendimento</h1><p>{items.filter((item) => item.status === "aberto").length} pedidos abertos</p></div></header>{error && <div className="gallery-notice-pill" role="status">{error}</div>}<div className="settings-box">{items.length ? items.map((item) => <article key={item.id} className="workspace-fact" style={{ alignItems:"flex-start", gap:16 }}><div style={{ flex:1 }}><b>{item.status === "aberto" ? "Aberto" : "Assumido"} · {new Date(item.createdAt).toLocaleString("pt-BR")}</b><p style={{ margin:"8px 0" }}>{item.reason}</p><small>Conversa: {item.conversationId ?? "não informada"} · Agente: {item.agentId ?? "não informado"}</small></div><span style={{ display:"flex", gap:8 }}>{item.status === "aberto" && <button className="btn-outline-sm" disabled={busy === item.id} onClick={() => void act(item.id,"claim")}>Assumir</button>}{item.status === "assumido" && <button className="btn-primary-gold" disabled={busy === item.id} onClick={() => void act(item.id,"resolve")}>Resolver</button>}</span></article>) : <p>Nenhum pedido pendente.</p>}</div></main>;
+}
+
 function ConversationsPage({ conversations, agents, onNew, onOpen }: { conversations: Conversation[]; agents: Agent[]; onNew: () => void; onOpen: (id: string) => void }) {
   const agentNames = new Map(agents.map((agent) => [agent.id, agent.name]));
   return (
@@ -2952,7 +2982,7 @@ function ConnectAppsDialog({ onClose, onOpenSettings }: { onClose: () => void; o
 }
 
 /** Foto do bot na lista; se a imagem não carregar, mostra a inicial no mesmo círculo. */
-type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean };
+type PersonEntry = { id: string; name: string; role: "admin" | "operator" | "viewer"; active: boolean; attendant?: boolean };
 const ROLE_LABELS: Record<PersonEntry["role"], string> = { admin: "Administrador", operator: "Operador", viewer: "Leitor" };
 
 /** Pessoas e papéis. O token de cada pessoa aparece uma única vez, ao criar ou trocar. */
@@ -3052,6 +3082,9 @@ function AccessSettings({ edition }: { edition: Edition }) {
             <button className="icon-btn-close" onClick={() => void send(`/users/${person.id}/active`, "PUT", { active: !person.active })}>
               {person.active ? "Desativar" : "Ativar"}
             </button>
+            {person.role !== "admin" && <button className="icon-btn-close" onClick={() => void send(`/users/${person.id}/attendant`, "PUT", { enabled: !person.attendant })}>
+              {person.attendant ? "Remover atendente" : "Liberar atendimento"}
+            </button>}
           </span>
         </div>
       ))}

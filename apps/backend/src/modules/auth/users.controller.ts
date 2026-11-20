@@ -1,12 +1,13 @@
 import { BadRequestException, Body, Controller, Get, Param, Post, Put } from "@nestjs/common";
 import { AdminOnly } from "./roles";
 import { Role, UsersService } from "./users.service";
+import { HumanSupportService } from "../human-support/human-support.service";
 
 /** Gerenciamento de pessoas e papéis: só administradores. */
 @AdminOnly()
 @Controller("users")
 export class UsersController {
-  constructor(private readonly users: UsersService) {}
+  constructor(private readonly users: UsersService, private readonly humanSupport: HumanSupportService) {}
 
   @Get()
   list() {
@@ -33,6 +34,13 @@ export class UsersController {
   setActive(@Param("id") id: string, @Body() body: { active?: unknown }) {
     if (typeof body?.active !== "boolean") throw new BadRequestException({ code: "INVALID_USER", message: "Informe true ou false." });
     return this.users.setActive(id, body.active);
+  }
+
+  @Put(":id/attendant")
+  async setAttendant(@Param("id") id: string, @Body() body: { enabled?: unknown }) {
+    if (typeof body?.enabled !== "boolean") throw new BadRequestException({ code: "INVALID_USER", message: "Informe true ou false." });
+    await this.humanSupport.setAttendant(id, body.enabled);
+    return { updated: true };
   }
 
   /** Troca o token da pessoa; o antigo para de funcionar na hora. */
