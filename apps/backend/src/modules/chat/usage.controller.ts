@@ -1,5 +1,7 @@
-import { Controller, Get, Query } from "@nestjs/common";
+import { Controller, Get, Query, Req } from "@nestjs/common";
 import { UsageService } from "./usage.service";
+
+interface PrincipalRequest { principal?: { id: string; role: string } }
 
 const DEFAULT_DAYS = 30;
 const MAX_DAYS = 365;
@@ -14,12 +16,13 @@ export function clampDays(value: number): number {
 export class UsageController {
   constructor(private readonly usage: UsageService) {}
 
-  /** Consumo de tokens por agente nos últimos N dias. Não inclui conteúdo de mensagens. */
+  /** Consumo do usuário autenticado, ou de todas as pessoas para administradores. */
   @Get("summary")
-  async summary(@Query("days") days?: string) {
+  async summary(@Query("days") days: string | undefined, @Req() request: PrincipalRequest) {
     const safeDays = clampDays(Number(days ?? DEFAULT_DAYS));
     const since = new Date(Date.now() - safeDays * 24 * 60 * 60 * 1000).toISOString();
-    const agents = await this.usage.summaryByAgent(since);
-    return { days: safeDays, since, agents };
+    const principal = request.principal ?? { id: "sistema", role: "admin" };
+    const summary = await this.usage.summaryForOwner(principal.role === "admin" ? null : principal.id, since);
+    return { days: safeDays, since, ...summary, agents: summary.byAgent.map(({ agentId, totalTokens, calls }) => ({ agentId: agentId ?? null, totalTokens, calls })) };
   }
 }

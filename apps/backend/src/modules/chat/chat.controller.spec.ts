@@ -12,6 +12,14 @@ function sseResponse(events: unknown[]): globalThis.Response {
   return new globalThis.Response(body, { headers: { "Content-Type": "text/event-stream" } });
 }
 
+function sseUsageResponse(content: string): globalThis.Response {
+  return new globalThis.Response([
+    `data: ${JSON.stringify({ choices: [{ delta: { content } }] })}\n\n`,
+    `data: ${JSON.stringify({ choices: [], usage: { prompt_tokens: 3, completion_tokens: 2, total_tokens: 5 } })}\n\n`,
+    "data: [DONE]\n\n",
+  ].join(""), { headers: { "Content-Type": "text/event-stream" } });
+}
+
 function toolCall(name: string, args: Record<string, unknown> = {}, id = "call-1") {
   return { choices: [{ delta: { tool_calls: [{ index: 0, id, type: "function", function: { name: name.replace(/\./g, "__"), arguments: JSON.stringify(args) } }] } }] };
 }
@@ -78,7 +86,7 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 describe("ChatController tool loop", () => {
   it("orienta componentes ricos e preserva o bloco na resposta e no histórico", async () => {
     const generated = 'Resumo\n```componente\n{"tipo":"cartao","titulo":"Resumo","corpo":"Tudo certo"}\n```';
-    const { controller, inputs } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: generated } }] }])] });
+    const { controller, inputs } = setup({ streams: [sseUsageResponse(generated)] });
     const addMessage = jest.fn(async (_id, role, content) => ({ role, content }));
     (controller as any).conversations = { create: jest.fn(), addMessage, setTitleForFirstResponse: jest.fn() };
     (controller as any).usage = { record: jest.fn() };
@@ -86,6 +94,7 @@ describe("ChatController tool loop", () => {
     const conversationId = "123e4567-e89b-42d3-a456-426614174001";
     const response = new FakeResponse();
     await controller.complete({ conversationId, messages: [{ role: "user", content: "resuma" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    expect((controller as any).usage.record).toHaveBeenCalledWith(expect.objectContaining({ ownerId: "pessoa-1" }));
     const system = inputs[0].messages.filter((message: any) => message.role === "system");
     const richGuidance = system.find((message: any) => message.content.includes("```componente"));
     expect(richGuidance.content).toContain("cartao");

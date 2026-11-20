@@ -20,6 +20,7 @@ import { ResponsibilitiesPage } from "./components/responsibilities/Responsibili
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
+import { formatCostUsd, formatTokens } from "./lib/usage";
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
@@ -2353,55 +2354,51 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
 
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
 function UsageSettings() {
-  const [rows, setRows] = useState<{ agentId: string | null; totalTokens: number; calls: number }[] | null>(null);
+  type UsageLine = { agentId?: string | null; conversationId?: string | null; personId?: string; title?: string; totalTokens: number; calls: number; costUsd: number | null; callsWithoutPrice: number };
+  const [summary, setSummary] = useState<{ byAgent: UsageLine[]; byConversation: UsageLine[]; byPerson?: UsageLine[] } | null>(null);
   const [names, setNames] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
-
   useEffect(() => {
     const controller = new AbortController();
     Promise.all([
       apiFetch(`${API_URL}/usage/summary?days=30`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : Promise.reject(new Error("usage")))),
       apiFetch(`${API_URL}/agents`, { signal: controller.signal }).then((r) => (r.ok ? r.json() : [])),
-    ])
-      .then(([summary, agents]) => {
-        setRows((summary as { agents: { agentId: string | null; totalTokens: number; calls: number }[] }).agents ?? []);
-        setNames(Object.fromEntries((agents as { id: string; name: string }[]).map((agent) => [agent.id, agent.name])));
-        setError(null);
-      })
-      .catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
+    ]).then(([summaryData, agents]) => {
+      const data = summaryData as { byAgent?: UsageLine[]; byConversation?: UsageLine[]; byPerson?: UsageLine[]; agents?: UsageLine[] };
+      setSummary({ byAgent: data.byAgent ?? data.agents ?? [], byConversation: data.byConversation ?? [], ...(data.byPerson ? { byPerson: data.byPerson } : {}) });
+      setNames(Object.fromEntries((agents as { id: string; name: string }[]).map((agent) => [agent.id, agent.name])));
+      setError(null);
+    }).catch(() => { if (!controller.signal.aborted) setError("Não foi possível carregar o consumo. Esta tela precisa do PostgreSQL ligado."); });
     return () => controller.abort();
   }, []);
-
-  const totalTokens = (rows ?? []).reduce((sum, row) => sum + row.totalTokens, 0);
-  const totalCalls = (rows ?? []).reduce((sum, row) => sum + row.calls, 0);
-
-  return (
-    <article className="settings-box">
-      <h3>Uso e cobrança</h3>
-      <p>Consumo dos últimos 30 dias.</p>
-      {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
-      {rows && (
-        <>
-          <div className="usage-totals">
-            <div><span>Tokens</span><b>{totalTokens.toLocaleString("pt-BR")}</b></div>
-            <div><span>Chamadas</span><b>{totalCalls.toLocaleString("pt-BR")}</b></div>
-          </div>
-          {rows.length === 0 ? <small className="sidebar-empty">Nenhum uso registrado ainda.</small> : (
-            <div className="usage-rows">
-              {rows.map((row) => (
-                <div className="workspace-fact" key={row.agentId ?? "sem-agente"}>
-                  <span>{row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente"}</span>
-                  <b>{row.totalTokens.toLocaleString("pt-BR")} tokens · {row.calls} chamadas</b>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </article>
+  const rows = summary?.byAgent ?? [];
+  const totalTokens = rows.reduce((sum, row) => sum + row.totalTokens, 0);
+  const totalCalls = rows.reduce((sum, row) => sum + row.calls, 0);
+  const totalCost = rows.some((row) => row.costUsd !== null) ? rows.reduce((sum, row) => sum + (row.costUsd ?? 0), 0) : null;
+  const callsWithoutPrice = rows.reduce((sum, row) => sum + row.callsWithoutPrice, 0);
+  const renderLines = (heading: string, lines: UsageLine[], label: (row: UsageLine) => string) => (
+    <section><h4>{heading}</h4>{lines.length === 0 ? <small className="sidebar-empty">Nenhum uso registrado ainda.</small> : lines.map((row, index) => (
+      <div className="workspace-fact" key={`${heading}-${row.agentId ?? row.conversationId ?? row.personId ?? index}`}>
+        <span>{label(row)}</span><b>{formatTokens(row.totalTokens)} tokens · {row.calls} chamadas · {formatCostUsd(row.costUsd)}</b>
+      </div>
+    ))}</section>
   );
+  return <article className="settings-box">
+    <h3>Uso e cobrança</h3><p>Consumo dos últimos 30 dias.</p>
+    {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
+    {summary && <>
+      <div className="usage-totals">
+        <div><span>Tokens</span><b>{formatTokens(totalTokens)}</b></div>
+        <div><span>Chamadas</span><b>{formatTokens(totalCalls)}</b></div>
+        <div><span>Custo estimado</span><b>{formatCostUsd(totalCost)}</b></div>
+      </div>
+      {callsWithoutPrice > 0 && <small>Custo estimado; só inclui modelos com preço cadastrado.</small>}
+      {renderLines("Por agente", summary.byAgent, (row) => row.agentId ? names[row.agentId] ?? "Agente removido" : "Sem agente")}
+      {renderLines("Por conversa", summary.byConversation, (row) => row.title ?? "Sem conversa")}
+      {summary.byPerson && renderLines("Por pessoa", summary.byPerson, (row) => row.personId ?? "sistema")}
+    </>}
+  </article>;
 }
-
 /** Configurações em abas laterais: cada aba mostra só o seu assunto. */
 function UpdateSettings() {
   const [state, setState] = useState<"checking" | "current" | "available" | "error" | "installing">("checking");
