@@ -84,6 +84,24 @@ describe("ChatController tool loop", () => {
     expect(JSON.parse(nextToolMessage.content).resultados).toEqual([{ titulo: "resultado externo" }]);
   });
 
+  it("responde à busca localmente e expõe a ferramenta encontrada na rodada seguinte", async () => {
+    const catalog = [...TOOL_DEFINITIONS, ...Array.from({ length: 45 }, (_, index) => ({
+      name: `mcp.arquivos_${index}`, description: "Lista arquivos da pasta", risk: "read" as const,
+    }))];
+    const invoke = jest.fn();
+    const { controller, inputs, tools } = setup({ invoke, streams: [
+      sseResponse([toolCall("ferramentas.buscar", { consulta: "arquivos" })]),
+      sseResponse([{ choices: [{ delta: { content: "encontrada" } }] }]),
+    ] });
+    tools.catalog = () => catalog;
+    await complete(controller);
+    expect(inputs[0].tools.some((tool: any) => tool.function.name === "ferramentas__buscar")).toBe(true);
+    expect(inputs[1].tools.some((tool: any) => tool.function.name === "mcp__arquivos_0")).toBe(true);
+    const result = inputs[1].messages.find((message: any) => message.role === "tool");
+    expect(JSON.parse(result.content).status).toBe("done");
+    expect(invoke).not.toHaveBeenCalled();
+  });
+
   it("mascara padrões de segredo na resposta final antes de enviá-la ao cliente", async () => {
     const { controller } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: "A chave é sk-1234567890abcdefghijkl" } }] }])] });
     const response = await complete(controller);

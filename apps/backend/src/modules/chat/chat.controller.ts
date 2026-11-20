@@ -22,6 +22,7 @@ import { Principal } from "../auth/users.service";
 import { AgentSkillsService } from "../skills/agent-skills.service";
 import { buildSkillsSystemMessage } from "../skills/skill-prompt";
 import { DatabaseService } from "../database/database.service";
+import { foundFrom, searchTools, visibleTools } from "../tools/tool-search";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -199,10 +200,11 @@ export class ChatController {
       } catch (error) { this.logger.warn(`Histórico não persistido: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
     }
 
-    const availableTools = providerTools(this.toolsService.catalog());
+    const toolCatalog = this.toolsService.catalog();
+    const allAvailableTools = providerTools(toolCatalog);
+    const found = new Set<string>();
     const completion = {
       provider: agent?.provider === "anthropic" ? "anthropic" as const : "openai" as const,
-      tools: availableTools.tools,
       ...(effectiveModel === undefined ? {} : { model: effectiveModel }),
       ...(agent?.generationConfig ? { generationConfig: agent.generationConfig } : {}),
     };
@@ -217,7 +219,8 @@ export class ChatController {
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
-        const upstream = await this.providers.stream({ ...completion, messages: workingMessages }, abort.signal);
+        const availableTools = providerTools(visibleTools(toolCatalog, found));
+        const upstream = await this.providers.stream({ ...completion, tools: availableTools.tools, messages: workingMessages }, abort.signal);
         const stream = new MaskedTextStream(mask, (piece) => { res.write(sseTextChunk(piece)); });
         const round = await readCompletion(upstream, stream);
         if (round.model) reportedModel = round.model;
@@ -241,11 +244,6 @@ export class ChatController {
         }
         workingMessages.push({ role: "assistant", content: round.content || null, tool_calls: round.toolCalls });
         for (const call of round.toolCalls) {
-          const canonicalName = availableTools.names.get(call.function.name);
-          if (!canonicalName) {
-            workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Ferramenta indisponível." }) });
-            continue;
-          }
           let input: Record<string, unknown>;
           try {
             const parsed = JSON.parse(call.function.arguments || "{}");
@@ -255,8 +253,27 @@ export class ChatController {
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Argumentos da ferramenta inválidos." }) });
             continue;
           }
+          if (call.function.name === "ferramentas__buscar") {
+            if (typeof input.consulta !== "string") {
+              workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Informe a consulta da busca." }) });
+              continue;
+            }
+            const results = searchTools(input.consulta, toolCatalog);
+            for (const name of foundFrom(results)) {
+              found.delete(name);
+              found.add(name);
+              if (found.size > 20) found.delete(found.values().next().value as string);
+            }
+            workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "done", resultados: results }) });
+            continue;
+          }
+          const canonicalName = allAvailableTools.names.get(call.function.name);
+          if (!canonicalName) {
+            workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Ferramenta indisponível." }) });
+            continue;
+          }
           try {
-            if (availableTools.risks.get(call.function.name) === "sensitive") {
+            if (allAvailableTools.risks.get(call.function.name) === "sensitive") {
               const pending = await this.toolsService.invoke(canonicalName, input, request.principal?.name ?? "sistema", undefined, request.principal?.id);
               workingMessages.push({ role: "tool", tool_call_id: call.id, content: resultForModel(canonicalName, pending) });
               continue;
