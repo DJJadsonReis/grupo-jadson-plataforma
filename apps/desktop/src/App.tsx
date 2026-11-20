@@ -27,6 +27,7 @@ import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { McpAccessPanel } from "./components/mcp/McpAccessPanel";
 import { ConnectionSharesPanel } from "./components/connections/ConnectionSharesPanel";
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
+import { CheckinsPanel } from "./components/checkins/CheckinsPanel";
 import { AuditRetentionSettingsForRole } from "./components/audit/AuditRetentionSettings";
 import { auditErrorMessage, buildAuditQuery, validateAuditRange } from "./lib/audit-filters";
 import { auditActionLabel } from "./lib/audit-labels";
@@ -1209,7 +1210,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
           <button type="button" disabled={reconnecting} onClick={() => { setReconnecting(true); void reconnectAndRetry().finally(() => setReconnecting(false)); }} style={{ border: 0, borderRadius: 8, padding: "6px 10px", cursor: "pointer" }}>{reconnecting ? "Conectando…" : "Reconectar"}</button>
         </div>}
 
-        {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} />}
+        {notificationsOpen && <NotificationsPanel apiFetch={apiFetch} apiUrl={API_URL} open={notificationsOpen} onCountChange={setNotificationCount} onOpenSuggestion={(id) => { void apiFetch(`${API_URL}/checkins/suggestions/${encodeURIComponent(id)}`).then(async (response) => { if (!response.ok) throw new Error("Sugestão não encontrada."); return await response.json() as { agentId: string }; }).then(({agentId}) => { setViewedAgentId(agentId); setPage("agent-detail"); setNotificationsOpen(false); window.setTimeout(() => document.getElementById(`checkin-suggestion-${id}`)?.scrollIntoView({behavior:"smooth",block:"center"}),150); }).catch((cause) => setError(cause instanceof Error ? cause.message : "Não foi possível abrir a sugestão.")); }} />}
         <div className={page !== "dashboard" && page !== "chat" ? "internal-screen" : undefined}>
         {page === "dashboard" && (
           <Dashboard
@@ -1284,6 +1285,8 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
             onEdit={() => setAgentEditor(viewedAgent)}
             onChat={() => newConversation(viewedAgent.id)}
             onOpenConversation={(id) => { setActiveConversation(id); setPage("chat"); }}
+            apiFetch={apiFetch}
+            apiUrl={API_URL}
           />
         )}
         {page === "conversations" && (
@@ -2441,12 +2444,13 @@ function AgentsPage({
    PERFIL DETALHADO DO AGENTE
    ========================================================================= */
 function AgentDetailPage({
-  agent, conversations, persistence, edition, onBack, onEdit, onChat, onOpenConversation
+  agent, conversations, persistence, edition, onBack, onEdit, onChat, onOpenConversation, apiFetch, apiUrl
 }: {
   agent: Agent; conversations: Conversation[]; persistence: "checking" | "connected" | "local" | "error";
   edition: Edition;
   onBack: () => void; onEdit: () => void; onChat: () => void;
   onOpenConversation: (id: string) => void;
+  apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string;
 }) {
   const [sharingOpen, setSharingOpen] = useState(false);
   const canEdit = canEditAgent(agent);
@@ -2526,6 +2530,7 @@ function AgentDetailPage({
           )}
         </section>
       </div>
+      <CheckinsPanel apiFetch={apiFetch} apiUrl={apiUrl} agentId={agent.id} onOpenConversation={onOpenConversation} />
       {canShare && sharingOpen && <AgentSharingPanel agent={agent} />}
     </div>
   );

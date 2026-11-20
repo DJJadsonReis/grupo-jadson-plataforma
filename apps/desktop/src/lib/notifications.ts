@@ -4,6 +4,7 @@ export type DesktopNotification = {
   title: string;
   body: string;
   createdAt: string;
+  details?: Record<string, unknown>;
 };
 
 const KIND_LABELS: Record<string, string> = {
@@ -13,6 +14,7 @@ const KIND_LABELS: Record<string, string> = {
   "responsibility.result": "Resultado de responsabilidade",
   "responsibility.disabled": "Responsabilidade desativada",
   "human_support.requested": "Atendimento humano solicitado",
+  "checkin.message": "Novo check-in",
 };
 
 export function notificationKindLabel(kind: string): string {

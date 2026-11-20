@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 
-export type NotificationKind = "approval.pending" | "routine.failed" | "tool_limit.reached" | "responsibility.result" | "responsibility.disabled" | "human_support.requested";
+export type NotificationKind = "approval.pending" | "routine.failed" | "tool_limit.reached" | "responsibility.result" | "responsibility.disabled" | "human_support.requested" | "checkin.message";
 export type TaskNotificationKind = "task.completed" | "task.failed";
 export interface Notification { id: string; owner: string; kind: NotificationKind; title: string; body: string; details: Record<string, unknown>; createdAt: string; readAt: string | null; }
 const COLUMNS = `id, owner, kind, title, body, details, created_at AS "createdAt", read_at AS "readAt"`;

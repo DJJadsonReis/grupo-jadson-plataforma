@@ -21,6 +21,7 @@ import { ConnectionSharesModule } from "./modules/connection-shares/connection-s
 import { DictationModule } from "./modules/dictation/dictation.module";
 import { HumanSupportModule } from "./modules/human-support/human-support.module";
 import { McpServerModule } from "./modules/mcp-server/mcp-server.module";
+import { CheckinsModule } from "./modules/checkins/checkins.module";
 
-@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule, EditionModule, TeamRoomsModule, ConnectionSharesModule, DictationModule, HumanSupportModule, McpServerModule] })
+@Module({ imports: [AuthModule, HealthModule, ChatModule, AgentsModule, QueueModule, AuditModule, MemoryModule, HandoffsModule, DocumentsModule, ToolsModule, RoutinesModule, IntegrationsModule, GoogleModule, SkillsModule, TasksModule, ResponsibilitiesModule, CheckinsModule, EditionModule, TeamRoomsModule, ConnectionSharesModule, DictationModule, HumanSupportModule, McpServerModule] })
 export class AppModule {}
