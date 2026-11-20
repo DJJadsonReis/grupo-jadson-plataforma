@@ -938,7 +938,7 @@ function Workspace() {
         )}
         {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
-        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} />}
+        {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={!readSession()} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} />}
         {page === "monitoring" && (
