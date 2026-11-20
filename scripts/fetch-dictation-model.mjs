@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
-const destination = join(root, "apps/desktop/src-tauri/resources/dictation-model");
+const destination = join(root, "apps/desktop/src-tauri/resources/dictation-model/onnx-community/whisper-base");
 const modelUrl = "https://huggingface.co/onnx-community/whisper-base/resolve/main/";
 const files = [
   "config.json",

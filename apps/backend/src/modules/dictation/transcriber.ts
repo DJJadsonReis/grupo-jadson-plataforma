@@ -25,17 +25,18 @@ export function bundledModelDirectory(env: NodeJS.ProcessEnv = process.env): str
 
 export async function verifyBundledModel(directory: string): Promise<boolean> {
   try {
-    const manifest = JSON.parse(await readFile(join(directory, "manifest.json"), "utf8")) as {
+    const modelDirectory = join(directory, MODEL_ID);
+    const manifest = JSON.parse(await readFile(join(modelDirectory, "manifest.json"), "utf8")) as {
       model?: unknown;
       files?: Array<{ name?: unknown; size?: unknown; sha256?: unknown }>;
     };
     if (manifest.model !== MODEL_ID || !Array.isArray(manifest.files) || manifest.files.length === 0) return false;
     const seen = new Set<string>();
     for (const entry of manifest.files) {
-      if (typeof entry.name !== "string" || !entry.name || entry.name.includes("..") || entry.name.includes("/") || entry.name.includes("\\") || seen.has(entry.name)) return false;
+      if (typeof entry.name !== "string" || !entry.name || entry.name.split(/[\\/]/).some((part) => !part || part === "." || part === "..") || seen.has(entry.name)) return false;
       if (!Number.isSafeInteger(entry.size) || (entry.size as number) < 0 || typeof entry.sha256 !== "string" || !/^[a-f0-9]{64}$/.test(entry.sha256)) return false;
       seen.add(entry.name);
-      const bytes = await readFile(join(directory, entry.name));
+      const bytes = await readFile(join(modelDirectory, entry.name));
       const sha256 = createHash("sha256").update(bytes).digest("hex");
       if (bytes.byteLength !== entry.size || sha256 !== entry.sha256) return false;
     }
