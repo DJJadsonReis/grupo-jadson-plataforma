@@ -107,6 +107,42 @@ async function completePersistedConversationWithModel(controller: ChatController
 }
 
 describe("ChatController tool loop", () => {
+  it("regenerate não grava pergunta, remove resposta antiga após geração e valida o campo", async () => {
+    const conversationId = "123e4567-e89b-42d3-a456-426614174001";
+    const { controller, providers } = setup();
+    const calls: string[] = [];
+    const addMessage = jest.fn(async (_id: string, role: string) => { calls.push(role); return {}; });
+    const removeLastAssistantMessage = jest.fn(async () => { calls.push("remove"); return true; });
+    (controller as any).conversations = {
+      isPersisted: jest.fn(async () => true), create: jest.fn(), addMessage, removeLastAssistantMessage,
+      reasoningEffort: jest.fn(async () => ({ effort: null })), setTitleForFirstResponse: jest.fn(),
+    };
+    await expect(controller.complete({ conversationId, regenerate: "true", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response)).rejects.toMatchObject({ status: 400 });
+    expect(providers.stream).not.toHaveBeenCalled();
+    await controller.complete({ conversationId, regenerate: true, messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(addMessage).toHaveBeenCalledTimes(1);
+    expect(addMessage).toHaveBeenCalledWith(conversationId, "assistant", "feito", expect.any(Object), "pessoa-1");
+    expect(removeLastAssistantMessage).toHaveBeenCalledWith(conversationId, "pessoa-1");
+    expect(calls).toEqual(["remove", "assistant"]);
+  });
+
+  it("preserva resposta anterior quando a geração de regenerate falha e mantém gravação normal", async () => {
+    const conversationId = "123e4567-e89b-42d3-a456-426614174001";
+    const { controller } = setup({ streams: [new Response("falha", { status: 500 })] });
+    const addMessage = jest.fn(async () => ({}));
+    const removeLastAssistantMessage = jest.fn(async () => true);
+    (controller as any).conversations = { isPersisted: jest.fn(async () => true), create: jest.fn(), addMessage, removeLastAssistantMessage, reasoningEffort: jest.fn(async () => ({ effort: null })) };
+    await controller.complete({ conversationId, regenerate: true, messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(removeLastAssistantMessage).not.toHaveBeenCalled();
+    expect(addMessage).not.toHaveBeenCalledWith(conversationId, "user", expect.anything(), expect.anything(), expect.anything());
+
+    const ordinary = setup();
+    const ordinaryAdd = jest.fn(async () => ({}));
+    (ordinary.controller as any).conversations = { isPersisted: jest.fn(async () => false), create: jest.fn(), setOperationMode: jest.fn(), addMessage: ordinaryAdd };
+    await ordinary.controller.complete({ conversationId, messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(ordinaryAdd).toHaveBeenCalledWith(conversationId, "user", "oi", expect.any(Object), "pessoa-1");
+  });
+
   it("applies stored effort only when the selected model supports it", async () => {
     const { controller, inputs } = setup();
     const conversations = (controller as any).conversations;

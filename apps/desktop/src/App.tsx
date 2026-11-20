@@ -12,6 +12,7 @@ import { groupChatsByDate } from "./lib/chat-groups";
 import { chatLayoutForMessages } from "./lib/chat-layout";
 import { readShellPrefs, writeShellPrefs, type AppTheme } from "./lib/shell-prefs";
 import { shellShortcut } from "./lib/shell-shortcuts";
+import { attachmentsForChatRequest, regenerationFields } from "./lib/chat-request";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -778,7 +779,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
     setMobileOpen(false);
   }
 
-  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser = false) {
+  async function sendMessage(contentInput: string, model: string, agent: Agent | undefined, selectedFiles: File[] = [], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser = false, retryAttachments?: ChatMessage["attachments"]) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
@@ -827,7 +828,10 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
     setDraft(""); setFiles([]); setError(null); setBusy(true); setActiveAgentId(responseAgent?.id ?? null);
     const controller = new AbortController(); abortRef.current = controller;
     try {
-      const attachments = await Promise.all(selectedFiles.map(async (file) => ({
+      const retryFiles = attachmentsForChatRequest(retryAttachments, retryExistingUser);
+      const attachments = retryFiles.length
+        ? retryFiles
+        : await Promise.all(selectedFiles.map(async (file) => ({
         id: crypto.randomUUID(), name: file.name, type: file.type, size: file.size,
         dataUrl: await new Promise<string>((resolve, reject) => {
           const reader = new FileReader(); reader.onload = () => typeof reader.result === "string" ? resolve(reader.result) : reject(new Error("Não foi possível ler o anexo."));
@@ -847,6 +851,7 @@ function Workspace({ edition, isAdmin, setupStatus, setupFailed, setSetupStatus,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           conversationId: id,
+          ...regenerationFields(retryExistingUser),
           ...(currentGroup?.mode === "manual" && groupRequest?.agentId ? { agentId: groupRequest.agentId } : !currentGroup && agent ? { agentId: agent.id } : {}),
           ...(current?.groupId ? { groupId: current.groupId } : {}),
           attachments,
@@ -1678,7 +1683,7 @@ function ChatPage({
   conversation: Conversation | null; agents: Agent[]; groups: Group[]; draft: string; busy: boolean; modelCatalogue: CatalogueProvider[]; selectableProviders: { providerId: string; providerName: string; models: { id: string; label: string; supportsEffort?: boolean }[] }[];
   activeAgentId: string | null; error: string | null; files: File[];
   setDraft: Dispatch<SetStateAction<string>>; setFiles: (value: File[]) => void;
-  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser?: boolean) => void;
+  onSend: (content: string, model: string, agent: Agent | undefined, files?: File[], titleHint?: string, modelProviderId?: string, operationMode?: DesktopOperationMode, reasoningEffort?: ConversationEffort | null, retryExistingUser?: boolean, retryAttachments?: ChatMessage["attachments"]) => void;
   onCancel: () => void; onDismissError: () => void; onChooseFiles: () => void;
   inputRef: RefObject<HTMLInputElement>;
   isAdmin: boolean;
@@ -1995,7 +2000,7 @@ function ChatPage({
                       <ReadAloudButton text={message.content} />
                       <div className="gx-message-actions" aria-label="Ações da resposta">
                         <button type="button" aria-label="Copiar resposta" title="Copiar resposta" onClick={() => { void navigator.clipboard?.writeText(message.content); }}><FileText size={13} /> Copiar</button>
-                        {isLast && <button type="button" aria-label="Refazer resposta" title="Refazer resposta" disabled={busy} onClick={() => { const previousUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user"); if (previousUser) onSend(previousUser.content, model, selectedAgent, [], undefined, selectedModelOption?.providerId, operationMode, effortSupported ? reasoningEffort : undefined, true); }}><RefreshBoldIcon size={13} /> Refazer</button>}
+                        {isLast && <button type="button" aria-label="Refazer resposta" title="Refazer resposta" disabled={busy} onClick={() => { const previousUser = [...messages.slice(0, index)].reverse().find((item) => item.role === "user"); if (previousUser) onSend(previousUser.content, model, selectedAgent, [], undefined, selectedModelOption?.providerId, operationMode, effortSupported ? reasoningEffort : undefined, true, previousUser.attachments); }}><RefreshBoldIcon size={13} /> Refazer</button>}
                       </div>
                     </div>
                     <div className="gx-turn-body">
