@@ -27,7 +27,9 @@ import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-pr
 import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
-import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
+import { DictationHttpClient } from "./lib/dictation-api";
+import { MicrophoneRecorder } from "./lib/dictation-capture";
+import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -1350,123 +1352,33 @@ function ReadAloudButton({ text }: { text: string }) {
   );
 }
 
-/** Ditado: só inicia quando o WebView garante processamento local do áudio. */
-function DictateButton({ onText }: { onText: (text: string) => void }) {
-  const Recognition = getSpeechRecognitionConstructor(window as SpeechRecognitionWindow);
-  const onDeviceSupported = supportsOnDeviceSpeech(Recognition);
-  const [listening, setListening] = useState(false);
-  const [preparing, setPreparing] = useState(false);
+/** Captura o microfone e envia trechos somente ao backend local. */
+function DictateButton({ draft, onText, onSendText }: { draft: string; onText: (text: string) => void; onSendText: (text: string) => void }) {
+  const [state, setState] = useState<DictationState>("idle");
+  const [status, setStatus] = useState<ModelStatus | undefined>();
   const [error, setError] = useState<string | null>(null);
-  const [readyNotice, setReadyNotice] = useState<string | null>(null);
-  const [languageStatus, setLanguageStatus] = useState<OnDeviceSpeechStatus>(onDeviceSupported ? "checking" : "unsupported");
-  const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const mountedRef = useRef(true);
-
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-      recognitionRef.current?.stop();
-    };
-  }, []);
-
-  useEffect(() => {
-    let active = true;
-    if (!onDeviceSupported) {
-      setLanguageStatus("unsupported");
-      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
-      return () => { active = false; };
-    }
-    void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-      if (!active) return;
-      setLanguageStatus(status);
-      if (status === "unavailable") setError("O reconhecimento local em português não está disponível neste computador.");
-    });
-    return () => { active = false; };
-  }, [Recognition, onDeviceSupported]);
-
-  function toggle() {
-    if (listening) { recognitionRef.current?.stop(); return; }
-    setError(null);
-    setReadyNotice(null);
-    if (!Recognition || !onDeviceSupported || languageStatus === "unsupported") {
-      setError("Este WebView não oferece reconhecimento de fala no dispositivo. Nenhum áudio foi enviado a um serviço externo.");
-      return;
-    }
-    if (languageStatus === "unavailable") {
-      setError("O reconhecimento local em português não está disponível neste computador. Nenhum áudio foi enviado.");
-      return;
-    }
-    if (languageStatus === "checking") {
-      setError("Verificando o pacote local de português. Tente novamente em instantes.");
-      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-        if (mountedRef.current) setLanguageStatus(status);
-      });
-      return;
-    }
-    if (languageStatus === "downloading") {
-      setError("O pacote local de português ainda está sendo preparado. Verifique novamente em instantes.");
-      void onDeviceSpeech(Recognition, "pt-BR").then((status) => {
-        if (mountedRef.current) setLanguageStatus(status);
-      });
-      return;
-    }
-    if (languageStatus === "downloadable") {
-      setPreparing(true);
-      // install() is called directly from this click; it prepares only the local language pack.
-      void installOnDeviceSpeech(Recognition, "pt-BR").then((ready) => {
-        if (!mountedRef.current) return;
-        setPreparing(false);
-        if (ready) {
-          setLanguageStatus("available");
-          setReadyNotice("Pacote local de português pronto. Clique no microfone novamente para começar a ditar.");
-        } else {
-          setError("Não foi possível preparar o pacote local de português. Nenhum áudio foi enviado.");
-        }
-      });
-      return;
-    }
-    const recognition = new Recognition();
-    if (!requireOnDeviceRecognition(recognition)) {
-      setError("Este WebView não garante reconhecimento no dispositivo. O ditado foi desativado para manter seu áudio local.");
-      return;
-    }
-    recognition.lang = "pt-BR";
-    recognition.continuous = false;
-    recognition.interimResults = false;
-    recognition.onresult = (event) => {
-      const text = Array.from(event.results).map((result) => result[0]?.transcript ?? "").join(" ").trim();
-      if (text) onText(text);
-    };
-    recognition.onend = () => {
-      setListening(false);
-      recognitionRef.current = null;
-    };
-    recognition.onerror = (event) => {
-      setListening(false);
-      setError(speechRecognitionErrorMessage(event.error));
-    };
-    recognitionRef.current = recognition;
-    setListening(true);
-    try { recognition.start(); }
-    catch {
-      setListening(false);
-      recognitionRef.current = null;
-      setError("O ditado local não pôde iniciar. Verifique o microfone e tente novamente.");
-    }
-  }
-
-  return (
-    <>
-      <button type="button" className={"toolbar-btn" + (listening ? " is-listening" : "") + (!onDeviceSupported ? " is-unavailable" : "")} onClick={toggle} disabled={preparing} title={listening ? "Parar ditado" : languageStatus === "checking" ? "Verificando reconhecimento local" : languageStatus === "downloadable" ? "Preparar pacote local de português" : languageStatus === "unsupported" || languageStatus === "unavailable" ? "Ditado local indisponível; clique para ver o motivo" : "Ditar mensagem localmente"} aria-label={listening ? "Parar ditado" : preparing ? "Preparando pacote local" : languageStatus === "checking" ? "Verificando pacote local" : "Ditar mensagem localmente"} aria-pressed={listening || preparing}>
-        {preparing ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{(listening || preparing) && <span>{preparing ? "Preparando…" : "Escutando…"}</span>}
-      </button>
-      {error && <small className="speech-dictation-error" role="alert">{error}</small>}
-      {readyNotice && <small className="speech-dictation-ready" role="status">{readyNotice}</small>}
-    </>
-  );
+  const callbacks = useRef({ onText, onSendText, draft });
+  callbacks.current = { onText, onSendText, draft };
+  const local = isLoopbackBackend(API_URL);
+  const sessionRef = useRef<DictationSession | null>(null);
+  if (!sessionRef.current) sessionRef.current = new DictationSession(new MicrophoneRecorder(), new DictationHttpClient(API_URL, apiFetch), {
+    state: (next, modelStatus) => { setState(next); setStatus(modelStatus); },
+    text: (text) => callbacks.current.onText(text),
+    error: (message) => setError(message),
+  }, local, (text) => callbacks.current.onSendText(text));
+  const session = sessionRef.current;
+  useEffect(() => () => { void session.cancel(); }, [session]);
+  const recording = state === "recording" || state === "stopping" || state === "sending";
+  return <>
+    <button type="button" className={"toolbar-btn" + (recording ? " is-listening" : "") + (!local ? " is-unavailable" : "")} disabled={!local || state !== "idle"} onClick={() => { setError(null); void session.begin(callbacks.current.draft); }} title={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."} aria-label={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."}>
+      {state === "checking" || state === "downloading" ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{recording && <span>Escutando…</span>}
+    </button>
+    {recording && <div className="dictation-controls"><button type="button" onClick={() => void session.stop()}>Parar</button><button type="button" onClick={() => void session.sendText()}>Enviar</button><button type="button" onClick={() => void session.cancel()}>Cancelar</button></div>}
+    {state === "confirm-download" && <div className="dictation-confirm" role="dialog" aria-label="Baixar modelo de voz"><span>O reconhecimento de voz precisa baixar um modelo de cerca de {status?.sizeMb ?? 82} MB, uma vez, para este computador. Nenhum áudio sai do computador.</span><button type="button" onClick={() => void session.confirmDownload()}>Baixar</button><button type="button" onClick={() => session.cancelDownload()}>Cancelar</button></div>}
+    {state === "downloading" && <small className="speech-dictation-ready" role="status">Baixando modelo local: {Math.round(status?.progress ?? 0)}%</small>}
+    {error && <small className="speech-dictation-error" role="alert">{error}</small>}
+  </>;
 }
-
 /** Busca rápida (Ctrl+K): bots, conversas, ações e telas. */
 function CommandPalette({ open, onClose, agents, conversations, onOpenConversation, onChatWithAgent, onNewConversation, onNavigate }: {
   open: boolean; onClose: () => void; agents: Agent[]; conversations: Conversation[];
@@ -1839,7 +1751,7 @@ function ChatPage({
                 <button type="button" className="gx-icon-btn" onClick={onChooseFiles} title="Anexar imagem ou PDF" aria-label="Anexar imagem ou PDF">
                   <Paperclip size={16} />
                 </button>
-                <DictateButton onText={(text) => setDraft((current) => current ? `${current} ${text}` : text)} />
+                <DictateButton draft={draft} onText={setDraft} onSendText={(text) => onSend(text, model, currentGroup?.mode === "mention" ? undefined : selectedAgent, files, text)} />
                 <label className="gx-pill" title="Modelo usado nesta conversa">
                   <Sparkles size={13} />
                   <input className="gx-pill-input" aria-label="ID do modelo" list="model-suggestions" placeholder="Modelo padrão" value={model} onChange={(event) => setModel(event.target.value)} />

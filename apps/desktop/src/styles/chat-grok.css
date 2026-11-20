@@ -326,8 +326,11 @@
 .gx-chat .gx-tools .gx-icon-btn { width: 30px; height: 30px; }
 .gx-chat .gx-tools .toolbar-btn.is-listening { display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; color: #ffb4a8; background: rgba(190, 73, 63, .16); }
 .gx-chat .gx-tools .toolbar-btn.is-unavailable { color: #a09b90; }
-.gx-chat .gx-tools .speech-dictation-error { flex-basis: 100%; color: #ffb4a8; font-size: 11px; line-height: 1.4; }
-.gx-chat .gx-tools .speech-dictation-ready { flex-basis: 100%; color: #b7dca8; font-size: 11px; line-height: 1.4; }
+.gx-chat .gx-tools .speech-dictation-error, .gx-chat .gx-tools .speech-dictation-ready { flex-basis: 100%; color: #ffb4a8; font-size: 11px; line-height: 1.4; }
+.gx-chat .gx-tools .speech-dictation-ready { color: #b7dca8; }
+.gx-chat .dictation-controls, .gx-chat .dictation-confirm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.gx-chat .dictation-controls button, .gx-chat .dictation-confirm button { border: 1px solid #343434; border-radius: 999px; padding: 5px 10px; color: var(--gx-ink); background: #202020; cursor: pointer; font: inherit; font-size: 12px; }
+.gx-chat .dictation-confirm { flex-basis: 100%; color: var(--gx-ink-2); font-size: 12px; }
 .gx-chat .gx-pill {
   display: inline-flex;
   align-items: center;
