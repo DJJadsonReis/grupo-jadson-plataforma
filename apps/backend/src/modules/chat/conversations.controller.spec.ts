@@ -17,4 +17,11 @@ describe("ConversationsController.remove", () => {
     await expect(controller.remove("123e4567-e89b-42d3-a456-426614174000", { principal: { id: "owner" } as any })).resolves.toEqual({ removed: true });
     expect(conversations.remove).toHaveBeenCalledWith("123e4567-e89b-42d3-a456-426614174000", "owner");
   });
+
+  it("returns not found when the conversation does not exist or belongs to another owner", async () => {
+    const conversations = { remove: jest.fn().mockResolvedValue(false) } as any;
+    const controller = new ConversationsController(conversations);
+    await expect(controller.remove("123e4567-e89b-42d3-a456-426614174000", { principal: { id: "owner" } as any })).rejects.toBeInstanceOf(NotFoundException);
+    expect(conversations.remove).toHaveBeenCalledWith("123e4567-e89b-42d3-a456-426614174000", "owner");
+  });
 });

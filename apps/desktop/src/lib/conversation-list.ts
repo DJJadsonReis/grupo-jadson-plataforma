@@ -7,6 +7,15 @@ export interface ConversationSections {
   conversations: Conversation[];
 }
 
+/** IDs confirmadamente carregados do servidor; UUIDs locais não são suficientes para isso. */
+export function isPersistedConversation(id: string, serverConversationIds: Iterable<string>): boolean {
+  return isServerConversationId(id) && new Set(serverConversationIds).has(id);
+}
+
+export function deletionErrorMessage(failed: boolean): string | null {
+  return failed ? "Não foi possível excluir a conversa. Tente de novo." : null;
+}
+
 /** IDs locais não podem ser enviados a rotas cujo identificador no banco é UUID. */
 export function isServerConversationId(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(id);

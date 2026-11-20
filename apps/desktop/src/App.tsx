@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { conversationRowPreview, avatarInitials, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
+import { conversationRowPreview, avatarInitials, deletionErrorMessage, isPersistedConversation, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -348,9 +348,12 @@ function Workspace({ edition }: { edition: Edition }) {
   const [activeConversation, setActiveConversation] = useState<string | null>(null);
   const [pendingConversation, setPendingConversation] = useState<Conversation | null>(null);
   const [historyMenu, setHistoryMenu] = useState<{ id: string; x: number; y: number } | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<string | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [historyNotice, setHistoryNotice] = useState<string | null>(null);
+  const historyNoticeTimer = useRef<number | null>(null);
+  const serverConversationIdsRef = useRef(new Set<string>());
 
   useEffect(() => {
     if (!historyMenu) return;
@@ -368,16 +371,15 @@ function Workspace({ edition }: { edition: Edition }) {
 
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    if (!item || !window.confirm("Excluir esta conversa e todo o hist\u00f3rico? N\u00e3o d\u00e1 para desfazer.")) return;
+    if (!item) return;
     deletedConversationIdsRef.current.add(id);
-    if (isServerConversationId(id)) {
+    if (isPersistedConversation(id, serverConversationIdsRef.current)) {
       try {
         const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-        if (!response.ok && response.status !== 404) throw new Error("falhou");
+        if (!response.ok) throw new Error("falhou");
       } catch {
         deletedConversationIdsRef.current.delete(id);
-        setHistoryNotice("N\u00e3o foi poss\u00edvel excluir a conversa. Tente de novo.");
-        window.setTimeout(() => setHistoryNotice(null), 3000);
+        showHistoryNotice(deletionErrorMessage(true));
         return;
       }
     }
@@ -389,8 +391,11 @@ function Workspace({ edition }: { edition: Edition }) {
       localStorage.setItem(STORAGE_KEY, serializeWorkspace(removeConversationFromWorkspace(workspace, id)));
     } catch { /* o estado em mem\u00f3ria j\u00e1 foi atualizado */ }
     if (activeConversation === id) { abortRef.current?.abort(); setActiveConversation(null); setPage("conversations"); }
-    setHistoryNotice("Conversa exclu\u00edda.");
-    window.setTimeout(() => setHistoryNotice(null), 2500);
+  }
+  function showHistoryNotice(message: string | null) {
+    if (historyNoticeTimer.current !== null) window.clearTimeout(historyNoticeTimer.current);
+    setHistoryNotice(message);
+    if (message) historyNoticeTimer.current = window.setTimeout(() => { setHistoryNotice(null); historyNoticeTimer.current = null; }, 3000);
   }
   const [historyQuery, setHistoryQuery] = useState("");
   const [sidebarWidth, setSidebarWidth] = useState(() => clampSidebarWidth(Number(readStoredValue("grupo-jadson.sidebar-width")) || SIDEBAR_DEFAULT_WIDTH));
@@ -502,8 +507,9 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const remote = (await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[])
-          .filter((item) => !deletedConversationIdsRef.current.has(item.id));
+        const responseItems = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        serverConversationIdsRef.current = new Set(responseItems.map((item) => item.id));
+        const remote = responseItems.filter((item) => !deletedConversationIdsRef.current.has(item.id));
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -697,6 +703,7 @@ function Workspace({ edition }: { edition: Edition }) {
         const body = await response.json().catch(() => ({})) as { message?: string };
         throw new Error(body.message ?? `A API respondeu com HTTP ${response.status}.`);
       }
+      if (conversationId && isServerConversationId(conversationId)) serverConversationIdsRef.current.add(conversationId);
       const reader = response.body?.getReader();
       if (!reader) throw new Error("A API não retornou um fluxo de resposta legível.");
       const decoder = new TextDecoder(); let answer = ""; let pending = ""; let eventName = ""; let streamError: string | null = null;
@@ -933,9 +940,11 @@ function Workspace({ edition }: { edition: Edition }) {
                   </button>
                 );
                 const matches = (item: Conversation) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase());
+                const agentChats = sections.agents.filter(matches);
+                const fixedAgentNames = agents.filter((agent) => agent.name.toLowerCase().includes(historyQuery.trim().toLowerCase()));
                 return <>
-                  {sections.agents.some(matches) && <div className="history-section-title">Agentes</div>}
-                  {sections.agents.filter(matches).slice(0, 30).map(renderConversation)}
+                  {(fixedAgentNames.length > 0 || agentChats.length > 0) && <div className="history-section-title">Agentes</div>}
+                  {agentChats.slice(0, 30).map(renderConversation)}
                   {sections.conversations.some(matches) && <div className="history-section-title">Conversas</div>}
                   {sections.conversations.filter(matches).slice(0, 30).map(renderConversation)}
                 </>;
@@ -955,7 +964,7 @@ function Workspace({ edition }: { edition: Edition }) {
                     setRenamingId(historyMenu.id);
                     setHistoryMenu(null);
                   }}>Renomear</button>
-                  <button role="menuitem" className="history-item" onClick={() => { const id = historyMenu.id; setHistoryMenu(null); deleteConversation(id); }}>Excluir</button>
+                  <button role="menuitem" className="history-item" onClick={() => { setDeleteCandidate(historyMenu.id); setHistoryMenu(null); }}>Excluir</button>
                 </div>
               )}
             </div>
@@ -987,6 +996,19 @@ function Workspace({ edition }: { edition: Edition }) {
         </div>
 
       </aside>
+
+      {deleteCandidate && (
+        <div className="delete-confirm-backdrop" onClick={() => setDeleteCandidate(null)}>
+          <section className="delete-confirm-dialog" role="alertdialog" aria-modal="true" aria-labelledby="delete-conversation-title" aria-describedby="delete-conversation-description" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => { if (event.key === "Escape") setDeleteCandidate(null); }} tabIndex={-1} ref={(element) => element?.focus()}>
+            <h2 id="delete-conversation-title">Excluir conversa?</h2>
+            <p id="delete-conversation-description">Excluir esta conversa e todo o histórico? Não dá para desfazer.</p>
+            <div className="delete-confirm-actions">
+              <button type="button" onClick={() => setDeleteCandidate(null)}>Cancelar</button>
+              <button type="button" className="delete-confirm-danger" onClick={() => { const id = deleteCandidate; setDeleteCandidate(null); void deleteConversation(id); }}>Excluir</button>
+            </div>
+          </section>
+        </div>
+      )}
 
       {/* ÁREA PRINCIPAL */}
       <main className="main">
