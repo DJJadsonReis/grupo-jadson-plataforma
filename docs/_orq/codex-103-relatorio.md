@@ -38,7 +38,7 @@ Não foram incluídos `apps/desktop/src-tauri/build.rs` nem `apps/desktop/src-ta
 
 ## Commit
 
-A preencher após criação e verificação do commit local.
+`6a4f8b4d74f4ff700ac6e83b24537778964a41c2` — `fix(desktop): reparar setup e reconectar backend` (autor verificado: Jadson Reis <jrdesign9@gmail.com>; objeto Git: commit).
 
 ## Pendente
 
