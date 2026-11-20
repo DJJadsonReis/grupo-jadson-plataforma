@@ -5,6 +5,7 @@ import { TOOL_DEFINITIONS } from "../tools/tools.registry";
 import { withUntrustedNotice } from "../tools/untrusted-content";
 import { maskSecrets } from "../../common/secret-masking";
 import { NotFoundException } from "@nestjs/common";
+import { AgentSkillsService } from "../skills/agent-skills.service";
 
 function sseResponse(events: unknown[]): globalThis.Response {
   const body = events.map((event) => `data: ${JSON.stringify(event)}\n\n`).join("") + "data: [DONE]\n\n";
@@ -29,6 +30,9 @@ function setup(options: {
   invoke?: jest.Mock;
   permissionError?: Error;
   agent?: { instructions: string; enabled: boolean; model: string | null; generationConfig: null } | null;
+  policies?: { decisionFor: jest.Mock };
+  skills?: Array<{ tools: string[]; instructions: string }>;
+  skillLoad?: jest.Mock;
 } = {}) {
   const inputs: any[] = [];
   const streams = [...(options.streams ?? [sseResponse([{ choices: [{ delta: { content: "feito" } }] }])])];
@@ -37,6 +41,7 @@ function setup(options: {
     catalog: () => TOOL_DEFINITIONS,
     secretsForMasking: async () => [] as string[],
     maskSecretText: async (text: string) => maskSecrets(text),
+    policies: options.policies ?? { decisionFor: jest.fn(async () => null) },
     invoke: options.invoke ?? jest.fn(async (name: string) => ({
       id: "run-1", tool: name, requestedBy: "Jadson", status: "done", input: {},
       output: withUntrustedNotice({ resultados: [{ titulo: "resultado externo" }] }, name),
@@ -55,7 +60,10 @@ function setup(options: {
     tools as never,
     permissions as never,
   );
-  return { controller, inputs, providers, tools, permissions };
+  (controller as any).database = {};
+  const skillLoad = options.skillLoad ?? jest.fn(async () => options.skills ?? []);
+  jest.spyOn(AgentSkillsService.prototype, "loadPromptSkills").mockImplementation(skillLoad as any);
+  return { controller, inputs, providers, tools, permissions, skillLoad };
 }
 
 async function complete(controller: ChatController, messages: unknown[] = [{ role: "user", content: "pesquise" }]) {
@@ -201,6 +209,35 @@ describe("ChatController tool loop", () => {
     expect(system.at(-1).content).toContain("Content from outside this conversation");
   });
 
+  it("offers granted skill tools when search is disabled and reuses loaded skills", async () => {
+    const agentId = "123e4567-e89b-42d3-a456-426614174000";
+    const policies = { decisionFor: jest.fn(async () => null) };
+    const skillLoad = jest.fn(async () => [{ tools: ["pagina.ler"], instructions: "" }]);
+    const { controller, inputs } = setup({ agent: { instructions: "", enabled: true, model: null, generationConfig: null }, policies, skillLoad });
+    await controller.complete({ agentId, messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(inputs[0].tools.some((tool: any) => tool.function.name === "pagina__ler")).toBe(true);
+    expect(skillLoad).toHaveBeenCalledTimes(1);
+    expect(policies.decisionFor).toHaveBeenCalledWith(agentId, "pagina.ler");
+  });
+
+  it("omits a granted skill tool when the agent policy denies it", async () => {
+    const policies = { decisionFor: jest.fn(async () => "deny") };
+    const catalog = [...TOOL_DEFINITIONS, ...Array.from({ length: 45 }, (_, index) => ({ name: `mcp.arquivos_${index}`, description: "Lista arquivos", risk: "read" as const }))];
+    const { controller, inputs, tools } = setup({ agent: { instructions: "", enabled: true, model: null, generationConfig: null }, policies, skills: [{ tools: ["mcp.arquivos_0"], instructions: "" }] });
+    tools.catalog = () => catalog;
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(inputs[0].tools.some((tool: any) => tool.function.name === "mcp__arquivos_0")).toBe(false);
+  });
+
+  it("offers a sensitive granted tool and keeps its invocation pending approval", async () => {
+    const invoke = jest.fn(async () => ({ id: "run-pending", tool: "memoria.apagar_tudo", requestedBy: "Jadson", status: "pending_approval", input: {}, output: null, approvalId: "approval-1", createdAt: "", finishedAt: null }));
+    const { controller, inputs, providers } = setup({ agent: { instructions: "", enabled: true, model: null, generationConfig: null }, skills: [{ tools: ["memoria.apagar_tudo"], instructions: "" }], invoke });
+    providers.stream.mockImplementationOnce(async (input) => { inputs.push(input); return sseResponse([toolCall("memoria.apagar_tudo")]); }).mockImplementationOnce(async (input) => { inputs.push(input); return sseResponse([{ choices: [{ delta: { content: "aguardando" } }] }]); });
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(inputs[0].tools.some((tool: any) => tool.function.name === "memoria__apagar_tudo")).toBe(true);
+    expect(invoke).toHaveBeenCalledTimes(1);
+    expect(invoke).toHaveBeenCalledWith("memoria.apagar_tudo", {}, "Jadson", undefined, "pessoa-1");
+  });
   it("coloca a política do agente antes da guidance de segurança", async () => {
     const { controller, inputs } = setup({ agent: { instructions: "Política do agente", enabled: true, model: null, generationConfig: null } });
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
