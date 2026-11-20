@@ -75,6 +75,15 @@ describe("AgentsController access rules", () => {
     expect(agents.create).not.toHaveBeenCalled();
   });
 
+  it("valida protocolo e impede alteraÃ§Ã£o sem permissÃ£o de ediÃ§Ã£o", async () => {
+    const { controller, agents, permissions } = setup();
+    await expect(controller.create({ name: "Endpoint", providerKind: "endpoint", endpointUrl: "https://agent.example", endpointProtocol: "unknown" }, { principal })).rejects.toMatchObject({ status: 400 });
+    expect(agents.create).not.toHaveBeenCalled();
+    permissions.assertCanEdit.mockRejectedValueOnce(new ForbiddenException());
+    await expect(controller.update("123e4567-e89b-42d3-a456-426614174000", { endpointProtocol: "agui" }, { principal })).rejects.toBeInstanceOf(ForbiddenException);
+    expect(agents.update).not.toHaveBeenCalled();
+  });
+
   it("checks edit permission before mutation and lets the owner grant a role", async () => {
     const { controller, agents, permissions } = setup();
     const id = "123e4567-e89b-42d3-a456-426614174000";

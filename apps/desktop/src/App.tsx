@@ -5,7 +5,7 @@ import { buildGroupRequest, readGroupMentions } from "./lib/groups";
 import { buildRoutinePayload, describeRoutineSchedule, type RoutineFrequency } from "./lib/routines";
 import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPreference, shouldAutoRead } from "./lib/read-aloud";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
-import { agentPayload } from "./lib/agent-endpoint";
+import { agentPayload, protocolosEndpoint } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { conversationRowPreview, avatarInitials, conversationDeletionResult, deletionErrorMessage, isServerConversationId, planConversationDeletion, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
@@ -864,16 +864,20 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
           providerKind: (agent as Agent & { providerKind?: "model" | "endpoint" }).providerKind ?? "model",
           endpointUrl: agent.endpointUrl ?? "",
           endpointToken: (agent as Agent & { endpointToken?: string }).endpointToken ?? "",
+          endpointProtocol: agent.endpointProtocol ?? "json",
         })),
       });
-      if (!response.ok) throw new Error("Não foi possível salvar o agente no banco.");
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: unknown } | null;
+        throw new Error(typeof body?.message === "string" ? body.message : "Não foi possível salvar o agente no banco.");
+      }
       const savedAgent = normalizeAgent(await response.json());
       if (!savedAgent) throw new Error("Resposta inválida ao salvar agente.");
       const saved = savedAgent;
       setRemoteAgentIds((ids) => ids.includes(saved.id) ? ids : [...ids, saved.id]);
       setAgents((items) => items.map((item) => item.id === agent.id ? saved : item));
       setAgentPersistence("connected");
-    } catch { setAgentPersistence("error"); }
+    } catch (cause) { setAgentPersistence("error"); setError(cause instanceof Error ? cause.message : "Falha ao salvar agente."); }
   }
 
   async function persistGroup(group: Group) {
@@ -4019,6 +4023,7 @@ function AgentModal({ agent, providers, onChange, onClose, onSubmit }: { agent: 
               <label><span>Tipo de agente</span><select value={endpoint ? "endpoint" : "model"} onChange={(event) => onChange({ ...agent, providerKind: event.target.value as "model" | "endpoint" })}><option value="model">Modelo</option><option value="endpoint">Agente próprio (endpoint HTTPS)</option></select></label>
               {endpoint && <>
                 <label><span>URL HTTPS</span><input type="url" required value={agent.endpointUrl ?? ""} onChange={(event) => onChange({ ...agent, endpointUrl: event.target.value })} placeholder="https://seu-agente.example/api" /></label>
+                <label><span>Protocolo do endpoint</span><select value={agent.endpointProtocol ?? "json"} onChange={(event) => onChange({ ...agent, endpointProtocol: event.target.value as "json" | "agui" })}>{protocolosEndpoint().map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{protocolosEndpoint().find((item) => item.value === (agent.endpointProtocol ?? "json"))?.dica}</small></label>
                 <label><span>Token (opcional)</span><input type="password" autoComplete="new-password" value={(agent as Agent & { endpointToken?: string }).endpointToken ?? ""} onChange={(event) => onChange({ ...agent, endpointToken: event.target.value })} placeholder={agent.hasEndpointToken ? "Já salvo" : ""} /></label>
                 <p role="note">Este bot não usa ferramentas nem a memória do modelo; a resposta vem do seu endpoint.</p>
               </>}

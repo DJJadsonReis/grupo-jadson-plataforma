@@ -1,4 +1,4 @@
-import { ConflictException, Injectable } from "@nestjs/common";
+import { BadRequestException, ConflictException, Injectable } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
 import { DatabaseService } from "../database/database.service";
 import { SecretBox } from "../integrations/secret-box";
@@ -8,17 +8,17 @@ export interface AgentRecord {
   id: string; ownerId: string; name: string; description: string; instructions: string; model: string; enabled: boolean;
   avatar: string; role: string; department: string; specialties: string[]; provider: string;
   generationConfig: { temperature?: number; maxTokens?: number }; toolsAllowed: string[];
-  providerKind: "model" | "endpoint"; endpointUrl: string | null; hasEndpointToken: boolean; endpointTokenSecret?: string | null;
+  providerKind: "model" | "endpoint"; endpointUrl: string | null; endpointProtocol: "json" | "agui"; hasEndpointToken: boolean; endpointTokenSecret?: string | null;
   modelRouting: AgentModelRouting;
   defaultOperationMode: OperationMode;
 }
 export interface AgentModelTarget { providerId: string; model: string }
 export interface AgentModelRouting { fallbacks?: AgentModelTarget[]; taskModels?: { vision?: AgentModelTarget; code?: AgentModelTarget } }
 export type AgentInput = Pick<AgentRecord, "name" | "description" | "instructions" | "model" | "enabled"> &
-  Partial<Pick<AgentRecord, "avatar" | "role" | "department" | "specialties" | "provider" | "generationConfig" | "toolsAllowed" | "providerKind" | "endpointUrl" | "modelRouting" | "defaultOperationMode">> & { id?: string; endpointToken?: string };
+  Partial<Pick<AgentRecord, "avatar" | "role" | "department" | "specialties" | "provider" | "generationConfig" | "toolsAllowed" | "providerKind" | "endpointUrl" | "endpointProtocol" | "modelRouting" | "defaultOperationMode">> & { id?: string; endpointToken?: string };
 const COLUMNS = `id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,
   generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId",provider_kind AS "providerKind",default_operation_mode AS "defaultOperationMode",
-  endpoint_url AS "endpointUrl",(endpoint_token_secret IS NOT NULL) AS "hasEndpointToken",endpoint_token_secret AS "endpointTokenSecret",model_routing AS "modelRouting"`;
+  endpoint_url AS "endpointUrl",endpoint_protocol AS "endpointProtocol",(endpoint_token_secret IS NOT NULL) AS "hasEndpointToken",endpoint_token_secret AS "endpointTokenSecret",model_routing AS "modelRouting"`;
 
 @Injectable()
 export class AgentsService {
@@ -40,19 +40,20 @@ export class AgentsService {
     return result.rows[0] ? this.public(result.rows[0] as AgentRecord) : null;
   }
 
-  async endpointCredentials(id: string): Promise<{ url: string; token?: string } | null> {
-    const result = await this.database.getPool().query("SELECT endpoint_url AS url, endpoint_token_secret AS secret FROM agents WHERE id=$1 AND provider_kind='endpoint'", [id]);
-    const row = result.rows[0] as { url: string | null; secret: string | null } | undefined;
+  async endpointCredentials(id: string): Promise<{ url: string; token?: string; endpointProtocol: "json" | "agui" } | null> {
+    const result = await this.database.getPool().query("SELECT endpoint_url AS url, endpoint_token_secret AS secret, endpoint_protocol AS \"endpointProtocol\" FROM agents WHERE id=$1 AND provider_kind='endpoint'", [id]);
+    const row = result.rows[0] as { url: string | null; secret: string | null; endpointProtocol: "json" | "agui" } | undefined;
     if (!row?.url) return null;
-    return { url: row.url, ...(row.secret ? { token: this.secretBox.decrypt(row.secret) } : {}) };
+    return { url: row.url, endpointProtocol: row.endpointProtocol ?? "json", ...(row.secret ? { token: this.secretBox.decrypt(row.secret) } : {}) };
   }
 
   async create(input: AgentInput, ownerId = "sistema"): Promise<AgentRecord> {
+    this.validateEndpointProtocol(input.endpointProtocol);
     const id = input.id ?? randomUUID();
     const result = await this.database.getPool().query(
-      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed,owner_id,provider_kind,endpoint_url,endpoint_token_secret,model_routing,default_operation_mode)
-       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
-      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? [],ownerId,input.providerKind ?? "model",input.endpointUrl ?? null,input.endpointToken ? this.secretBox.encrypt(input.endpointToken) : null,input.modelRouting ?? {},input.defaultOperationMode ?? "automatico"],
+      `INSERT INTO agents(id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config,tools_allowed,owner_id,provider_kind,endpoint_url,endpoint_token_secret,model_routing,default_operation_mode,endpoint_protocol)
+       VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20) ON CONFLICT(id) DO NOTHING RETURNING ${COLUMNS}`,
+      [id,input.name,input.description,input.instructions,input.model,input.enabled,input.avatar ?? "",input.role ?? "",input.department ?? "",input.specialties ?? [],input.provider ?? "openai",input.generationConfig ?? {},input.toolsAllowed ?? [],ownerId,input.providerKind ?? "model",input.endpointUrl ?? null,input.endpointToken ? this.secretBox.encrypt(input.endpointToken) : null,input.modelRouting ?? {},input.defaultOperationMode ?? "automatico",input.endpointProtocol ?? "json"],
     );
     if (result.rows[0]) return this.public(result.rows[0] as AgentRecord);
     const existing = await this.get(id);
@@ -61,6 +62,8 @@ export class AgentsService {
   }
 
   async update(id: string, input: Partial<Omit<AgentRecord, "id">>): Promise<AgentRecord | null> {
+    this.validateEndpointProtocol(input.endpointProtocol);
+    const previous = input.endpointProtocol === undefined ? null : await this.database.getPool().query("SELECT endpoint_protocol AS protocol FROM agents WHERE id=$1", [id]);
     const result = await this.database.getPool().query(
       `UPDATE agents SET name=COALESCE($2,name),description=COALESCE($3,description),instructions=COALESCE($4,instructions),
        model=COALESCE($5,model),enabled=COALESCE($6,enabled),avatar=COALESCE($7,avatar),role=COALESCE($8,role),
@@ -68,14 +71,22 @@ export class AgentsService {
        generation_config=COALESCE($12,generation_config),tools_allowed=COALESCE($13,tools_allowed),provider_kind=COALESCE($14,provider_kind),
        endpoint_url=CASE WHEN $14='model' THEN NULL ELSE COALESCE($15,endpoint_url) END,
        endpoint_token_secret=CASE WHEN $14='model' THEN NULL ELSE COALESCE($16,endpoint_token_secret) END,
-       model_routing=COALESCE($17,model_routing),default_operation_mode=COALESCE($18,default_operation_mode),updated_at=now()
+       model_routing=COALESCE($17,model_routing),default_operation_mode=COALESCE($18,default_operation_mode),endpoint_protocol=COALESCE($19,endpoint_protocol),updated_at=now()
        WHERE id=$1 RETURNING ${COLUMNS}`,
       [id,input.name ?? null,input.description ?? null,input.instructions ?? null,input.model ?? null,input.enabled ?? null,
         input.avatar ?? null,input.role ?? null,input.department ?? null,input.specialties ?? null,input.provider ?? null,
         input.generationConfig ?? null,input.toolsAllowed ?? null,input.providerKind ?? null,input.endpointUrl ?? null,
-        (input as Partial<AgentInput>).endpointToken ? this.secretBox.encrypt((input as Partial<AgentInput>).endpointToken!) : null,input.modelRouting ?? null,input.defaultOperationMode ?? null],
+        (input as Partial<AgentInput>).endpointToken ? this.secretBox.encrypt((input as Partial<AgentInput>).endpointToken!) : null,input.modelRouting ?? null,input.defaultOperationMode ?? null,input.endpointProtocol ?? null],
     );
+    const oldProtocol = previous?.rows[0]?.protocol;
+    if (result.rows[0] && oldProtocol && input.endpointProtocol && oldProtocol !== input.endpointProtocol) {
+      await this.database.getPool().query("INSERT INTO audit_events(id,actor,action,subject,details) VALUES($1,$2,$3,$4,$5)", [randomUUID(), "system", "agent.endpoint.protocol_changed", id, JSON.stringify({ agentId: id, from: oldProtocol, to: input.endpointProtocol })]);
+    }
     return result.rows[0] ? this.public(result.rows[0] as AgentRecord) : null;
+  }
+
+  private validateEndpointProtocol(value: unknown): void {
+    if (value !== undefined && value !== "json" && value !== "agui") throw new BadRequestException("Protocolo do endpoint deve ser json ou agui.");
   }
 
   async remove(id: string): Promise<boolean> {

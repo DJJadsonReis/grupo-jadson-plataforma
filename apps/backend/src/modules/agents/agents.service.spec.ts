@@ -10,7 +10,7 @@ describe("AgentsService local UUID persistence", () => {
     const result = await new AgentsService(database).create(profile);
 
     expect(result).toEqual(profile);
-    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema", "model", null, null, {}, "automatico"]);
+    expect(query).toHaveBeenCalledWith(expect.stringContaining("ON CONFLICT(id) DO NOTHING"), [profile.id, profile.name, profile.description, profile.instructions, profile.model, profile.enabled, "", "", "", [], "openai", {}, [], "sistema", "model", null, null, {}, "automatico", "json"]);
   });
 
   it("saves and returns model routing as a JSON value", async () => {
@@ -21,6 +21,21 @@ describe("AgentsService local UUID persistence", () => {
     expect(String(query.mock.calls[0]?.[0])).toContain("model_routing=COALESCE($17,model_routing)");
     expect(query.mock.calls[0]?.[1]?.[16]).toEqual(routing);
     expect(result?.modelRouting).toEqual(routing);
+  });
+
+  it("audits protocol changes without recording endpoint URL or token", async () => {
+    const query = jest.fn()
+      .mockResolvedValueOnce({ rows: [{ protocol: "json" }] })
+      .mockResolvedValueOnce({ rows: [{ ...profile, endpointProtocol: "agui" }] })
+      .mockResolvedValueOnce({ rows: [] });
+    const database = { getPool: () => ({ query }) } as unknown as DatabaseService;
+    await new AgentsService(database).update(profile.id, { endpointProtocol: "agui" });
+    const audit = query.mock.calls[2];
+    expect(audit?.[1]?.[2]).toBe("agent.endpoint.protocol_changed");
+    const details = JSON.parse(String(audit?.[1]?.[4])) as Record<string, unknown>;
+    expect(details).toEqual({ agentId: profile.id, from: "json", to: "agui" });
+    expect(JSON.stringify(details)).not.toContain("endpoint.example");
+    expect(JSON.stringify(details)).not.toContain("token");
   });
 
   it("returns an existing row without overwriting it when the UUID is already present", async () => {

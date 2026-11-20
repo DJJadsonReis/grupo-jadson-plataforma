@@ -7,6 +7,8 @@ import { AgentRecord } from "../agents/agents.service";
 import { Principal } from "../auth/users.service";
 import { ProvidersService } from "../providers/providers.service";
 import { ProviderMessage } from "../providers/provider.types";
+import { callAgentEndpoint, streamAgUiEndpoint } from "../agents/agent-endpoint";
+import { SecretBox } from "../integrations/secret-box";
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const ROOM_MISSING = { code: "ROOM_NOT_FOUND", message: "Sala não encontrada." };
@@ -15,6 +17,7 @@ type Message = { id: string; room_id: string; author_kind: "person" | "bot"; aut
 
 @Injectable()
 export class TeamRoomsService {
+  private readonly secretBox = new SecretBox();
   constructor(private readonly database: DatabaseService, private readonly permissions: AgentPermissionsService, private readonly providers: ProvidersService) {}
 
   private pool() { return this.database.getPool(); }
@@ -97,7 +100,7 @@ export class TeamRoomsService {
       await client.query("COMMIT");
       await client.query("SELECT pg_advisory_lock(hashtext($1))", [`team-room:${roomId}`]);
       const botMessages: Message[] = [];
-      const listed = content.includes("@") ? await this.pool().query(`SELECT id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId",provider_kind AS "providerKind",endpoint_url AS "endpointUrl",(endpoint_token_secret IS NOT NULL) AS "hasEndpointToken" FROM agents WHERE enabled=true`) : { rows: [] };
+      const listed = content.includes("@") ? await this.pool().query(`SELECT id,name,description,instructions,model,enabled,avatar,role,department,specialties,provider,generation_config AS "generationConfig",tools_allowed AS "toolsAllowed",owner_id AS "ownerId",provider_kind AS "providerKind",endpoint_url AS "endpointUrl",endpoint_protocol AS "endpointProtocol",endpoint_token_secret AS "endpointTokenSecret",(endpoint_token_secret IS NOT NULL) AS "hasEndpointToken" FROM agents WHERE enabled=true`) : { rows: [] };
       const allBots = listed.rows as AgentRecord[];
       const bots = allBots.filter((bot) => new RegExp(`@${escapeRegExp(bot.name)}(?![\\p{L}\\p{N}_])`, "iu").test(content) &&
         !allBots.some((longer) => longer.name.length > bot.name.length && longer.name.toLocaleLowerCase().startsWith(bot.name.toLocaleLowerCase()) && new RegExp(`@${escapeRegExp(longer.name)}(?![\\p{L}\\p{N}_])`, "iu").test(content)));
@@ -113,8 +116,20 @@ export class TeamRoomsService {
             { role: "system", content: bot.instructions || `Você é ${bot.name}. Responda na conversa da equipe.` },
             ...(history.rows as Array<{ author_kind: string; author_name: string; content: string }>).map((item) => ({ role: item.author_kind === "bot" ? "assistant" as const : "user" as const, content: item.author_kind === "person" ? `${item.author_name}: ${item.content}` : item.content })),
           ];
-          const response = await this.providers.stream({ messages, provider: bot.provider === "anthropic" ? "anthropic" : "openai", ...(bot.model ? { model: bot.model } : {}), tools: [], generationConfig: bot.generationConfig });
-          const text = await readProviderText(response);
+          let text: string;
+          if (bot.providerKind === "endpoint" && bot.endpointUrl) {
+            const token = bot.endpointTokenSecret ? this.secretBox.decrypt(bot.endpointTokenSecret) : undefined;
+            const endpointMessages = messages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : JSON.stringify(message.content ?? "") }));
+            if (bot.endpointProtocol === "agui") {
+              text = "";
+              for await (const delta of streamAgUiEndpoint({ url: bot.endpointUrl, ...(token ? { token } : {}), conversationId: roomId, messages: endpointMessages, agent: { id: bot.id, name: bot.name } })) text += delta;
+            } else {
+              text = await callAgentEndpoint({ url: bot.endpointUrl, ...(token ? { token } : {}), conversationId: roomId, messages: endpointMessages, agent: { id: bot.id, name: bot.name } });
+            }
+          } else {
+            const response = await this.providers.stream({ messages, provider: bot.provider === "anthropic" ? "anthropic" : "openai", ...(bot.model ? { model: bot.model } : {}), tools: [], generationConfig: bot.generationConfig });
+            text = await readProviderText(response);
+          }
           await this.saveBot(roomId, bot, text);
           botMessages.push({ id: randomUUID(), room_id: roomId, author_kind: "bot", author_id: bot.id, author_name: bot.name, content: text, created_at: new Date() });
         } catch {

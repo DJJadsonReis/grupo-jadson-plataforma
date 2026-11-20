@@ -29,7 +29,7 @@ import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 import { effectiveSkillTools } from "../skills/skill-tools";
 import { decisionForOperationMode } from "../tools/operation-modes";
-import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
+import { AGENT_ENDPOINT_FAILED, callAgentEndpoint, streamAgUiEndpoint } from "../agents/agent-endpoint";
 import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 import { RICH_COMPONENTS_GUIDANCE } from "./rich-components-guidance";
 import { classifyTask, failureReason, isRetryableModelError, modelAttempts } from "./model-routing";
@@ -353,8 +353,16 @@ export class ChatController {
         try {
           const credentials = await this.agents.endpointCredentials(agent.id);
           if (!credentials) throw new Error(AGENT_ENDPOINT_FAILED);
-          answer = await callAgentEndpoint({ url: credentials.url, token: credentials.token, conversationId, messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, timeoutMs: 30_000, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) });
-          res.write(sseTextChunk(answer));
+          if (credentials.endpointProtocol === "agui") {
+            const secrets = await this.toolsService.secretsForMasking();
+            for await (const delta of streamAgUiEndpoint({ url: credentials.url, ...(credentials.token ? { token: credentials.token } : {}), ...(conversationId ? { conversationId } : {}), messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) })) {
+              const masked = maskSecrets(delta, secrets); answer += masked; res.write(sseTextChunk(masked));
+            }
+            if (!answer.trim()) throw new Error(AGENT_ENDPOINT_FAILED);
+          } else {
+            answer = await callAgentEndpoint({ url: credentials.url, token: credentials.token, conversationId, messages: clientMessages.map((message) => ({ role: message.role, content: typeof message.content === "string" ? message.content : "" })), agent: { id: agent.id, name: agent.name }, timeoutMs: 30_000, ...(this.endpointFetcher ? { fetcher: this.endpointFetcher } : {}), ...(this.endpointLookup ? { lookupHost: this.endpointLookup } : {}) });
+            res.write(sseTextChunk(answer));
+          }
         } catch {
           answer = "Não foi possível obter uma resposta do endpoint do agente.";
           res.write(new TextEncoder().encode(`event: error\ndata: ${JSON.stringify({ code: "AGENT_ENDPOINT_FAILED", message: answer })}\n\n`));

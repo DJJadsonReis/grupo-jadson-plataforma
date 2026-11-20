@@ -42,7 +42,7 @@ function setup(options: {
   policies?: { decisionFor: jest.Mock };
   skills?: Array<{ tools: string[]; instructions: string }>;
   skillLoad?: jest.Mock;
-  endpointCredentials?: { url: string; token?: string } | null;
+  endpointCredentials?: { url: string; token?: string; endpointProtocol?: "json" | "agui" } | null;
   providerKind?: "model" | "endpoint";
     endpointFetch?: jest.Mock;
   providersService?: unknown;
@@ -362,6 +362,29 @@ describe("ChatController tool loop", () => {
     const request = fetcher.mock.calls[0]?.[1] as { headers: Record<string, string>; body: string };
     expect(request.headers.Authorization).toBe("Bearer token-privado");
     expect(JSON.parse(request.body)).toMatchObject({ agent: { id, name: "Agente Endpoint" }, messages: [{ role: "user", content: "oi" }] });
+  });
+
+  it("repassa deltas AG-UI mascarados e persiste a resposta completa uma vez", async () => {
+    const id = "123e4567-e89b-42d3-a456-426614174000";
+    const response = new FakeResponse();
+    const secret = "private-secret-123";
+    const sse = ["parte ", secret, " final"].map((delta) => `event: TEXT_MESSAGE_CONTENT\ndata: ${JSON.stringify({ type: "TEXT_MESSAGE_CONTENT", delta })}\n\n`).join("") + `event: RUN_FINISHED\ndata: {"type":"RUN_FINISHED"}\n\n`;
+    const fetcher = jest.fn(async () => new globalThis.Response(new ReadableStream({ start(controller) { for (const part of [sse.slice(0, 24), sse.slice(24, 61), sse.slice(61)]) controller.enqueue(new TextEncoder().encode(part)); controller.close(); } }), { status: 200, headers: { "content-type": "text/event-stream" } }));
+    const { controller } = setup({ providerKind: "endpoint", endpointCredentials: { url: "https://agent.example/run", token: "token", endpointProtocol: "agui" } });
+    (controller as any).agents.endpointCredentials = jest.fn(async () => ({ url: "https://agent.example/run", token: "token", endpointProtocol: "agui" }));
+    (controller as any).endpointFetcher = fetcher;
+    (controller as any).endpointLookup = async () => ["93.184.216.34"];
+    (controller as any).toolsService.secretsForMasking = async () => [secret];
+    const addMessage = jest.fn(async (_id, _role, content) => ({ content }));
+    (controller as any).conversations = { create: jest.fn(), addMessage, setTitleForFirstResponse: jest.fn() };
+    await controller.complete({ agentId: id, conversationId: "123e4567-e89b-42d3-a456-426614174001", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    const streamed = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(streamed.indexOf("parte ")).toBeLessThan(streamed.indexOf("[REDACTED]"));
+    expect(streamed).toContain(" final");
+    expect(streamed).not.toContain(secret);
+    expect(addMessage).toHaveBeenCalledTimes(2);
+    expect(addMessage).toHaveBeenLastCalledWith(expect.any(String), "assistant", "parte [REDACTED] final", expect.any(Object), "pessoa-1");
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 
   it("em falha de endpoint envia erro seguro e persiste mensagem curta", async () => {

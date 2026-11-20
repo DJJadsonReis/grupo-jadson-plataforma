@@ -51,6 +51,7 @@ import { migrationId as providerTestStatusMigrationId, up as addProviderTestStat
 import { migrationId as mcpServerTokensMigrationId, up as addMcpServerTokens } from "./migrations/047-mcp-server-tokens";
 import { migrationId as auditRetentionMigrationId, up as addAuditRetentionSetting } from "./migrations/048-audit-retention-setting";
 import { migrationId as handoffContextMigrationId, up as addHandoffContext } from "./migrations/049-handoff-context";
+import { migrationId as agentEndpointProtocolMigrationId, up as addAgentEndpointProtocol } from "./migrations/050-agent-endpoint-protocol";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -122,6 +123,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: mcpServerTokensMigrationId, apply: async () => addMcpServerTokens(this.pool!) },
         { id: auditRetentionMigrationId, apply: async () => addAuditRetentionSetting(this.pool!) },
         { id: handoffContextMigrationId, apply: async () => addHandoffContext(this.pool!) },
+        { id: agentEndpointProtocolMigrationId, apply: async () => addAgentEndpointProtocol(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

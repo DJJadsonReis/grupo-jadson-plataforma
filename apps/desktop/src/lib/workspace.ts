@@ -46,6 +46,7 @@ export interface Agent {
   toolsAllowed?: string[];
   generationConfig?: { temperature?: number; maxTokens?: number };
   providerKind?: "model" | "endpoint";
+  endpointProtocol?: "json" | "agui";
   endpointUrl?: string | null;
   hasEndpointToken?: boolean;
   endpointToken?: string;
