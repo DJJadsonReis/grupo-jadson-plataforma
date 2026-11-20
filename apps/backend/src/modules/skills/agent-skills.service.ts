@@ -4,6 +4,7 @@ import { SkillRecord } from "./skills.service";
 
 export const SKILL_LIMIT = 5;
 const NOT_FOUND = { code: "SKILL_NOT_FOUND", message: "Habilidade não encontrada." };
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const COLUMNS = `s.id,s.owner_id AS "ownerId",s.slug,s.title,s.summary,s.instructions,
   s.created_at AS "createdAt",s.updated_at AS "updatedAt"`;
 
@@ -12,6 +13,7 @@ export class AgentSkillsService {
   constructor(private readonly database: DatabaseService) {}
 
   async listForAgent(ownerId: string, agentId: string): Promise<SkillRecord[]> {
+    if (!UUID_PATTERN.test(agentId)) throw new NotFoundException(NOT_FOUND);
     const result = await this.database.getPool().query(
       `SELECT ${COLUMNS} FROM agent_skills link JOIN agents a ON a.id=link.agent_id
        JOIN skills s ON s.id=link.skill_id
@@ -22,6 +24,7 @@ export class AgentSkillsService {
   }
 
   async attach(ownerId: string, agentId: string, slug: string): Promise<SkillRecord> {
+    if (!UUID_PATTERN.test(agentId)) throw new NotFoundException(NOT_FOUND);
     const pool = this.database.getPool();
     const eligible = await pool.query(
       `SELECT ${COLUMNS} FROM agents a CROSS JOIN skills s
@@ -61,6 +64,7 @@ export class AgentSkillsService {
   }
 
   async detach(ownerId: string, agentId: string, slug: string): Promise<void> {
+    if (!UUID_PATTERN.test(agentId)) throw new NotFoundException(NOT_FOUND);
     const result = await this.database.getPool().query(
       `DELETE FROM agent_skills link USING agents a, skills s
        WHERE link.agent_id=$1 AND link.owner_id=$2 AND a.id=link.agent_id AND a.owner_id=$2
