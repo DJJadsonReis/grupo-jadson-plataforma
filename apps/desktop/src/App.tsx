@@ -12,6 +12,7 @@ import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
+import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
@@ -2277,12 +2278,13 @@ function ModelsPage({ providers, onOpenChat }: { providers: ProviderStatus[] | n
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "uso" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "uso" | "atualizacoes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
   { id: "permissoes", label: "Permissões", icon: ShieldKeyholeBoldIcon },
   { id: "cofre", label: "Cofre", icon: LockBoldIcon },
+  { id: "mcp", label: "Servidores MCP", icon: SettingsBoldIcon },
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
 ];
@@ -2461,6 +2463,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
             </>
           )}
           {tab === "uso" && <UsageSettings />}
+          {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "atualizacoes" && (
             <>
               <UpdateSettings />

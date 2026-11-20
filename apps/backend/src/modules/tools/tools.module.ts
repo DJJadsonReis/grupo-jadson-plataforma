@@ -7,13 +7,14 @@ import { AgentPolicyService } from "./agent-policy.service";
 import { ToolsController } from "./tools.controller";
 import { ToolsService } from "./tools.service";
 import { McpService } from "../mcp/mcp.service";
+import { McpController } from "../mcp/mcp.controller";
 import { IntegrationsModule } from "../integrations/integrations.module";
 import { GoogleModule } from "../google/google.module";
 import { NotificationsModule } from "../notifications/notifications.module";
 
 @Module({
   imports: [DatabaseModule, AuditModule, MemoryModule, IntegrationsModule, GoogleModule, NotificationsModule],
-  controllers: [ToolsController, AgentPoliciesController],
+  controllers: [ToolsController, AgentPoliciesController, McpController],
   providers: [ToolsService, McpService, AgentPolicyService],
   exports: [ToolsService],
 })

@@ -1,8 +1,9 @@
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { randomUUID } from "node:crypto";
 import { Logger } from "@nestjs/common";
-import { McpService } from "./mcp.service";
+import { McpService, validateManagedInput } from "./mcp.service";
 
 describe("McpService", () => {
   const originalEnvironment = { ...process.env };
@@ -33,6 +34,18 @@ describe("McpService", () => {
   function captureWarnings(): jest.SpyInstance {
     return jest.spyOn(Logger.prototype, "warn").mockImplementation();
   }
+
+  it("valida nome, comandos, argumentos e limites das variáveis", () => {
+    const valid = { name: "servidor", command: "node", args: [], enabled: true };
+    for (const input of [
+      { ...valid, name: "Nome ruim" },
+      { ...valid, command: "node --flag" },
+      { ...valid, command: "powershell" },
+      { ...valid, args: ["x".repeat(201)] },
+      { ...valid, args: Array.from({ length: 21 }, () => "x") },
+      { ...valid, env: Object.fromEntries(Array.from({ length: 21 }, (_, index) => [`KEY_${index}`, "value"])) },
+    ]) expect(() => validateManagedInput(input)).toThrow(expect.objectContaining({ response: expect.objectContaining({ code: "MCP_SERVER_INVALID" }) }));
+  });
 
   async function filesystemRoot(): Promise<string> {
     const root = join(temporaryDirectory, "filesystem");
@@ -124,5 +137,32 @@ rl.on("line", (line) => {
     expect(warn.mock.calls.flat().join(" ")).not.toContain(secret);
     expect(await service.call("funcional.ok", {})).toEqual({ conteudo: [{ type: "text", text: secret }], erro: false });
     warn.mockRestore();
+  });
+
+  it("conecta servidor gerenciado na hora e remove as ferramentas ao desligar", async () => {
+    process.env.MCP_FILESYSTEM_DISABLED = "true";
+    const stored: Array<Record<string, unknown>> = [];
+    const query = jest.fn(async (sql: string, values: unknown[] = []) => {
+      if (sql.includes("SELECT id,name,command,args,enabled,env_secret FROM mcp_servers WHERE id")) return { rows: stored.filter((row) => row.id === values[0]) };
+      if (sql.includes("SELECT count(*)")) return { rows: [{ count: 0 }] };
+      if (sql.includes("INSERT INTO mcp_servers")) { stored.push({ id: values[0], name: values[1], command: values[2], args: JSON.parse(String(values[3])), env_secret: values[4], enabled: values[5], status: "error", status_message: "" }); return { rows: [] }; }
+      if (sql.includes("UPDATE mcp_servers SET name")) { Object.assign(stored.find((row) => row.id === values[0])!, { name: values[1], command: values[2], args: JSON.parse(String(values[3])), env_secret: values[4], enabled: values[5] }); return { rows: [] }; }
+      if (sql.includes("UPDATE mcp_servers SET status")) { Object.assign(stored.find((row) => row.id === values[0])!, { status: values[1], status_message: values[2] }); return { rows: [] }; }
+      if (sql.includes("SELECT id,name,command,args,enabled,status,status_message,env_secret")) return { rows: stored };
+      return { rows: [] };
+    });
+    const database = { isReady: () => true, getPool: () => ({ query }) } as never;
+    const service = new McpService(database);
+    services.push(service);
+    await service.onModuleInit();
+    const result = await service.saveManaged(null, { name: "gerenciado", command: process.execPath, args: [join(__dirname, "fixtures", "fake-mcp-server.js")], enabled: true });
+    expect(result).toMatchObject({ status: "connected", toolCount: 1, hasEnv: false });
+    expect(service.find("gerenciado.ping")).toBeDefined();
+    expect(await service.call("gerenciado.ping", {})).toEqual({ conteudo: [{ type: "text", text: "pong" }], erro: false });
+    await service.saveManaged(result.id, { enabled: false } as never);
+    expect(service.catalog()).toEqual([]);
+    expect(service.find("gerenciado.ping")).toBeUndefined();
+    await expect(service.call("gerenciado.ping", {})).rejects.toThrow();
+    await service.onModuleDestroy();
   });
 });
