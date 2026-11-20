@@ -79,10 +79,24 @@ export class TaskQueueService implements OnModuleInit, OnModuleDestroy {
     return claimed;
   }
 
+  async recoverExpired(now = new Date()): Promise<void> {
+    await this.database.getPool().query(
+      `UPDATE tasks SET status='na_fila',claim_until=NULL,claim_token=NULL,updated_at=now()
+       WHERE status='em_andamento' AND claim_until <= $1 AND attempts < 3`, [now]);
+    const expired = await this.database.getPool().query(
+      `UPDATE tasks SET status='falhou',failure_message=$2,finished_at=now(),claim_until=NULL,claim_token=NULL,updated_at=now()
+       WHERE status='em_andamento' AND claim_until <= $1 AND attempts >= 3
+       RETURNING id,owner_id AS "ownerId"`, [now, FAILURE]);
+    for (const task of expired.rows as Array<{ id: string; ownerId: string }>) {
+      await this.notifications.create({ owner: task.ownerId, kind: "task.failed", title: "Tarefa não concluída", body: FAILURE, details: { taskId: task.id } });
+    }
+  }
+
   async runOnce(now = new Date()): Promise<number> {
     if (this.running || !this.database.isReady()) return 0;
     this.running = true;
     try {
+      await this.recoverExpired(now);
       const claimed = await this.claimDue(now);
       for (const task of claimed) await this.runClaimed(task);
       return claimed.length;
