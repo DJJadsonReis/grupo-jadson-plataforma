@@ -15,6 +15,7 @@ import { shellShortcut } from "./lib/shell-shortcuts";
 import { attachmentsForChatRequest, regenerationFields } from "./lib/chat-request";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
+import { ComponentsGallery } from "./components/rich/ComponentsGallery";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
@@ -2729,7 +2730,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   );
 }
 
-type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "auditoria" | "atualizacoes";
+type SettingsTab = "geral" | "computador" | "permissoes" | "cofre" | "mcp" | "mcp-access" | "uso" | "auditoria" | "atualizacoes" | "componentes";
 const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBoldIcon }[] = [
   { id: "geral", label: "Geral", icon: SettingsBoldIcon },
   { id: "computador", label: "Computador", icon: MonitorBoldIcon },
@@ -2740,6 +2741,7 @@ const SETTINGS_TABS: { id: SettingsTab; label: string; icon: typeof SettingsBold
   { id: "uso", label: "Uso e cobrança", icon: ChartBoldIcon },
   { id: "auditoria", label: "Retenção de auditoria", icon: ShieldKeyholeBoldIcon },
   { id: "atualizacoes", label: "Atualizações", icon: RefreshBoldIcon },
+  { id: "componentes", label: "Galeria de componentes", icon: ChartBoldIcon },
 ];
 
 /** Consumo dos últimos 30 dias, por agente. Mesmo dado de Atividades; mostra o total e cada agente. */
@@ -3018,6 +3020,7 @@ function SettingsPage({ providers, edition, isAdmin }: { providers: ProviderStat
             </>
           )}
           {tab === "uso" && <UsageSettings />}
+          {tab === "componentes" && <ComponentsGallery />}
           {tab === "auditoria" && <AuditRetentionSettingsForRole isAdmin={isAdmin} apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp" && <McpServersPanel apiFetch={apiFetch} apiUrl={API_URL} />}
           {tab === "mcp-access" && <McpAccessPanel apiFetch={apiFetch} apiUrl={API_URL} />}
