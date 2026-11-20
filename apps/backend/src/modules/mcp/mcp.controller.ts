@@ -26,7 +26,7 @@ export class McpController {
   private async save(id: string | null, body: unknown) {
     if (!body || typeof body !== "object" || Array.isArray(body)) throw new BadRequestException({ code: "MCP_SERVER_INVALID", message: "Informe os dados do servidor MCP." });
     const input = body as Partial<ManagedInput>;
-    if (!id && (!input.name || !input.command || !Array.isArray(input.args) || typeof input.enabled !== "boolean")) throw new BadRequestException({ code: "MCP_SERVER_INVALID", message: "Nome, comando, argumentos e estado ligado são obrigatórios." });
+    if (!id && (!input.name || typeof input.enabled !== "boolean" || ((input.transport ?? "stdio") === "stdio" && (!input.command || !Array.isArray(input.args))))) throw new BadRequestException({ code: "MCP_SERVER_INVALID", message: "Nome, dados do transporte e estado ligado são obrigatórios." });
     const result = await this.mcp.saveManaged(id, input as ManagedInput);
     return result;
   }
