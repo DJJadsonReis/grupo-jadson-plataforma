@@ -8,6 +8,7 @@ import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
 import { AgentAvatar } from "./components/AgentAvatar";
 import { TasksPage } from "./components/tasks/TasksPage";
 import { SkillsPage } from "./components/skills/SkillsPage";
+import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
@@ -19,7 +20,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -210,6 +211,7 @@ const NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
 
 const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "skills", label: "Habilidades", icon: Sparkles },
+  { id: "responsibilities", label: "Responsabilidades", icon: Workflow },
   { id: "models", label: "Modelos e provedores", icon: BrainCircuit },
   { id: "activity", label: "Atividades", icon: ShieldCheck },
   { id: "monitoring", label: "Monitoramento", icon: Activity },
@@ -939,6 +941,7 @@ function Workspace() {
         {page === "groups" && <GroupsPage groups={groups} agents={agents} persistence={postgresHealth} onSave={persistGroup} onArchive={archiveGroup} onChat={(group) => newConversation(undefined, group.id)} />}
         {page === "tasks" && <TasksPage apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "skills" && <SkillsPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} isAdmin={!readSession()} />}
+        {page === "responsibilities" && <ResponsibilitiesPage apiFetch={apiFetch} apiUrl={API_URL} agents={agents} />}
         {page === "models" && <ModelsPage providers={providers} onOpenChat={() => changePage("chat")} />}
         {page === "settings" && <SettingsPage providers={providers} />}
         {page === "monitoring" && (
@@ -951,7 +954,7 @@ function Workspace() {
           />
         )}
         {page === "activity" && <ActivityPage />}
-        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills"] as PageId[]).includes(page) && (
+        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
       </main>
