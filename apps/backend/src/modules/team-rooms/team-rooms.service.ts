@@ -6,6 +6,7 @@ import { AgentPermissionsService } from "../agents/agent-permissions.service";
 import { AgentRecord } from "../agents/agents.service";
 import { Principal } from "../auth/users.service";
 import { ProvidersService } from "../providers/providers.service";
+import { AuditService } from "../audit/audit.service";
 import { ProviderMessage } from "../providers/provider.types";
 import { replyAsAgent } from "../agents/agent-reply";
 
@@ -16,7 +17,7 @@ type Message = { id: string; room_id: string; author_kind: "person" | "bot"; aut
 
 @Injectable()
 export class TeamRoomsService {
-  constructor(private readonly database: DatabaseService, private readonly permissions: AgentPermissionsService, private readonly providers: ProvidersService) {}
+  constructor(private readonly database: DatabaseService, private readonly permissions: AgentPermissionsService, private readonly providers: ProvidersService, private readonly audit: AuditService) {}
 
   private pool() { return this.database.getPool(); }
   private validRoomId(id: string): void { if (!UUID.test(id)) throw new NotFoundException(ROOM_MISSING); }
@@ -38,6 +39,7 @@ export class TeamRoomsService {
       const inserted = await client.query("INSERT INTO team_rooms(id,name,created_by) VALUES($1,$2,$3) RETURNING id,name,created_by AS \"createdBy\",created_at AS \"createdAt\",archived", [id, name.trim(), principal.id]);
       await client.query("INSERT INTO team_room_members(room_id,person_id,role) VALUES($1,$2,'admin')", [id, principal.id]);
       await client.query("COMMIT");
+      await this.audit.record({ actor: principal.id, action: "team.room.created", subject: id, details: { roomId: id, name: name.trim() } });
       return { ...inserted.rows[0], role: "admin" };
     } catch (error) { await client.query("ROLLBACK"); throw error; }
     finally { client.release(); }
@@ -65,7 +67,8 @@ export class TeamRoomsService {
     if (existing.rowCount) return this.get(roomId, principal);
     const count = await this.pool().query("SELECT count(*)::int AS count FROM team_room_members WHERE room_id=$1", [roomId]);
     if (Number(count.rows[0]?.count ?? 0) >= 50) throw new ConflictException({ code: "ROOM_MEMBER_LIMIT", message: "Limite de 50 pessoas atingido." });
-    await this.pool().query("INSERT INTO team_room_members(room_id,person_id,role) VALUES($1,$2,'member') ON CONFLICT(room_id,person_id) DO NOTHING", [roomId, personId]);
+    const inserted = await this.pool().query("INSERT INTO team_room_members(room_id,person_id,role) VALUES($1,$2,'member') ON CONFLICT(room_id,person_id) DO NOTHING RETURNING person_id", [roomId, personId]);
+    if (inserted.rowCount) await this.audit.record({ actor: principal.id, action: "team.room.member_added", subject: roomId, details: { roomId, personId, role: "member" } });
     return this.get(roomId, principal);
   }
   async removeMember(roomId: string, personId: string, principal: Principal) {
@@ -80,6 +83,7 @@ export class TeamRoomsService {
     }
     const removed = await this.pool().query("DELETE FROM team_room_members WHERE room_id=$1 AND person_id=$2 RETURNING person_id", [roomId, personId]);
     if (!removed.rowCount) throw new BadRequestException({ code: "PERSON_NOT_IN_ROOM", message: "A pessoa não participa desta sala." });
+    await this.audit.record({ actor: principal.id, action: "team.room.member_removed", subject: roomId, details: { roomId, personId } });
     return { removed: true };
   }
   async messages(roomId: string, principal: Principal) {

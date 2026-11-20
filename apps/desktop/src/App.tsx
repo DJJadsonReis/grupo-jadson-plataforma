@@ -28,6 +28,7 @@ import { ConnectionSharesPanel } from "./components/connections/ConnectionShares
 import { NotificationsPanel } from "./components/notifications/NotificationsPanel";
 import { AuditRetentionSettingsForRole } from "./components/audit/AuditRetentionSettings";
 import { auditErrorMessage, buildAuditQuery, validateAuditRange } from "./lib/audit-filters";
+import { auditActionLabel } from "./lib/audit-labels";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
 import { formatCostUsd, formatTokens } from "./lib/usage";
 import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
@@ -3713,15 +3714,6 @@ function MemorySettings({ apiFetch, apiUrl }: { apiFetch: (input: string, init?:
 type ApprovalItem = { id: string; action: string; summary: string; status: "pending" | "approved" | "rejected"; requestedBy: string; decidedBy: string | null; createdAt: string };
 type AuditItem = { id: string; actor: string; action: string; subject: string | null; createdAt: string };
 
-const AUDIT_LABELS: Record<string, string> = {
-  "chat.completion": "Resposta gerada",
-  "approval.requested": "Aprovação solicitada",
-  "approval.approved": "Aprovação concedida",
-  "approval.rejected": "Aprovação recusada",
-  "handoff.created": "Delegação entre agentes",
-  "tool.run": "Ferramenta executada",
-};
-
 /** Atividades: solicitações de aprovação pendentes e a trilha de auditoria recente. */
 function ActivityPage({ isAdmin }: { isAdmin: boolean }) {
   const [pending, setPending] = useState<ApprovalItem[]>([]);
@@ -3851,7 +3843,7 @@ function ActivityPage({ isAdmin }: { isAdmin: boolean }) {
           {audit.length === 0 && !auditLoading && !auditError ? <p>Nenhum evento registrado ainda.</p> : audit.map((event) => (
             <div className="workspace-fact" key={event.id}>
               <span>{new Date(event.createdAt).toLocaleString("pt-BR")} · {event.actor}</span>
-              <b>{AUDIT_LABELS[event.action] ?? event.action}</b>
+              <b>{auditActionLabel(event.action)}</b>
             </div>
           ))}
           {!auditError && <button type="button" onClick={() => void loadAudit(audit.length > 0)} disabled={auditLoading || (audit.length > 0 && !auditCursor)}>{auditLoading ? "Carregando…" : audit.length > 0 && !auditCursor ? "Fim dos resultados" : audit.length > 0 ? "Carregar mais" : "Carregar auditoria"}</button>}

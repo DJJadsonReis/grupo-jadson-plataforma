@@ -17,7 +17,7 @@ describe("team rooms PostgreSQL integration", () => {
       await pool.query(`CREATE TABLE IF NOT EXISTS agent_shares(agent_id uuid NOT NULL REFERENCES agents(id),user_id uuid REFERENCES users(id),team_id uuid REFERENCES teams(id),role text NOT NULL,granted_by text NOT NULL,created_at timestamptz NOT NULL DEFAULT now(),UNIQUE(agent_id,user_id),UNIQUE(agent_id,team_id))`);
       await up(pool);
       await pool.query("INSERT INTO users(id,name,role,token_hash) VALUES($1,'Ana','viewer',$1),($2,'Bia','operator',$2) ON CONFLICT(id) DO NOTHING", [first, second]);
-      const service = new TeamRoomsService({ getPool: () => pool } as never, { access: async () => "none" } as never, { stream: async () => { throw new Error("unexpected provider call"); } } as never);
+      const service = new TeamRoomsService({ getPool: () => pool } as never, { access: async () => "none" } as never, { stream: async () => { throw new Error("unexpected provider call"); } } as never, { record: async () => undefined } as never);
       const room = await service.create("Sala de teste", { id: first, name: "Ana", role: "viewer" });
       await expect(service.get(room.id, { id: second, name: "Bia", role: "operator" })).rejects.toMatchObject({ response: { code: "ROOM_NOT_FOUND" } });
       await service.addMember(room.id, second, { id: first, name: "Ana", role: "viewer" });
