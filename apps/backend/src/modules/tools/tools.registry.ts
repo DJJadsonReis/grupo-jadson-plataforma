@@ -18,6 +18,7 @@ export interface ToolDefinition {
 
 export const TOOL_DEFINITIONS: ToolDefinition[] = [
   { name: "tempo.agora", description: "Data e hora atuais do servidor.", risk: "read" },
+  { name: "subagente.delegar", description: "Delega uma tarefa de leitura a outro turno isolado deste mesmo bot e devolve a resposta final.", risk: "read", parameters: { properties: { tarefa: { type: "string", description: "Tarefa isolada a executar, com até 2000 caracteres." } }, required: ["tarefa"] } },
   { name: "memoria.listar", description: "Lista as memórias salvas pela pessoa.", risk: "read" },
   { name: "memoria.apagar_tudo", description: "Apaga todas as memórias salvas. Exige aprovação.", risk: "sensitive" },
   { name: "busca.wikipedia", description: "Pesquisa na Wikipédia em português, sem chave de API.", risk: "read", parameters: { properties: { consulta: { type: "string", description: "Texto a pesquisar." } }, required: ["consulta"] } },

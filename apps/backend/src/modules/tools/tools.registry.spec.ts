@@ -21,6 +21,10 @@ describe("registro de ferramentas", () => {
     expect(findTool("notion.anexar_texto")?.parameters?.required).toEqual(["pagina", "texto"]);
   });
 
+  it("registra delegação de subagente como leitura com tarefa obrigatória", () => {
+    expect(findTool("subagente.delegar")).toMatchObject({ risk: "read", parameters: { required: ["tarefa"] } });
+  });
+
   it("ferramenta desconhecida não existe", () => {
     expect(findTool("shell.executar")).toBeUndefined();
   });

@@ -26,6 +26,7 @@ import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
 import { effectiveSkillTools } from "../skills/skill-tools";
 import { AGENT_ENDPOINT_FAILED, callAgentEndpoint } from "../agents/agent-endpoint";
+import { MAX_SUBAGENTS_PER_TURN, runSubagent } from "./subagents.service";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -272,6 +273,8 @@ export class ChatController {
         }
       } else {
       let workingMessages = [...messages];
+      let subagentCalls = 0;
+      let subagentToolsUsed = 0;
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
@@ -326,6 +329,54 @@ export class ChatController {
               if (found.size > 20) found.delete(found.values().next().value as string);
             }
             workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "done", resultados: results }) });
+            continue;
+          }
+          if (call.function.name === "subagente__delegar") {
+            if (typeof input.tarefa !== "string" || !input.tarefa.trim() || input.tarefa.length > 2000) {
+              workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Informe uma tarefa com até 2000 caracteres." }) });
+              continue;
+            }
+            if (subagentCalls >= MAX_SUBAGENTS_PER_TURN) {
+              workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: "Limite de 3 subagentes por resposta." }) });
+              continue;
+            }
+            subagentCalls += 1;
+            const grantedNames = new Set([
+              ...visibleTools(toolCatalog, found).filter((tool) => !["subagente.delegar", "ferramentas.buscar"].includes(tool.name)).map((tool) => tool.name),
+              ...[...grantedSkillTools.names.values()],
+            ]);
+            const grantedTools = toolCatalog.filter((tool) => grantedNames.has(tool.name) && tool.name !== "subagente.delegar");
+            try {
+              const result = await runSubagent({
+                task: input.tarefa,
+                bot: { instructions: [agent?.instructions.trim(), buildSkillsSystemMessage(promptSkills), ...messages.filter((message) => message.role === "system" && message.content !== UNTRUSTED_GUIDANCE && !String(message.content).startsWith("Memórias salvas pela pessoa") && !String(message.content).startsWith("Preferências da pessoa:")).map((message) => typeof message.content === "string" ? message.content : "")].filter(Boolean).join("\n\n"), systemMessages: [agent?.instructions.trim(), buildSkillsSystemMessage(promptSkills), ...messages.filter((message) => message.role === "system" && message.content !== UNTRUSTED_GUIDANCE && !String(message.content).startsWith("Memórias salvas pela pessoa") && !String(message.content).startsWith("Preferências da pessoa:")).map((message) => typeof message.content === "string" ? message.content : "")].filter((content): content is string => Boolean(content)), ...(effectiveModel ? { model: effectiveModel } : {}), provider: completion.provider, ...(completion.generationConfig ? { generationConfig: completion.generationConfig } : {}) },
+                // O serviço recebe instruções, não o histórico original. A tarefa é o único turno de usuário.
+                grantedTools,
+                runTurn: async (subagentInput) => {
+                  const upstreamSubagent = await this.providers.stream(structuredClone(subagentInput), abort.signal);
+                  // Preserve a snapshot for callers that instrument provider requests; the outer chat mutates its own history.
+                  const subagentStream = new MaskedTextStream(mask, () => undefined);
+                  const subagentRound = await readCompletion(upstreamSubagent, subagentStream);
+                  subagentStream.flush();
+                  return { content: subagentRound.content, toolCalls: subagentRound.toolCalls };
+                },
+                limits: {
+                  mask,
+                  invokeTool: async (name, args) => {
+                    const value = await this.toolsService.invoke(name, args, request.principal?.name ?? "sistema", agentId, request.principal?.id);
+                    return withUntrustedNotice(typeof value.output === "object" && value.output !== null ? value.output as Record<string, unknown> : { resultado: value.output }, name);
+                  },
+                },
+              });
+              subagentToolsUsed += result.ferramentas;
+              workingMessages.push({ role: "tool", tool_call_id: call.id, content: result.texto });
+              try {
+                await this.audit.record({ action: "subagent.run", subject: conversationId ?? null, details: { agentId: agentId ?? null, conversationId: conversationId ?? null, depth: 1, toolsUsed: result.ferramentas, outputSize: result.texto.length } });
+              } catch (error) { this.logger.warn(`Auditoria de subagente nÃ£o gravada: ${await this.toolsService.maskSecretText(error instanceof Error ? error.message : "falha no banco")}`); }
+            } catch (error) {
+              const safe = await this.toolsService.maskSecretText(error instanceof Error ? error.message : "Falha no subagente.");
+              workingMessages.push({ role: "tool", tool_call_id: call.id, content: JSON.stringify({ status: "failed", message: safe }) });
+            }
             continue;
           }
           const canonicalName = allAvailableTools.names.get(call.function.name);

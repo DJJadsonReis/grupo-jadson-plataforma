@@ -39,7 +39,7 @@ function setup(options: {
 } = {}) {
   const inputs: any[] = [];
   const streams = [...(options.streams ?? [sseResponse([{ choices: [{ delta: { content: "feito" } }] }])])];
-  const providers = { stream: jest.fn(async (input) => { inputs.push(input); return streams.shift()!; }), list: jest.fn() };
+  const providers = { stream: jest.fn(async (input) => { inputs.push(structuredClone(input)); return streams.shift()!; }), list: jest.fn() };
   const tools = {
     catalog: () => TOOL_DEFINITIONS,
     secretsForMasking: async () => [] as string[],
@@ -147,6 +147,40 @@ describe("ChatController tool loop", () => {
     const result = inputs[1].messages.find((message: any) => message.role === "tool");
     expect(JSON.parse(result.content).status).toBe("done");
     expect(invoke).not.toHaveBeenCalled();
+  });
+
+  it("executa subagente isolado, devolve o resultado ao bot e audita apenas metadados", async () => {
+    const audit = { record: jest.fn(async (_event: Record<string, unknown>) => undefined) };
+    const { controller, inputs, providers, tools } = setup({ agent: { instructions: "instruções privadas do bot", enabled: true, model: "modelo-x", generationConfig: null }, streams: [
+      sseResponse([toolCall("subagente.delegar", { tarefa: "pesquise" })]),
+      sseResponse([{ choices: [{ delta: { content: "resposta final" } }] }]),
+      sseResponse([{ choices: [{ delta: { content: "resultado isolado" } }] }]),
+    ] });
+    (controller as any).audit = audit;
+    (controller as any).audit = audit;
+    tools.catalog = () => [...TOOL_DEFINITIONS, { name: "teste.leitura", description: "Leitura falsa", risk: "read" as const }];
+    await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "mensagem original confidencial" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
+    expect(providers.stream).toHaveBeenCalledTimes(3);
+    const subagentInput = inputs[2];
+    expect(subagentInput.messages).toEqual(expect.arrayContaining([
+      expect.objectContaining({ role: "system", content: "instruções privadas do bot" }),
+    ]));
+    expect(subagentInput.messages.some((message: any) => message.role === "user" && message.content === "mensagem original confidencial")).toBe(true);
+    expect(subagentInput.tools.some((tool: any) => tool.function.name === "subagente__delegar")).toBe(true);
+    expect(inputs[1].messages.some((message: any) => message.role === "tool" && message.content.includes("resultado isolado"))).toBe(false);
+    const event = audit.record.mock.calls.find(([value]) => (value as any).action === "subagent.run")?.[0] as any;
+    expect(event.details).toMatchObject({ depth: 1, toolsUsed: 0 });
+    expect(JSON.stringify(event)).not.toContain("pesquise");
+    expect(JSON.stringify(event)).not.toContain("resultado isolado");
+  });
+
+  it("recusa a quarta delegação e tarefa inválida sem abrir modelo adicional", async () => {
+    const repeated = Array.from({ length: 4 }, (_, index) => sseResponse([toolCall("subagente.delegar", { tarefa: index === 0 ? " " : "tarefa" }, `sub-${index}`)]));
+    repeated.push(...Array.from({ length: 4 }, () => sseResponse([{ choices: [{ delta: { content: "fim" } }] }])));
+    const { controller, providers, inputs } = setup({ streams: repeated });
+    await complete(controller);
+    expect(providers.stream).toHaveBeenCalledTimes(6); // quatro chamadas do bot, uma execução delegada e a resposta final.
+    expect(inputs.slice(1).every((input) => !input.messages.some((message: any) => message.role === "system" && message.content === undefined))).toBe(true);
   });
 
   it("recusa busca local quando o catálogo está abaixo do limite", async () => {

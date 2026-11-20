@@ -52,6 +52,11 @@ describe("tool-search", () => {
     expect(searchTools("lê o título texto blocos página notion", TOOL_DEFINITIONS).map((item) => item.name)).toContain("notion.ler_pagina");
   });
 
+  it("encontra subagente por nome e descrição", () => {
+    expect(searchTools("subagente", TOOL_DEFINITIONS).map((item) => item.name)).toContain("subagente.delegar");
+    expect(searchTools("delegar", TOOL_DEFINITIONS).map((item) => item.name)).toContain("subagente.delegar");
+  });
+
   it("ignora sensíveis e limita resultados a oito mesmo com limite maior", () => {
     const defs: ToolDefinition[] = [
       { name: "perigosa", description: "Arquivos", risk: "sensitive" },
