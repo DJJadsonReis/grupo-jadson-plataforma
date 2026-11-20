@@ -2,7 +2,7 @@ import { SettingsBoldIcon, LogoutBoldIcon, MonitorBoldIcon, ShieldKeyholeBoldIco
 import { useEffect, useMemo, useRef, useState, type CSSProperties, type Dispatch, type FormEvent, type PointerEvent as ReactPointerEvent, type ReactNode, type RefObject, type SetStateAction } from "react";
 import { normalizeAgent, parseWorkspace, toStringList, serializeWorkspace, type Agent, type ChatMessage, type Conversation, type Group } from "./lib/workspace";
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
-import { canShowSharing, needsSignIn, parseEditionResponse, type Edition } from "./lib/edition";
+import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
 import { plainPreview } from "./lib/preview";
 import { openExternal } from "./lib/external";
 import { checkForDesktopUpdate, type UpdateNotice } from "./lib/updates";
@@ -170,7 +170,9 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    fetch(`${API_URL}/edition`)
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 3000);
+    fetch(`${API_URL}/edition`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("edition"))))
       .then((body: unknown) => parseEditionResponse(body))
       .catch(() => "equipe" as const)
@@ -193,18 +195,27 @@ export default function App() {
         setNeedsLogin(needsSignIn(selectedEdition, list.length, Boolean(readSession())));
       })
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
-      });
+      })
+      .finally(() => window.clearTimeout(timeout));
     return () => { active = false; };
   }, []);
 
-  if (!firstRunComplete) {
+  const initialScreen = startupScreen({
+    firstRunComplete,
+    editionLoaded,
+    needsLogin,
+    edition,
+    hasSession: Boolean(session),
+  });
+
+  if (initialScreen === "welcome") {
     return <Welcome apiUrl={API_URL} onComplete={() => {
       try { window.localStorage.setItem(FIRST_RUN_COMPLETE_KEY, "1"); } catch { /* verifica de novo na próxima abertura */ }
       setFirstRunComplete(true);
     }} />;
   }
-  if (!editionLoaded) return <Welcome apiUrl={API_URL} onComplete={() => undefined} />;
-  if (editionLoaded && needsLogin && needsSignIn(edition, 1, Boolean(session))) {
+  if (initialScreen === "loading") return <div role="status">Carregando…</div>;
+  if (initialScreen === "login") {
     return (
       <LoginScreen
         onSignedIn={(token) => {
