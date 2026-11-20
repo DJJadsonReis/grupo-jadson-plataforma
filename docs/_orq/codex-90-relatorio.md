@@ -48,8 +48,8 @@ O teste que requer PostgreSQL (`usage.pg.spec.ts`) ficou pulado porque `TEST_DAT
 ## Commit
 
 - Mensagem: `feat(backend): mede uso e custo com preços cadastrados`
-- Hash: será registrado após a criação do commit local.
-- Autor esperado: Jadson Reis <jrdesign9@gmail.com>.
+- Hash: `3c37c2a7937dd0889fb04ba010a7a337415e09d8`.
+- Autor: Jadson Reis <jrdesign9@gmail.com>.
 
 ## Pendente
 
