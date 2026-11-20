@@ -14,4 +14,8 @@ describe("plainPreview", () => {
     const out = plainPreview("a".repeat(120), 10);
     expect(out).toBe("aaaaaaaaaa…");
   });
+
+  it("substitui bloco componente por marcador", () => {
+    expect(plainPreview('Antes ```componente\n{"tipo":"cartao"}\n``` depois')).toBe("Antes [componente] depois");
+  });
 });

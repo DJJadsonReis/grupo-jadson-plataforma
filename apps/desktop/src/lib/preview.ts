@@ -4,6 +4,7 @@
  */
 export function plainPreview(markdown: string, max = 80): string {
   const text = markdown
+    .replace(/```componente\s*\n[\s\S]*?```/g, " [componente] ")
     .replace(/```[\s\S]*?```/g, " ")
     .replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/\[([^\]]+)\]\([^)]*\)/g, "$1")

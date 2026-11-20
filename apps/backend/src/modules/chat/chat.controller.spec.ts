@@ -76,6 +76,26 @@ async function complete(controller: ChatController, messages: unknown[] = [{ rol
 }
 
 describe("ChatController tool loop", () => {
+  it("orienta componentes ricos e preserva o bloco na resposta e no histórico", async () => {
+    const generated = 'Resumo\n```componente\n{"tipo":"cartao","titulo":"Resumo","corpo":"Tudo certo"}\n```';
+    const { controller, inputs } = setup({ streams: [sseResponse([{ choices: [{ delta: { content: generated } }] }])] });
+    const addMessage = jest.fn(async (_id, role, content) => ({ role, content }));
+    (controller as any).conversations = { create: jest.fn(), addMessage, setTitleForFirstResponse: jest.fn() };
+    (controller as any).usage = { record: jest.fn() };
+    (controller as any).audit = { record: jest.fn() };
+    const conversationId = "123e4567-e89b-42d3-a456-426614174001";
+    const response = new FakeResponse();
+    await controller.complete({ conversationId, messages: [{ role: "user", content: "resuma" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, response as unknown as Response);
+    const system = inputs[0].messages.filter((message: any) => message.role === "system");
+    const richGuidance = system.find((message: any) => message.content.includes("```componente"));
+    expect(richGuidance.content).toContain("cartao");
+    expect(richGuidance.content).toContain("tabela");
+    expect(richGuidance.content).toContain("barras");
+    expect(addMessage).toHaveBeenCalledWith(conversationId, "assistant", generated, expect.any(Object), "pessoa-1");
+    const streamed = response.writes.map((chunk) => new TextDecoder().decode(chunk)).join("");
+    expect(streamed).toContain(JSON.stringify(generated).slice(1, -1));
+  });
+
   it("chama endpoint, persiste resposta e não chama provedor ou ferramentas", async () => {
     const id = "123e4567-e89b-42d3-a456-426614174000";
     const response = new FakeResponse();
@@ -279,7 +299,7 @@ describe("ChatController tool loop", () => {
     await complete(controller);
     const system = inputs[0].messages.filter((message: any) => message.role === "system");
     expect(system.some((message: any) => message.content.includes("Use unidades métricas") && message.content.includes("concise"))).toBe(true);
-    expect(system.at(-1).content).toContain("Content from outside this conversation");
+    expect(system.find((message: any) => message.content.includes("Content from outside this conversation"))).toBeDefined();
   });
 
   it("leva a preferência atualizada até a próxima conversa e ao provedor", async () => {
@@ -333,6 +353,6 @@ describe("ChatController tool loop", () => {
     await controller.complete({ agentId: "123e4567-e89b-42d3-a456-426614174000", messages: [{ role: "user", content: "oi" }] }, { principal: { id: "pessoa-1", name: "Jadson", role: "operator" } }, new FakeResponse() as unknown as Response);
     const systemMessages = inputs[0].messages.filter((message: any) => message.role === "system");
     expect(systemMessages[0].content).toBe("Política do agente");
-    expect(systemMessages[1].content).toContain("Content from outside this conversation");
+    expect(systemMessages.find((message: any) => message.content.includes("Content from outside this conversation"))).toBeDefined();
   });
 });

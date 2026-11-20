@@ -36,7 +36,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 | Prévia de conversa sem markdown | `server/src/channels/summary.ts` | Feito: `desktop/src/lib/preview.ts` | — | — |
 | Anexos de imagem | `server/src/channels/attachments.ts`, `shared/attachment-mime.ts` | Feito: `chat/image-attachments.ts` | — | — |
 | Anexos de documentos (DOCX, XLSX) | `shared/attachments.ts`, `server/src/channels/attachment-parts.ts` | Parcial: só PDF (`documents`, `pdf-parse`) | M | Média |
-| Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Falta | G | Baixa |
+| Respostas com componentes ricos (gráficos, cartões) | `server/src/components/`; `app/.../settings/components-gallery` | Feito (básico): cartão, tabela e barras em respostas; sem interatividade | G | Baixa |
 | Imagens geradas por ferramentas | `server/src/tool-images.ts` | Falta | P | Baixa |
 | Ditado por voz (entrada) | `server/src/dictation/`, `shared/dictation.ts`, `shared/on-device-speech.ts` | Parcial: Web Speech API com processamento local obrigatório; depende de suporte do WebView e pacote pt-BR instalado | M | Média |
 | Leitura da resposta em voz alta | `server/src/voice/`, `shared/voice-session.ts` | Parcial: `speechSynthesis` em `desktop/src/App.tsx` | P | Baixa |
@@ -81,7 +81,7 @@ Data: 2026-11-12. Auditoria somente de leitura: nada foi implementado. Referênc
 
 | Funcionalidade | Onde está no OpenBot | Status no nosso | Esforço | Prioridade |
 |---|---|---|---|---|
-| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts`, `sweep.ts`; `docs/routines.md` | Parcial: `next_run_at` persistido no PostgreSQL e varredura no boot; ainda usa polling e não tem claim distribuído | M | Alta |
+| Rotinas agendadas | `server/src/routines/schedule.ts`, `runner.ts`, `sweep.ts`; `docs/routines.md` | Feito (básico): intervalo e horário fixo; claim distribuído; timer persistido | M | Alta |
 | Responsabilidades contínuas (o bot cuida de algo recorrente) | `server/src/responsibilities/` | Falta | G | Média |
 | Check-ins proativos | `server/src/proactive/`; `mobile/src/check-ins.tsx` | Falta | G | Baixa |
 | Notificações | `mobile/src/notifications.ts`; `server/src/delivery/` | Falta | M | Baixa |
@@ -148,7 +148,7 @@ Ordem de prioridade. Todos podem ser feitos sem serviço pago.
 1. **Tratamento de conteúdo não confiável (contra injeção de instruções).** Implementado: resultados externos entram envelopados no loop de ferramentas e `UNTRUSTED_GUIDANCE` orienta o modelo; mensagens de sistema do cliente são descartadas. Referência: `server/src/untrusted-content.ts`. Esforço M.
 2. **Atualização automática do app.** Parcialmente implementado: plugin oficial do Tauri 2.14.1, checagem, aviso e instalação. O commit `0c45472` alterou `apps/desktop/package.json`, `apps/desktop/src-tauri/Cargo.toml`, `apps/desktop/src-tauri/Cargo.lock` e `pnpm-lock.yaml`, conforme autorização explícita. A chave privada fica fora do repositório; o endpoint segue como exemplo `.invalid`. **Não concluído:** falta configurar um endpoint HTTPS real e publicar manifestos/artefatos; a compilação Rust integral não foi validada na rodada da primeira execução guiada (o `cargo check` falhou por cache offline ausente para `tauri-plugin-opener`). Referência: `docs/desktop-updates.md`. Esforço M.
 3. **Primeira execução guiada.** Parcialmente implementada: a tela detecta backend, PostgreSQL, pgvector e Redis; salva a URL PostgreSQL e um token de sistema aleatório no perfil local do Windows; explica como iniciar e revalidar. Redis não bloqueia quando a fila em memória está selecionada. Ainda é necessário iniciar/reiniciar manualmente o backend e disponibilizar o PostgreSQL; o desktop não instala nem gerencia esses serviços. Referência: `desktop/src/Welcome.tsx`, `server/src/setup/`. Esforço M.
-4. **Rotinas com agendamento real.** Hoje há um `setInterval`. Um agendador de verdade permite horários fixos e continuidade depois de reiniciar. Referência: `server/src/routines/schedule.ts`, `sweep.ts`. Esforço M.
+4. **Rotinas com agendamento real.** Feito (básico): intervalo ou horário diário fixo e continuidade após reiniciar pelo próximo disparo persistido. Esforço M.
 5. **Leitura do conteúdo de uma página.** Sem isso o agente só vê trechos de busca. Pode usar `fetch` e extração de texto, sem chave paga. Referência: `shared/research.ts`. Esforço M.
 6. **Limite de ferramentas por turno.** Evita laços caros e respostas sem fim, o que importa com verba zero. Referência: `server/src/agents/tool-limit.ts`. Esforço P.
 7. **Mascaramento de segredos em saídas e logs.** Evita que uma chave apareça na conversa ou no log. Custo baixo, ganho de segurança alto. Referência: `agent-computer/src/secret-masking.ts`. Esforço P.

@@ -73,4 +73,26 @@ describeWithPostgres("claim de rotinas contra PostgreSQL real", () => {
     expect(stillThere.rows[0]).toEqual({ enabled: true });
     await service.remove(routine.id, ownerA);
   });
+
+  it("cria e executa rotina diária no próximo HH:MM, persistindo o resultado e liberando claim", async () => {
+    const owner = `diaria-${Date.now()}`;
+    const invoke = jest.fn(async () => ({}));
+    const tools = { invoke, catalog: () => TOOL_DEFINITIONS, maskSecretText: async (text: string) => text } as never;
+    const service = new RoutinesService(database, tools);
+    const routine = await service.create({ name: `diária-${Date.now()}`, tool: "tempo.agora", dailyAt: "08:00", owner });
+    expect(routine.dailyAt).toBe("08:00");
+    const inserted = await database.getPool().query("SELECT interval_minutes, daily_at FROM routines WHERE id = $1", [routine.id]);
+    expect(inserted.rows[0]).toEqual({ interval_minutes: 1440, daily_at: "08:00" });
+
+    const now = new Date(2026, 0, 31, 9);
+    await database.getPool().query("UPDATE routines SET next_run_at = $2 WHERE id = $1", [routine.id, new Date(now.getTime() - 60_000)]);
+    await service.tick(now);
+    const finished = await database.getPool().query("SELECT next_run_at, last_status, claim_until, claim_token FROM routines WHERE id = $1", [routine.id]);
+    expect(new Date(finished.rows[0].next_run_at).getTime()).toBe(new Date(2026, 1, 1, 8).getTime());
+    expect(finished.rows[0].last_status).toBe("done");
+    expect(finished.rows[0].claim_until).toBeNull();
+    expect(finished.rows[0].claim_token).toBeNull();
+    expect(invoke).toHaveBeenCalledTimes(1);
+    await service.remove(routine.id, owner);
+  });
 });
