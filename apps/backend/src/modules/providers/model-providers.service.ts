@@ -1,11 +1,12 @@
 import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { randomUUID } from "node:crypto";
-import { isIP } from "node:net";
 import { lookup } from "node:dns/promises";
 import { DatabaseService } from "../database/database.service";
 import { SecretBox } from "../integrations/secret-box";
 import { modelsForProvider, ManagedProviderKind, SelectableModel } from "./model-catalogue";
-import { isPrivateAgentAddress, validateAgentEndpoint } from "../agents/agent-endpoint";
+import { validateAgentEndpoint } from "../agents/agent-endpoint";
+import { isProviderRedirect, resolveProviderDestination } from "./provider-destination";
+import { pinnedFetch } from "../tools/page-reader";
 
 export interface ModelProviderRow { id: string; kind: ManagedProviderKind; name: string; baseUrl: string | null; secretCiphertext: string; models: SelectableModel[]; enabled: boolean; createdAt: Date; updatedAt: Date }
 export interface ModelProviderItem { id: string; kind: ManagedProviderKind; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: Date; models: SelectableModel[]; discoveryMessage?: string }
@@ -14,19 +15,10 @@ export type Fetcher = (input: string | URL, init?: RequestInit) => Promise<Respo
 const KINDS: ManagedProviderKind[] = ["openai", "anthropic", "gemini", "xai", "custom"];
 const DEFAULT_URL: Partial<Record<ManagedProviderKind, string>> = { openai: "https://api.openai.com/v1", anthropic: "https://api.anthropic.com/v1", gemini: "https://generativelanguage.googleapis.com/v1beta/openai", xai: "https://api.x.ai/v1" };
 
-function privateIp(address: string): boolean {
-  const ip = address.toLowerCase().replace(/^\[|\]$/g, "");
-  if (ip === "::" || ip === "::1" || ip.startsWith("fc") || ip.startsWith("fd") || /^fe[89ab]/.test(ip)) return true;
-  if (ip.startsWith("::ffff:")) return privateIp(ip.slice(7));
-  if (isIP(ip) !== 4) return false;
-  const [a = 0, b = 0] = ip.split(".").map(Number);
-  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a >= 224;
-}
-
 @Injectable()
 export class ModelProvidersService {
   private box = new SecretBox();
-  private fetcher: Fetcher = (input, init) => fetch(input, init);
+  private fetcher: Fetcher = ((input, init) => pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]) as unknown as Promise<Response>);
   private lookupHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map((entry) => entry.address);
   private readonly testTimeoutMs = 8000;
   constructor(private readonly database: DatabaseService) {}
@@ -69,11 +61,8 @@ export class ModelProvidersService {
     return validateAgentEndpoint(candidate).replace(/\/$/, "");
   }
   private async validateDestination(baseUrl: string, allowLocal: boolean): Promise<void> {
-    const url = new URL(baseUrl);
-    const localHost = /^(localhost|127\.0\.0\.1|\[::1\])$/i.test(url.hostname);
-    if (localHost) { if (!allowLocal || url.protocol !== "http:") throw new BadRequestException({ code: "INVALID_MODEL_PROVIDER", message: "Endpoint local exige confirmação explícita." }); return; }
-    const addresses = isIP(url.hostname) ? [url.hostname] : await this.lookupHost(url.hostname);
-    if (!addresses.length || addresses.some((address) => isPrivateAgentAddress(address) || privateIp(address))) throw new BadRequestException({ code: "INVALID_MODEL_PROVIDER", message: "A URL não pode apontar para um endereço IP privado." });
+    try { await resolveProviderDestination(baseUrl, allowLocal, this.lookupHost); }
+    catch { throw new BadRequestException({ code: "INVALID_MODEL_PROVIDER", message: "A URL não pode apontar para um endereço IP privado." }); }
   }
   async create(input: ModelProviderInput): Promise<ModelProviderItem> {
     if (typeof input.kind !== "string" || !KINDS.includes(input.kind as ManagedProviderKind)) throw new BadRequestException({ code: "INVALID_MODEL_PROVIDER", message: "Tipo de provedor inválido." });
@@ -145,7 +134,11 @@ export class ModelProvidersService {
     const url = row.kind === "anthropic" ? "https://api.anthropic.com/v1/models" : `${root.replace(/\/$/, "")}/models`;
     try {
       const headers = row.kind === "anthropic" ? { "x-api-key": key, "anthropic-version": "2023-06-01" } : { Authorization: `Bearer ${key}` };
-      const response = await this.fetcher(url, { method: "GET", headers, signal: controller.signal, redirect: "manual" });
+      // A persisted local URL can only be created after validateBase receives allowLocal=true.
+      const allowLocal = row.kind === "custom" && Boolean(row.baseUrl) && /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(row.baseUrl!);
+      const destination = await resolveProviderDestination(url, allowLocal, this.lookupHost);
+      const response = await this.fetcher(destination.url.toString(), { method: "GET", headers, signal: controller.signal, redirect: "manual", address: destination.address } as RequestInit);
+      if (isProviderRedirect(response.status)) return { ok: false, message: "O serviço do provedor redirecionou a solicitação." };
       if (response.status === 401 || response.status === 403) return { ok: false, message: "A chave foi recusada pelo provedor." };
       if (!response.ok) return { ok: false, message: `O serviço do provedor respondeu com HTTP ${response.status}.` };
       const payload = await response.json() as { data?: unknown; models?: unknown };

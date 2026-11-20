@@ -32,7 +32,7 @@ function setup() {
   const database = { getPool: () => ({ query }) } as never;
   const service = new ModelProvidersService(database);
   service.setTestSecretBox(new TestSecretBox() as never);
-  service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["203.0.113.10"]);
+  service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["8.8.8.8"]);
   return { service, rows, query };
 }
 
@@ -123,6 +123,44 @@ describe("ModelProvidersService", () => {
       await jest.advanceTimersByTimeAsync(8000);
       await expect(pending).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/8 segundos/i) });
     } finally { jest.useRealTimers(); }
+  });
+  it("pins discovery to the just-validated address, blocks rebinding, and rejects redirects", async () => {
+    const { service } = setup();
+    const created = await service.create({ kind: "custom", name: "Custom", baseUrl: "https://provedor.invalid/v1", apiKey: fakeKey });
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 }));
+    let resolutions = 0;
+    service.setTestDependencies(fetcher, async () => { resolutions += 1; return ["10.0.0.5"]; });
+    const rebound = await service.test(created.id);
+    expect(rebound).toMatchObject({ ok: false });
+    expect(fetcher).toHaveBeenCalledTimes(0);
+    expect(resolutions).toBe(1);
+
+    service.setTestDependencies(fetcher, async () => ["8.8.8.8"]);
+    await service.test(created.id);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("provedor.invalid/v1/models"), expect.objectContaining({ address: "8.8.8.8", redirect: "manual" }));
+
+    fetcher.mockResolvedValue(new Response("", { status: 302, headers: { Location: "https://outro.invalid" } }));
+    const before = fetcher.mock.calls.length;
+    const redirected = await service.test(created.id);
+    expect(redirected).toMatchObject({ ok: false });
+    expect(fetcher).toHaveBeenCalledTimes(before + 1);
+    expect(JSON.stringify(redirected)).not.toContain(fakeKey);
+  });
+
+  it("allows explicitly configured local endpoints during discovery", async () => {
+    const { service } = setup();
+    const created = await service.create({ kind: "custom", name: "Local", baseUrl: "http://localhost:11434/v1", allowLocal: true, apiKey: fakeKey });
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    service.setTestDependencies(fetcher, jest.fn(async () => { throw new Error("localhost must not resolve"); }));
+    await service.test(created.id);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("localhost:11434/v1/models"), expect.objectContaining({ address: "127.0.0.1", redirect: "manual" }));
+  });
+  it("rejects local hosts without explicit allowance before making a request", async () => {
+    const { service } = setup();
+    const fetcher = jest.fn(async () => new Response("", { status: 200 }));
+    service.setTestDependencies(fetcher);
+    await expect(service.create({ kind: "custom", name: "Local", baseUrl: "http://localhost:11434/v1", apiKey: fakeKey })).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("enforces custom endpoint URL and explicit local allowance", async () => {
     const { service } = setup();

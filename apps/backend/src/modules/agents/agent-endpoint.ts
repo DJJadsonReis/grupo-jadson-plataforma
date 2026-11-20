@@ -24,7 +24,8 @@ export function isPrivateAgentAddress(address: string): boolean {
   if (ip.startsWith("::ffff:")) return isPrivateAgentAddress(ip.slice(7));
   if (isIP(ip) !== 4) return false;
   const [a = 0, b = 0] = ip.split(".").map(Number);
-  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && b === 168 || a >= 224;
+  const c = Number(ip.split(".")[2] ?? 0);
+  return a === 0 || a === 10 || a === 127 || a === 169 && b === 254 || a === 172 && b >= 16 && b <= 31 || a === 192 && (b === 168 || b === 0 && c === 0 || b === 0 && c === 2 || b === 88 && c === 99) || a === 198 && (b === 18 || b === 19 || b === 51 && c === 100) || a === 203 && b === 0 && c === 113 || a >= 224;
 }
 
 async function readLimited(response: globalThis.Response): Promise<string> {
