@@ -1,4 +1,4 @@
-export interface ManagedProvider { id: string; kind: string; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: string }
+export interface ManagedProvider { id: string; kind: string; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: string; models: ModelOption[]; discoveryMessage?: string }
 export interface ModelOption { id: string; label: string }
 export interface ModelTestResult { ok: boolean; models?: ModelOption[]; message?: string }
 export class ModelProvidersApi {

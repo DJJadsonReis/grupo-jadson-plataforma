@@ -6,13 +6,18 @@ import { IntegrationsService } from "../integrations/integrations.service";
 import { DEFAULT_MODELS, MODEL_CATALOGUE, MODEL_PROVIDER_NAMES, ModelProviderId } from "./model-catalogue";
 import { ModelProvidersService } from "./model-providers.service";
 import { modelsForProvider } from "./model-catalogue";
+import { isProviderRedirect, resolveProviderDestination, toProviderResponse } from "./provider-destination";
+import { pinnedFetch } from "../tools/page-reader";
+import { lookup } from "node:dns/promises";
 
 @Injectable()
 export class ProvidersService {
-  private fetcher: typeof fetch = (input, init) => fetch(input, init);
+  private fetcher: typeof fetch = async (input: string | Request | URL, init?: RequestInit) => toProviderResponse(await pinnedFetch(input.toString(), init as Parameters<typeof pinnedFetch>[1]));
+  private lookupHost: (host: string) => Promise<string[]> = async (host) => (await lookup(host, { all: true })).map(({ address }) => address);
   constructor(private readonly openAi: OpenAiProvider, private readonly anthropic: AnthropicProvider, private readonly integrations: IntegrationsService, private readonly modelProviders?: ModelProvidersService) {}
 
   setTestFetcher(fetcher: typeof fetch): void { this.fetcher = fetcher; }
+  setTestDependencies(fetcher: typeof fetch, lookupHost?: (host: string) => Promise<string[]>): void { this.fetcher = fetcher; if (lookupHost) this.lookupHost = lookupHost; }
 
   async catalogue() {
     const key = (await this.integrations.secret("modelo_chave"))?.trim() ?? "";
@@ -66,8 +71,13 @@ export class ProvidersService {
   private async streamManagedCompatible(input: CompletionInput, baseUrl: string, apiKey: string, model: string, signal?: AbortSignal): Promise<Response> {
     let response: Response;
     try {
-      response = await this.fetcher(`${baseUrl.replace(/\/$/, "")}/chat/completions`, { method: "POST", signal: signal ?? null, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
+      const url = `${baseUrl.replace(/\/$/, "")}/chat/completions`;
+      const allowLocal = /^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(baseUrl);
+      const destination = await resolveProviderDestination(url, allowLocal, this.lookupHost);
+      const pinnedResponse = await (this.fetcher as unknown as (url: string, init: RequestInit & { address: string }) => Promise<Response>)(destination.url.toString(), { method: "POST", signal: signal ?? new AbortController().signal, redirect: "manual", address: destination.address, headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json" }, body: JSON.stringify({ model, messages: input.messages, stream: true, ...(input.tools?.length ? { tools: input.tools, tool_choice: "auto" } : {}), stream_options: { include_usage: true }, ...(input.generationConfig?.temperature === undefined ? {} : { temperature: input.generationConfig.temperature }), ...(input.generationConfig?.maxTokens === undefined ? {} : { max_tokens: input.generationConfig.maxTokens }) }) });
+      response = pinnedResponse;
     } catch (error) { if (signal?.aborted) throw signal.reason ?? error; throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "Não foi possível conectar ao provedor de IA." }); }
+    if (isProviderRedirect(response.status)) throw new ServiceUnavailableException({ code: "AI_PROVIDER_REQUEST_FAILED", message: "O provedor de IA redirecionou a solicitação." });
     if (!response.ok) {
       const modelUnavailable = response.status === 400 && await this.modelUnavailable(response);
       throw new HttpException({ code: "AI_PROVIDER_REQUEST_FAILED", message: `O modelo respondeu com HTTP ${response.status}.`, upstreamStatus: response.status, modelUnavailable }, response.status >= 400 && response.status <= 599 ? response.status : 502);

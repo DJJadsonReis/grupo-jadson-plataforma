@@ -453,7 +453,7 @@
   overflow-x: hidden;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 2px;
+  gap: 4px;
   padding-right: 2px;
 }
 
@@ -463,9 +463,9 @@
   min-width: 0;
   width: 100%;
   box-sizing: border-box;
-  gap: 10px;
+  gap: 12px;
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: 12px;
   border: 0;
   background: transparent;
   color: #9c978c;
@@ -475,7 +475,7 @@
   transition: all 0.15s;
 }
 
-.history-item span {
+.history-item > span:not(.history-copy):not(.history-conversation-avatar) {
   flex: 1;
   min-width: 0;
   overflow: hidden;
@@ -489,10 +489,19 @@
 }
 
 .history-item.history-active {
-  color: var(--gj-gold-bright, #f5ce55);
-  background: rgba(212, 160, 23, 0.09);
+  color: #f5f2ea;
+  background: rgba(255, 255, 255, 0.06);
   font-weight: 550;
 }
+
+.history-list .history-conversation-avatar,
+.history-list .history-conversation-avatar > .agent-avatar { display: grid; place-items: center; width: 36px; height: 36px; min-width: 36px; flex: 0 0 36px; overflow: hidden; border-radius: 50%; background: rgba(212,175,55,0.14); color: #d4af37; font-size: 12px; font-weight: 700; }
+.history-list .history-conversation-avatar .gx-avatar { width: 36px; height: 36px; }
+.history-list .history-conversation-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
+.history-list .history-copy { flex: 1; min-width: 0; }
+.history-list .history-copy strong { color: #f5f2ea; font-weight: 700; }
+.history-list .history-copy small { color: #96938a; opacity: 1; }
+.history-list .history-copy strong, .history-list .history-copy small { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* NAVEGAÇÃO SECUNDÁRIA & RODAPÉ */
 .sidebar-secondary {
@@ -2705,7 +2714,7 @@ select:focus-visible {
 .org-member-copy small { color: var(--gj-text-muted, #96938a); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* Coluna de conversas em estilo de mensagens: avatar circular, título e prévia */
-.history-list { gap: 4px; }
+.history-section-title { padding: 8px 8px 2px; color: #96938a; font-size: 10px; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
 .history-item {
   gap: 12px;
   padding: 10px 12px;
@@ -2961,8 +2970,6 @@ select:focus-visible {
 /* Lateral como antes: barra com rolagem própria desativada e itens inferiores sempre visíveis */
 .sidebar { overflow: hidden; }
 .sidebar > * { flex-shrink: 0; }
-.sidebar .history-list { max-height: 34vh; overflow-y: auto; flex-shrink: 1; min-height: 0; }
-
 /* Conectar aplicativos e linha da pessoa na lateral */
 .sidebar-person { display: flex; align-items: center; gap: 10px; padding: 8px 12px; border-top: 1px solid rgba(255, 255, 255, 0.06); }
 .sidebar-person-avatar { width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; background: #2a2a2a; color: #eee; font-size: 13px; flex-shrink: 0; }
@@ -2998,8 +3005,8 @@ select:focus-visible {
 /* Linha da pessoa fixa no rodapé da lateral */
 .sidebar-person { margin-top: auto; flex-shrink: 0; }
 
-/* Conversas: agente com anel dourado e inicial, como no print */
-.history-agent .agent-avatar { width: 36px; height: 36px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; background: #1c1c1c; box-shadow: 0 0 0 1.5px #d4a017; color: #d4a017; font-weight: 700; font-size: 14px; }
+/* Avatar do agente nas linhas da lista de conversas */
+.history-agent .agent-avatar { width: 36px; height: 36px; flex: none; border-radius: 50%; display: flex; align-items: center; justify-content: center; overflow: hidden; background: #1c1c1c; color: #d4a017; font-weight: 700; font-size: 14px; }
 .history-agent strong { color: #f2f2f2; }
 .history-agent small { color: #8a8a8a; }
 
@@ -3014,7 +3021,7 @@ select:focus-visible {
 /* Lateral recolhida que abre com o mouse por cima */
 .app-shell-collapsed .sidebar.sidebar-hover-open { width: 260px !important; padding-left: 12px; padding-right: 12px; }
 
-.history-agent .agent-avatar { overflow: hidden; }
+.history-list .history-agent .agent-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; }
 
 /* Foto do bot no painel de contexto e no perfil */
 .ctx-avatar-image, .agent-hero-avatar-image { object-fit: cover; border-radius: 50%; }

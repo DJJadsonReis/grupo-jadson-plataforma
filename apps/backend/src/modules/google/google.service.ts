@@ -122,6 +122,38 @@ export class GoogleService {
     return (data.files ?? []).map((file) => ({ nome: file.name ?? "(sem nome)", tipo: file.mimeType ?? "", modificado: file.modifiedTime ?? null }));
   }
 
+  async createDocument(userId: string, input: Record<string, unknown>): Promise<{ id: string; link: string | null }> {
+    const nomeOriginal = String(input.nome ?? "");
+    const texto = String(input.texto ?? "");
+    if (!nomeOriginal.trim() || !texto.trim() || Buffer.byteLength(texto, "utf8") > 100_000) {
+      throw new BadRequestException({ code: "INVALID_DOCUMENT", message: "Informe um nome e um texto; o texto pode ter no máximo 100.000 bytes." });
+    }
+    const nome = Array.from(nomeOriginal.trim()).slice(0, 200).join("");
+    const token = await this.accessToken(userId);
+    let boundary: string;
+    do { boundary = `grupo-jadson-${randomBytes(24).toString("hex")}`; } while (texto.includes(boundary));
+    const body = [
+      `--${boundary}`,
+      "Content-Type: application/json; charset=UTF-8",
+      "",
+      JSON.stringify({ name: nome, mimeType: "application/vnd.google-apps.document" }),
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "",
+      texto,
+      `--${boundary}--`,
+      "",
+    ].join("\r\n");
+    const response = await fetch("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": `multipart/related; boundary=${boundary}` },
+      body,
+    });
+    if (!response.ok) throw new BadRequestException({ code: "GOOGLE_API", message: `O Drive respondeu com HTTP ${response.status}.` });
+    const data = (await response.json()) as { id?: string; webViewLink?: string };
+    return { id: data.id ?? "", link: data.webViewLink ?? null };
+  }
+
   async createEvent(userId: string, input: Record<string, unknown>): Promise<{ id: string; link: string | null }> {
     const titulo = String(input.titulo ?? "").trim();
     const inicio = String(input.inicio ?? "");

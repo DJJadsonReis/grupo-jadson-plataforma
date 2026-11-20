@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { plainPreview } from "./lib/preview";
+import { conversationRowPreview, avatarInitials, isServerConversationId, removeConversationFromWorkspace, splitConversationSections } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -283,12 +283,6 @@ function clampSidebarWidth(value: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));
 }
 
-/** Prévia de uma linha: o último texto da conversa, sem quebras de linha. */
-function lastMessagePreview(conversation: Conversation): string {
-  const last = [...conversation.messages].reverse().find((message) => message.content.trim().length > 0);
-  return last ? plainPreview(last.content) : "Sem mensagens";
-}
-
 function readStoredValue(key: string): string | null {
   try { return localStorage.getItem(key); } catch { return null; }
 }
@@ -346,6 +340,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const [managedProviders, setManagedProviders] = useState<ManagedProvider[]>([]);
   const [selectableProviders, setSelectableProviders] = useState<{ providerId: string; providerName: string; models: { id: string; label: string }[] }[]>([]);
   const [conversations, setConversations] = useState<Conversation[]>(() => readWorkspace().conversations);
+  const deletedConversationIdsRef = useRef(new Set<string>());
   const [agents, setAgents] = useState<Agent[]>(() => readWorkspace().agents);
   const [groups, setGroups] = useState<Group[]>(() => readWorkspace().groups);
   const [remoteAgentIds, setRemoteAgentIds] = useState<string[]>([]);
@@ -373,18 +368,28 @@ function Workspace({ edition }: { edition: Edition }) {
 
   async function deleteConversation(id: string) {
     const item = conversations.find((c) => c.id === id);
-    if (!item) return;
-    try {
-      const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
-      if (!response.ok && response.status !== 404) throw new Error("falhou");
-    } catch {
-      setHistoryNotice("Não foi possível excluir a conversa. Tente de novo.");
-      window.setTimeout(() => setHistoryNotice(null), 3000);
-      return;
+    if (!item || !window.confirm("Excluir esta conversa e todo o hist\u00f3rico? N\u00e3o d\u00e1 para desfazer.")) return;
+    deletedConversationIdsRef.current.add(id);
+    if (isServerConversationId(id)) {
+      try {
+        const response = await apiFetch(`${API_URL}/conversations/${id}`, { method: "DELETE" });
+        if (!response.ok && response.status !== 404) throw new Error("falhou");
+      } catch {
+        deletedConversationIdsRef.current.delete(id);
+        setHistoryNotice("N\u00e3o foi poss\u00edvel excluir a conversa. Tente de novo.");
+        window.setTimeout(() => setHistoryNotice(null), 3000);
+        return;
+      }
     }
-    setConversations((items) => items.filter((c) => c.id !== id));
-    if (activeConversation === id) { setActiveConversation(null); setPage("conversations"); }
-    setHistoryNotice("Conversa excluída.");
+    const remaining = conversations.filter((c) => c.id !== id);
+    setConversations(remaining);
+    setPendingConversation((current) => current?.id === id ? null : current);
+    try {
+      const workspace = parseWorkspace(localStorage.getItem(STORAGE_KEY));
+      localStorage.setItem(STORAGE_KEY, serializeWorkspace(removeConversationFromWorkspace(workspace, id)));
+    } catch { /* o estado em mem\u00f3ria j\u00e1 foi atualizado */ }
+    if (activeConversation === id) { abortRef.current?.abort(); setActiveConversation(null); setPage("conversations"); }
+    setHistoryNotice("Conversa exclu\u00edda.");
     window.setTimeout(() => setHistoryNotice(null), 2500);
   }
   const [historyQuery, setHistoryQuery] = useState("");
@@ -497,7 +502,8 @@ function Workspace({ edition }: { edition: Edition }) {
     apiFetch(`${API_URL}/conversations`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error("Histórico remoto indisponível");
-        const remote = await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[];
+        const remote = (await response.json() as { id: string; title: string; agentId?: string | null; groupId?: string | null; messages: ChatMessage[]; updatedAt: string }[])
+          .filter((item) => !deletedConversationIdsRef.current.has(item.id));
         setConversations((local) => {
           const localById = new Map(local.map((item) => [item.id, item]));
           const merged = remote.map((item) => {
@@ -617,6 +623,8 @@ function Workspace({ edition }: { edition: Edition }) {
     const content = contentInput.trim();
     const title = (titleHint ?? content).trim();
     if ((!content && !selectedFiles.length) || busy) return;
+    if (activeConversation && deletedConversationIdsRef.current.has(activeConversation)) return;
+    if (activeConversation && !conversations.some((item) => item.id === activeConversation) && pendingConversation?.id !== activeConversation) return;
     if (autoReadSupported) window.speechSynthesis.cancel();
     let conversationId = activeConversation;
     if (pendingConversation && pendingConversation.id === activeConversation) {
@@ -800,7 +808,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const visibleSidebarAgents = agents.filter((agent) => agent.name.toLocaleLowerCase().includes(agentSearch.trim().toLocaleLowerCase())).sort((a, b) => Number(favoriteAgentIds.includes(b.id)) - Number(favoriteAgentIds.includes(a.id))).slice(0, 6);
   function agentPreview(agentId: string): string {
     const last = conversations.filter((c) => c.agentId === agentId && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    return last ? lastMessagePreview(last) : "Sem conversas ainda";
+    return last ? conversationRowPreview(last) : "Sem conversas ainda";
   }
   const railCollapsed = sidebarCollapsed && !sidebarHover;
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
@@ -884,9 +892,6 @@ function Workspace({ edition }: { edition: Edition }) {
         {/* HISTÓRICO DE CONVERSAS: busca e lista recente, logo abaixo da navegação */}
         {!railCollapsed && (
           <div className="history">
-            <div className="sidebar-section-header">
-              <span className="section-label">CONVERSAS</span>
-            </div>
             <div className="history-list">
           {edition === "equipe" && groups
                 .filter((group) => group.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
@@ -897,58 +902,44 @@ function Workspace({ edition }: { edition: Edition }) {
                       <span className="agent-avatar">{group.avatar ? <img src={group.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} /> : group.name.trim().slice(0, 1).toUpperCase() || "E"}</span>
                       <span className="history-copy">
                         <strong>{group.name}<span className="agent-role-chip">Equipe · {group.agentIds.length} bots</span></strong>
-                        <small>{last ? lastMessagePreview(last) : "Sem mensagens ainda"}</small>
+                        <small>{last ? conversationRowPreview(last) : "Sem mensagens ainda"}</small>
                       </span>
                     </button>
                   );
                 })}
+              {agents.some((agent) => agent.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase())) && <div className="history-section-title">Agentes</div>}
               {agents
                 .filter((agent) => agent.name.toLocaleLowerCase().includes(historyQuery.trim().toLocaleLowerCase()))
                 .map((agent) => (
                   <button key={"agent-" + agent.id} className="history-item history-agent" onClick={() => agent.enabled && newConversation(agent.id)} disabled={!agent.enabled} title={agent.name} aria-label={"Conversar com " + agent.name}>
-                    <AgentAvatar agent={agent} />
+                    <span className="history-conversation-avatar"><AgentAvatar agent={agent} /></span>
                     <span className="history-copy">
                       <strong>{agent.name}{agent.role ? <span className="agent-role-chip">{agent.role}</span> : null}</strong>
                       <small>{activeAgentId === agent.id ? "Em execução…" : agentPreview(agent.id)}</small>
                     </span>
                   </button>
                 ))}
-              {conversations
-                .filter((item) => item.messages.length > 0)
-                .filter((item) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase()))
-                .slice(0, 30)
-                .map((item) => renamingId === item.id ? (
+              {(() => {
+                const sections = splitConversationSections(conversations.filter((item) => item.messages.length > 0), agents.map((agent) => agent.id));
+                const renderConversation = (item: Conversation) => renamingId === item.id ? (
                   <div key={item.id} className="history-item">
-                    <MessageSquare size={14} />
-                    <input
-                      autoFocus
-                      aria-label="Novo nome da conversa"
-                      value={renameDraft}
-                      maxLength={80}
-                      onChange={(event) => setRenameDraft(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (event.key === "Enter") renameConversation(item.id, renameDraft);
-                        if (event.key === "Escape") setRenamingId(null);
-                      }}
-                      onBlur={() => renameConversation(item.id, renameDraft)}
-                      style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }}
-                    />
+                    <span className="history-conversation-avatar">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
+                    <input autoFocus aria-label="Novo nome da conversa" value={renameDraft} maxLength={80} onChange={(event) => setRenameDraft(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter") renameConversation(item.id, renameDraft); if (event.key === "Escape") setRenamingId(null); }} onBlur={() => renameConversation(item.id, renameDraft)} style={{ flex: 1, minWidth: 0, background: "transparent", border: 0, outline: "none", color: "inherit", font: "inherit" }} />
                   </div>
                 ) : (
-                  <button
-                    key={item.id}
-                    className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`}
-                    onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }}
-                    onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }}
-                    title={item.title}
-                  >
-                    <MessageSquare size={14} />
-                    <span className="history-copy">
-                      <strong>{item.title || "Nova conversa"}</strong>
-                      <small>{lastMessagePreview(item)}</small>
-                    </span>
+                  <button key={item.id} className={`history-item ${activeConversation === item.id && page === "chat" ? "history-active" : ""}`} onClick={() => { setActiveConversation(item.id); setPage("chat"); setMobileOpen(false); }} onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }} title={item.title}>
+                    <span className="history-conversation-avatar" aria-hidden="true">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
+                    <span className="history-copy"><strong>{item.title || "Nova conversa"}</strong><small>{conversationRowPreview(item)}</small></span>
                   </button>
-                ))}
+                );
+                const matches = (item: Conversation) => (item.title || "Nova conversa").toLowerCase().includes(historyQuery.trim().toLowerCase());
+                return <>
+                  {sections.agents.some(matches) && <div className="history-section-title">Agentes</div>}
+                  {sections.agents.filter(matches).slice(0, 30).map(renderConversation)}
+                  {sections.conversations.some(matches) && <div className="history-section-title">Conversas</div>}
+                  {sections.conversations.filter(matches).slice(0, 30).map(renderConversation)}
+                </>;
+              })()}
               {historyNotice && (
                 <div role="status" className="gallery-notice-pill" style={{ margin: "8px 0" }}>{historyNotice}</div>
               )}
@@ -2269,7 +2260,6 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
-  const [models, setModels] = useState<Record<string, { id: string; label: string }[]>>({});
   const [editing, setEditing] = useState<string | null>(null);
   const api = new ModelProvidersApi(apiFetch, API_URL);
   async function submit(event: FormEvent) {
@@ -2278,13 +2268,13 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     if (validation) { setError(validation); return; }
     try {
       const body = { ...(editing ? {} : { kind: draft.kind }), name: draft.name, ...(draft.kind === "custom" ? { baseUrl: draft.baseUrl, allowLocal: draft.allowLocal } : {}), ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
-      if (editing) await api.patch(editing, body); else await api.create(body);
-      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice("Provedor salvo com segurança."); await onRefresh();
+      const saved = editing ? await api.patch(editing, body) : await api.create(body);
+      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice(saved.discoveryMessage ? `Provedor salvo, mas não foi possível listar os modelos: ${saved.discoveryMessage}` : "Provedor salvo com segurança."); await onRefresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar o provedor."); }
   }
   async function test(id: string) {
     setTesting(id); setError(null); setNotice(null);
-    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; setModels((current) => ({ ...current, [id]: discovered })); const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
+    try { const result = await api.test(id); if (result.ok) { const discovered = result.models ?? []; const provider = providers.find((item) => item.id === id); if (provider) onModelsTested(id, provider.name, discovered); await onRefresh(); setNotice(`Conexão confirmada: ${discovered.length} modelos encontrados.`); } else setError(result.message ?? "O teste de conexão falhou."); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível testar a conexão."); }
     finally { setTesting(null); }
   }
@@ -2307,7 +2297,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
           <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
           <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
-          {models[provider.id] && <ul>{models[provider.id]?.map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>}
+          <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id})</li>)}</ul>
         </article>)}
       </div>
       <form className="model-provider-form" onSubmit={(event) => void submit(event)}>

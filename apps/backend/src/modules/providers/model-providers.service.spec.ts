@@ -1,6 +1,8 @@
 import { BadRequestException, NotFoundException } from "@nestjs/common";
 import { createCipheriv, createDecipheriv, randomBytes } from "node:crypto";
 import { ModelProvidersService } from "./model-providers.service";
+import { createServer, Server } from "node:http";
+import { AddressInfo } from "node:net";
 
 const secretKey = Buffer.alloc(32, 7);
 class TestSecretBox {
@@ -8,14 +10,14 @@ class TestSecretBox {
   decrypt(value: string): string { const [, iv, tag, body] = value.split(":"); const decipher = createDecipheriv("aes-256-gcm", secretKey, Buffer.from(iv!, "base64")); decipher.setAuthTag(Buffer.from(tag!, "base64")); return Buffer.concat([decipher.update(Buffer.from(body!, "base64")), decipher.final()]).toString(); }
 }
 const fakeKey = "sk-teste-falso-000";
-function setup() {
+function setup(useDefaultFetcher = false) {
   const rows: Record<string, unknown>[] = [];
   const query = jest.fn(async (sql: string, values: unknown[] = []) => {
     if (sql.startsWith("INSERT INTO model_providers")) {
-      const row = { id: values[0], kind: values[1], name: values[2], baseUrl: values[3], secretCiphertext: values[4], enabled: true, createdAt: new Date(), updatedAt: new Date() };
+      const row = { id: values[0], kind: values[1], name: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")), enabled: true, createdAt: new Date(), updatedAt: new Date() };
       rows.push(row); return { rows: [row], rowCount: 1 };
     }
-    if (sql.startsWith("SELECT id,kind,name FROM model_providers")) return { rows: rows.filter((row) => row.enabled === true && row.secretCiphertext !== "").map(({ id, kind, name }) => ({ id, kind, name })), rowCount: rows.length };
+    if (sql.startsWith("SELECT id,kind,name,models_json")) return { rows: rows.filter((row) => row.enabled === true && row.secretCiphertext !== "").map(({ id, kind, name, models }) => ({ id, kind, name, models })), rowCount: rows.length };
     if (sql.startsWith("SELECT id,kind,name,base_url AS \"baseUrl\"")) {
       const found = sql.includes("WHERE id=$1") ? rows.filter((row) => row.id === values[0]) : rows.filter((row) => row.enabled === true && row.secretCiphertext !== "");
       return { rows: found, rowCount: found.length };
@@ -23,7 +25,8 @@ function setup() {
     if (sql.startsWith("SELECT name FROM integrations")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("UPDATE model_providers")) {
       const row = rows.find((item) => item.id === values[0]); if (!row) return { rows: [], rowCount: 0 };
-      Object.assign(row, { name: values[1], enabled: values[2], baseUrl: values[3], secretCiphertext: values[4] }); return { rows: [row], rowCount: 1 };
+      if (sql.includes("SET models_json")) { row.models = JSON.parse(String(values[1])); return { rows: [row], rowCount: 1 }; }
+      Object.assign(row, { name: values[1], enabled: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")) }); return { rows: [row], rowCount: 1 };
     }
     if (sql.startsWith("DELETE FROM model_providers")) { const index = rows.findIndex((item) => item.id === values[0]); if (index >= 0) rows.splice(index, 1); return { rows: [], rowCount: index >= 0 ? 1 : 0 }; }
     throw new Error(`unexpected query ${sql}`);
@@ -31,7 +34,7 @@ function setup() {
   const database = { getPool: () => ({ query }) } as never;
   const service = new ModelProvidersService(database);
   service.setTestSecretBox(new TestSecretBox() as never);
-  service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["203.0.113.10"]);
+  if (!useDefaultFetcher) service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "model-falso", display_name: "Modelo falso" }] }), { status: 200 })), async () => ["8.8.8.8"]);
   return { service, rows, query };
 }
 
@@ -42,6 +45,47 @@ describe("ModelProvidersService", () => {
     expect(result).not.toHaveProperty("apiKey"); expect(JSON.stringify(result)).not.toContain(fakeKey);
     expect(rows[0]?.secretCiphertext).not.toBe(fakeKey); expect(new TestSecretBox().decrypt(String(rows[0]?.secretCiphertext))).toBe(fakeKey);
     expect(JSON.stringify(await service.list())).not.toContain(fakeKey);
+  });
+  it("discovers models on create, persists them, and exposes them for chat and agents", async () => {
+    const { service, rows } = setup();
+    const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    expect(created.models).toEqual([{ id: "model-falso", label: "Modelo falso" }]);
+    expect(await service.selectable()).toEqual([{ providerId: created.id, providerName: "OpenAI falso", models: created.models }]);
+    await expect(service.validateAgentTarget(created.id, "model-falso")).resolves.toBeUndefined();
+    expect(rows[0]?.models).toEqual(created.models);
+  });
+  it("keeps a saved key and returns a safe warning when discovery fails", async () => {
+    const { service, rows } = setup();
+    service.setTestDependencies(jest.fn(async () => new Response("", { status: 401 })));
+    const created = await service.create({ kind: "custom", name: "Custom falso", baseUrl: "http://127.0.0.1:9000/v1", allowLocal: true, apiKey: fakeKey });
+    expect(created.hasKey).toBe(true); expect(created.models).toEqual([]);
+    expect(created.discoveryMessage).toMatch(/recusada/i); expect(created.discoveryMessage).not.toContain(fakeKey);
+    expect(rows[0]?.models).toEqual([]);
+  });
+  it("keeps models on network failure and falls back to the catalog only when saved models are empty", async () => {
+    const { service, rows } = setup();
+    const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    const saved = rows[0]?.models;
+    service.setTestDependencies(jest.fn(async () => { throw new Error("network with secret " + fakeKey); }));
+    const failedTest = await service.test(created.id);
+    expect(failedTest).toMatchObject({ ok: false });
+    expect(JSON.stringify(failedTest)).not.toContain(fakeKey);
+    expect(rows[0]?.models).toEqual(saved);
+    rows[0]!.models = [];
+    const fallback = await service.selectable();
+    expect(fallback).toHaveLength(1); expect(fallback[0]?.models.map((model) => model.id)).toContain("gpt-4o-mini");
+    await service.patch(created.id, { enabled: false });
+    expect(await service.selectable()).toEqual([]);
+  });
+  it("does not rediscover whitespace keys and updates models after a replacement key", async () => {
+    const { service, query } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "novo-modelo" }] }), { status: 200 }));
+    service.setTestDependencies(fetcher);
+    const before = fetcher.mock.calls.length;
+    const unchanged = await service.patch(created.id, { apiKey: "  " });
+    expect(fetcher).toHaveBeenCalledTimes(before); expect(unchanged.models).toEqual(created.models);
+    const replaced = await service.patch(created.id, { apiKey: "sk-teste-falso-001" });
+    expect(fetcher).toHaveBeenCalledTimes(before + 1); expect(replaced.models).toEqual([{ id: "novo-modelo", label: "novo-modelo" }]);
   });
   it("does not replace a key when PATCH receives an empty apiKey", async () => {
     const { service, rows } = setup(); const created = await service.create({ kind: "openai", name: "OpenAI falso", apiKey: fakeKey });
@@ -81,6 +125,103 @@ describe("ModelProvidersService", () => {
       await jest.advanceTimersByTimeAsync(8000);
       await expect(pending).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/8 segundos/i) });
     } finally { jest.useRealTimers(); }
+  });
+  it("pins discovery to the just-validated address, blocks rebinding, and rejects redirects", async () => {
+    const { service } = setup();
+    const created = await service.create({ kind: "custom", name: "Custom", baseUrl: "https://provedor.invalid/v1", apiKey: fakeKey });
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ data: [{ id: "m" }] }), { status: 200 }));
+    let resolutions = 0;
+    service.setTestDependencies(fetcher, async () => { resolutions += 1; return ["10.0.0.5"]; });
+    const rebound = await service.test(created.id);
+    expect(rebound).toMatchObject({ ok: false });
+    expect(fetcher).toHaveBeenCalledTimes(0);
+    expect(resolutions).toBe(1);
+
+    service.setTestDependencies(fetcher, async () => ["8.8.8.8"]);
+    await service.test(created.id);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("provedor.invalid/v1/models"), expect.objectContaining({ address: "8.8.8.8", redirect: "manual" }));
+
+    fetcher.mockResolvedValue(new Response("", { status: 302, headers: { Location: "https://outro.invalid" } }));
+    const before = fetcher.mock.calls.length;
+    const redirected = await service.test(created.id);
+    expect(redirected).toMatchObject({ ok: false });
+    expect(fetcher).toHaveBeenCalledTimes(before + 1);
+    expect(JSON.stringify(redirected)).not.toContain(fakeKey);
+  });
+
+  it("allows explicitly configured local endpoints during discovery", async () => {
+    const { service } = setup();
+    const created = await service.create({ kind: "custom", name: "Local", baseUrl: "http://localhost:11434/v1", allowLocal: true, apiKey: fakeKey });
+    const fetcher = jest.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 }));
+    service.setTestDependencies(fetcher, jest.fn(async () => { throw new Error("localhost must not resolve"); }));
+    await service.test(created.id);
+    expect(fetcher).toHaveBeenCalledWith(expect.stringContaining("localhost:11434/v1/models"), expect.objectContaining({ address: "127.0.0.1", redirect: "manual" }));
+  });
+  it("uses the default pinned fetcher as a complete Response for local discovery", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.setHeader("content-type", "application/json");
+      res.setHeader("x-provider-test", "present");
+      res.end(JSON.stringify({ data: [{ id: "modelo-local", display_name: "Modelo local" }] }));
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      const created = await service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, allowLocal: true, apiKey: fakeKey });
+      expect(created.models).toEqual([{ id: "modelo-local", label: "Modelo local" }]);
+      const fetcher = (service as unknown as { fetcher: (url: string, init: RequestInit) => Promise<Response> }).fetcher;
+      const response = await fetcher(`http://localhost:${port}/v1/models`, { method: "GET", headers: {}, signal: new AbortController().signal, redirect: "manual", address: "127.0.0.1" } as RequestInit & { address: string });
+      expect(response).toBeInstanceOf(Response);
+      expect(response.headers.get("x-provider-test")).toBe("present");
+      expect(response.body).not.toBeNull();
+      expect(await response.clone().json()).toEqual({ data: [{ id: "modelo-local", display_name: "Modelo local" }] });
+      expect(await response.text()).toContain("modelo-local");
+      expect(requests).toBe(2);
+      expect(JSON.stringify(created)).not.toContain(fakeKey);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("rejects a local discovery URL without allowLocal before reaching the server using the default fetcher", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => { requests += 1; res.end("{}"); });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      await expect(service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, apiKey: fakeKey })).rejects.toBeInstanceOf(BadRequestException);
+      expect(requests).toBe(0);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("does not follow a local discovery redirect with the default fetcher", async () => {
+    let requests = 0;
+    const server: Server = createServer((_req, res) => {
+      requests += 1;
+      res.writeHead(302, { location: "http://127.0.0.1:1/redirect-target" });
+      res.end("redirect");
+    });
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+    try {
+      const { port } = server.address() as AddressInfo;
+      const { service } = setup(true);
+      const created = await service.create({ kind: "custom", name: "Local", baseUrl: `http://localhost:${port}/v1`, allowLocal: true, apiKey: fakeKey });
+      expect(created.discoveryMessage).toMatch(/redirecionou/i);
+      expect(requests).toBe(1);
+      expect(JSON.stringify(created)).not.toContain(fakeKey);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  it("rejects local hosts without explicit allowance before making a request", async () => {
+    const { service } = setup();
+    const fetcher = jest.fn(async () => new Response("", { status: 200 }));
+    service.setTestDependencies(fetcher);
+    await expect(service.create({ kind: "custom", name: "Local", baseUrl: "http://localhost:11434/v1", apiKey: fakeKey })).rejects.toBeInstanceOf(BadRequestException);
+    expect(fetcher).not.toHaveBeenCalled();
   });
   it("enforces custom endpoint URL and explicit local allowance", async () => {
     const { service } = setup();

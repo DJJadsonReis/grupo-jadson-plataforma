@@ -38,6 +38,7 @@ import { migrationId as usageOwnerMigrationId, up as addUsageOwner } from "./mig
 import { migrationId as notificationKindsMigrationId, up as addNotificationKinds } from "./migrations/035-notifications-kinds";
 import { migrationId as modelProvidersMigrationId, up as addModelProviders } from "./migrations/036-model-providers";
 import { migrationId as agentModelRoutingMigrationId, up as addAgentModelRouting } from "./migrations/037-agent-model-routing";
+import { migrationId as providerModelsMigrationId, up as addProviderModels } from "./migrations/038-provider-discovered-models";
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {
@@ -97,6 +98,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         { id: notificationKindsMigrationId, apply: async () => addNotificationKinds(this.pool!) },
         { id: modelProvidersMigrationId, apply: async () => addModelProviders(this.pool!) },
         { id: agentModelRoutingMigrationId, apply: async () => addAgentModelRouting(this.pool!) },
+        { id: providerModelsMigrationId, apply: async () => addProviderModels(this.pool!) },
       ];
       for (const migration of migrations) {
         const result = await this.pool.query("SELECT id FROM schema_migrations WHERE id = $1", [migration.id]);

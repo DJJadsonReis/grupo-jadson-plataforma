@@ -100,7 +100,7 @@ describe("ChatController tool loop", () => {
     });
     const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
     const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
-    realProviders.setTestFetcher(fetcher as typeof fetch);
+    realProviders.setTestDependencies(fetcher as typeof fetch, async () => ["8.8.8.8"]);
     const { controller, audit } = setup({ providersService: realProviders, agent: {
       instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: mainProvider,
       modelRouting: { fallbacks: [{ providerId: reserveProvider, model: "reserve-model" }] },
@@ -127,7 +127,7 @@ describe("ChatController tool loop", () => {
       const managed = { forChat: jest.fn(async () => ({ kind: "openai" as const, baseUrl: "https://fake.invalid/v1", apiKey: "sk-teste-falso-000" })) };
       const realProviders = new ProvidersService({} as never, {} as never, {} as never, managed as never);
       const fetcher = jest.fn(async () => new Response(stream));
-      realProviders.setTestFetcher(fetcher as typeof fetch);
+      realProviders.setTestDependencies(fetcher as typeof fetch, async () => ["8.8.8.8"]);
       const { controller, audit } = setup({ providersService: realProviders, agent: {
         instructions: "", enabled: true, model: "main-model", generationConfig: null, provider: "123e4567-e89b-42d3-a456-426614174020",
         modelRouting: { fallbacks: [{ providerId: "123e4567-e89b-42d3-a456-426614174021", model: "reserve-model" }] },

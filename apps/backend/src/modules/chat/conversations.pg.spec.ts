@@ -39,6 +39,7 @@ describeWithPostgres("histórico de conversa isolado por principal no PostgreSQL
     expect(stillPrivate?.messages.map((item) => item.content)).toEqual(["segredo local"]);
     expect(await conversations.setTitleForFirstResponse(conversationId, "meu título", ownerA)).toBe(true);
     expect(await conversations.remove(conversationId, ownerA)).toBe(true);
+    expect((await database.getPool().query("SELECT count(*)::int AS count FROM messages WHERE conversation_id=$1", [conversationId])).rows[0].count).toBe(0);
   });
 
   it("keeps existing conversations assigned to the system principal", async () => {
