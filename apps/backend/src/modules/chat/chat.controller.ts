@@ -12,6 +12,7 @@ import { AuditService } from "../audit/audit.service";
 import { MemoryService } from "../memory/memory.service";
 import { markUntrusted, UNTRUSTED_GUIDANCE, withUntrustedNotice } from "../tools/untrusted-content";
 import { ToolsService, ToolRun } from "../tools/tools.service";
+import { AgentPolicyService } from "../tools/agent-policy.service";
 import { MaskedTextStream } from "../../common/masked-text-stream";
 import { maskSecrets } from "../../common/secret-masking";
 import { generateConversationTitle } from "./conversation-title";
@@ -23,6 +24,7 @@ import { AgentSkillsService } from "../skills/agent-skills.service";
 import { buildSkillsSystemMessage } from "../skills/skill-prompt";
 import { DatabaseService } from "../database/database.service";
 import { foundFrom, searchEnabled, searchTools, visibleTools } from "../tools/tool-search";
+import { effectiveSkillTools } from "../skills/skill-tools";
 
 const MAX_TOOL_ITERATIONS = 4;
 const LOCAL_TOOLS = new Set(["tempo.agora", "memoria.listar", "memoria.apagar_tudo"]);
@@ -165,11 +167,13 @@ export class ChatController {
 
     // System policy comes from the persisted profile, never from a desktop-provided prompt.
     const messages: ProviderMessage[] = clientMessages.filter((message) => message.role !== "system");
+    let promptSkills: Awaited<ReturnType<AgentSkillsService["loadPromptSkills"]>> = [];
     // Keep the safety guidance server-owned and directly after the profile instructions.
     messages.unshift({ role: "system", content: UNTRUSTED_GUIDANCE });
     if (agent?.instructions.trim()) messages.unshift({ role: "system", content: agent.instructions.trim() });
     if (agentId && this.database) {
-      const skillsMessage = buildSkillsSystemMessage(await new AgentSkillsService(this.database).loadPromptSkills(agentId).catch(() => []));
+      promptSkills = await new AgentSkillsService(this.database).loadPromptSkills(agentId).catch(() => []);
+      const skillsMessage = buildSkillsSystemMessage(promptSkills);
       if (skillsMessage) messages.splice(agent?.instructions.trim() ? 1 : 0, 0, { role: "system", content: skillsMessage });
     }
     const userPreferences = await this.preferences?.read(request.principal?.id ?? "sistema").catch(() => null);
@@ -203,6 +207,35 @@ export class ChatController {
     const toolCatalog = this.toolsService.catalog();
     const searchActive = searchEnabled(toolCatalog);
     const allAvailableTools = providerTools(toolCatalog);
+    let grantedSkillTools: ReturnType<typeof providerTools> = providerTools([]);
+    if (agentId && promptSkills.length) {
+      try {
+        const grantedNames = new Set(promptSkills.flatMap((skill) => skill.tools));
+        const candidateTools = toolCatalog.filter((tool) => grantedNames.has(tool.name));
+        const policies = (this.toolsService as unknown as { policies: AgentPolicyService }).policies;
+        const allowed = new Set((await Promise.all(candidateTools.map(async (tool) =>
+          (await policies.decisionFor(agentId, tool.name)) !== "deny" ? tool.name : null,
+        ))).filter((name): name is string => name !== null));
+        const effectiveNames = new Set(effectiveSkillTools(promptSkills, allowed));
+        const grantedDefinitions = toolCatalog.filter((tool) => effectiveNames.has(tool.name));
+        const providerGranted = providerTools(grantedDefinitions);
+        const offeredNames = new Set(providerGranted.tools.map((tool) => tool.function.name));
+        const sensitiveGranted = grantedDefinitions.filter((tool) => tool.risk === "sensitive").map((tool) => ({
+          type: "function" as const,
+          function: {
+            name: tool.name.replace(/\./g, "__"),
+            description: tool.description,
+            parameters: { type: "object" as const, properties: tool.parameters?.properties ?? {}, ...(tool.parameters?.required ? { required: tool.parameters.required } : {}), additionalProperties: true as const },
+          },
+        }));
+        grantedSkillTools = {
+          ...providerGranted,
+          tools: [...providerGranted.tools, ...sensitiveGranted.filter((tool) => !offeredNames.has(tool.function.name))],
+        };
+      } catch (error) {
+        this.logger.warn(`Concessões de ferramentas por habilidade ignoradas: ${error instanceof Error ? error.message : "falha ao consultar política"}`);
+      }
+    }
     const found = new Set<string>();
     const completion = {
       provider: agent?.provider === "anthropic" ? "anthropic" as const : "openai" as const,
@@ -220,7 +253,12 @@ export class ChatController {
       const secrets = await this.toolsService.secretsForMasking();
       const mask = (text: string) => maskSecrets(text, secrets);
       for (let iteration = 0; !abort.signal.aborted; iteration += 1) {
-        const availableTools = providerTools(visibleTools(toolCatalog, found));
+        const visible = providerTools(visibleTools(toolCatalog, found));
+        const availableTools = {
+          tools: [...visible.tools, ...grantedSkillTools.tools.filter((tool) => !visible.names.has(tool.function.name))],
+          names: new Map([...visible.names, ...grantedSkillTools.names]),
+          risks: new Map([...visible.risks, ...grantedSkillTools.risks]),
+        };
         const upstream = await this.providers.stream({ ...completion, tools: availableTools.tools, messages: workingMessages }, abort.signal);
         const stream = new MaskedTextStream(mask, (piece) => { res.write(sseTextChunk(piece)); });
         const round = await readCompletion(upstream, stream);
