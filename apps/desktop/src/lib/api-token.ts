@@ -22,3 +22,14 @@ export async function requestWithTokenRefresh(
   if (retried.status === 401) onUnauthorized();
   return retried;
 }
+
+/** Reenvia a chamada recusada depois de invalidar a credencial pessoal e reler a do sistema. */
+export async function reconnectAndRetryRequest(
+  retry: () => Promise<Response>,
+  refreshSystemToken: () => Promise<unknown>,
+  clearUserSession: () => void,
+): Promise<Response> {
+  clearUserSession();
+  await refreshSystemToken();
+  return retry();
+}

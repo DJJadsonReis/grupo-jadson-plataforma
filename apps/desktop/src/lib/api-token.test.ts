@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
+import { reconnectAndRetryRequest, requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
 
 describe("reconexão do token local", () => {
   it("repete a chamada depois de reler o token e preserva o aviso se continuar em 401", async () => {
@@ -27,5 +27,24 @@ describe("reconexão do token local", () => {
     await requestWithTokenRefresh(request, notice);
     expect(request).toHaveBeenCalledOnce();
     expect(notice).not.toHaveBeenCalled();
+  });
+
+  it("reconecta após rejeição de sessão antiga e repete a mesma chamada com o token do sistema", async () => {
+    let token = "sessao-antiga";
+    const request = vi.fn(async () => token === "token-do-sistema" ? new Response("ok", { status: 200 }) : new Response(null, { status: 401 }));
+    const first = await requestWithTokenRefresh(async (refresh) => {
+      if (refresh) token = "sessao-antiga";
+      return request();
+    }, vi.fn());
+    expect(first.status).toBe(401);
+    const clearSession = vi.fn(() => { token = ""; });
+    const retried = await reconnectAndRetryRequest(
+      request,
+      async () => { token = "token-do-sistema"; },
+      clearSession,
+    );
+    expect(clearSession).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(retried.status).toBe(200);
   });
 });
