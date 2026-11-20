@@ -180,6 +180,16 @@ export class ToolsService {
       if (response && typeof response === "object" && "code" in response && (response as { code?: unknown }).code === "CONEXAO_NAO_LIBERADA") {
         return { erro: true, code: "CONEXAO_NAO_LIBERADA", mensagem: "Você não tem acesso a esta conexão." };
       }
+      if (name === "drive.criar_arquivo") {
+        const detail = response && typeof response === "object" ? response as { code?: unknown; message?: unknown } : null;
+        if (detail?.code === "GOOGLE_API" && typeof detail.message === "string" && /^O Drive respondeu com HTTP \d+\.$/.test(detail.message)) {
+          return { erro: true, code: "GOOGLE_API", mensagem: detail.message };
+        }
+        if (detail?.code === "INVALID_DOCUMENT" && typeof detail.message === "string") {
+          return { erro: true, code: "INVALID_DOCUMENT", mensagem: detail.message };
+        }
+        return { erro: true, mensagem: "Não foi possível criar o documento no Drive." };
+      }
       const message = error instanceof Error ? error.message : "Falha ao executar a ferramenta.";
       return { erro: true, mensagem: await this.maskSecretText(message) };
     }
@@ -279,6 +289,7 @@ export class ToolsService {
     if (name === "agenda.listar_eventos") return { eventos: await this.google.listEvents(pessoaId) };
     if (name === "drive.listar_arquivos") return { arquivos: await this.google.listFiles(pessoaId) };
     if (name === "agenda.criar_evento") return this.google.createEvent(pessoaId, input);
+    if (name === "drive.criar_arquivo") return this.google.createDocument(pessoaId, input);
     throw new BadRequestException({ code: "NOT_FOUND", message: "Ferramenta sem implementação." });
   }
 
