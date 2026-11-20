@@ -14,6 +14,7 @@ import { SkillsPage } from "./components/skills/SkillsPage";
 import { ResponsibilitiesPage } from "./components/responsibilities/ResponsibilitiesPage";
 import { McpServersPanel } from "./components/mcp/McpServersPanel";
 import { PreferencesPanel } from "./components/preferences/PreferencesPanel";
+import { StatusPanel } from "./components/status/StatusPanel";
 import { StarterTour } from "./components/tour/StarterTour";
 import { Welcome } from "./Welcome";
 import { getSpeechRecognitionConstructor, installOnDeviceSpeech, onDeviceSpeech, requireOnDeviceRecognition, speechRecognitionErrorMessage, supportsOnDeviceSpeech, type OnDeviceSpeechStatus, type SpeechRecognitionLike, type SpeechRecognitionWindow } from "./lib/speech-dictation";
@@ -25,7 +26,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { getVersion } from "@tauri-apps/api/app";
 import logo from "./assets/grupo-jadson-logo.png";
 
-type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities";
+type PageId = "dashboard" | "chat" | "agents" | "agent-detail" | "conversations" | "groups" | "computers" | "memory" | "automations" | "tools" | "models" | "files" | "activity" | "monitoring" | "settings" | "tasks" | "skills" | "responsibilities" | "status";
 type Health = "checking" | "connected" | "unavailable";
 type ProviderStatus = { id: string; name: string; configured: boolean };
 
@@ -252,6 +253,7 @@ const SECONDARY_NAV: { id: PageId; label: string; icon: typeof Gauge }[] = [
   { id: "models", label: "Modelos e provedores", icon: BrainCircuit },
   { id: "activity", label: "Atividades", icon: ShieldCheck },
   { id: "monitoring", label: "Monitoramento", icon: Activity },
+  { id: "status", label: "Status", icon: CircleHelp },
   { id: "settings", label: "Configurações", icon: Settings },
 ];
 
@@ -895,6 +897,11 @@ function Workspace({ edition }: { edition: Edition }) {
 
         {/* NAVEGAÇÃO SECUNDÁRIA INFERIOR */}
 
+        <nav className="nav-primary" aria-label="Status do sistema">
+          <button className={`nav-item ${page === "status" ? "active" : ""}`} onClick={() => changePage("status")} title={railCollapsed ? "Status" : undefined} aria-current={page === "status" ? "page" : undefined}>
+            <CircleHelp size={17} /><span>Status</span>
+          </button>
+        </nav>
         {accountOpen && (
           <div className="account-menu" role="menu">
             <button role="menuitem" className="account-menu-item" onClick={() => { setAccountOpen(false); changePage("activity"); }}>Atividades</button>
@@ -1012,8 +1019,9 @@ function Workspace({ edition }: { edition: Edition }) {
             providerCount={configuredProviders}
           />
         )}
+        {page === "status" && <StatusPanel apiFetch={apiFetch} apiUrl={API_URL} />}
         {page === "activity" && <ActivityPage />}
-        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities"] as PageId[]).includes(page) && (
+        {!(["dashboard", "chat", "agents", "agent-detail", "conversations", "groups", "models", "settings", "monitoring", "activity", "skills", "responsibilities", "status"] as PageId[]).includes(page) && (
           <ComingSoonPage page={page} onNavigate={changePage} />
         )}
       </main>
