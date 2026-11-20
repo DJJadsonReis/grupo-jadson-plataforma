@@ -2522,7 +2522,7 @@ function SettingsPage({ providers, edition }: { providers: ProviderStatus[] | nu
               <IntegrationSettings />
               <NotionSettings />
               <GoogleSettings />
-              {canShowSharing(edition) && <ConnectionSharesPanel apiFetch={apiFetch} apiUrl={API_URL} isAdmin={edition === "pessoal" || !readSession()} />}
+              {canShowSharing(edition) && <ConnectionSharesPanel apiFetch={apiFetch} apiUrl={API_URL} />}
             </>
           )}
           {tab === "uso" && <UsageSettings />}

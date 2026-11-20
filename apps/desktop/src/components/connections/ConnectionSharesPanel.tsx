@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { canRevokeShare, shareStatusLabel, validateShareTarget, type SharePerson } from "../../lib/connection-shares";
 
 type ShareRow = { ownerId?: string; granteeId?: string; id?: string; name?: string; status: string };
-export function ConnectionSharesPanel({ apiFetch, apiUrl, isAdmin }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string; isAdmin: boolean }) {
+export function ConnectionSharesPanel({ apiFetch, apiUrl }: { apiFetch: (input: string, init?: RequestInit) => Promise<Response>; apiUrl: string }) {
   const [people, setPeople] = useState<SharePerson[]>([]);
   const [outgoing, setOutgoing] = useState<ShareRow[]>([]);
   const [incoming, setIncoming] = useState<ShareRow[]>([]);
@@ -15,7 +15,8 @@ export function ConnectionSharesPanel({ apiFetch, apiUrl, isAdmin }: { apiFetch:
     if (shareResponse.ok) { const body = await shareResponse.json(); setOutgoing(body.outgoing); setIncoming(body.incoming); }
     if (peopleResponse.ok) setPeople(await peopleResponse.json());
     const meResponse = await apiFetch(`${apiUrl}/team-rooms/me`); if (meResponse.ok) setPersonId((await meResponse.json()).id);
-    if (isAdmin) { const r = await apiFetch(`${apiUrl}/connection-shares/pending`); if (r.ok) setPending(await r.json()); }
+    const pendingResponse = await apiFetch(`${apiUrl}/connection-shares/pending`);
+    if (pendingResponse.ok) setPending(await pendingResponse.json()); else setPending([]);
   }
   useEffect(() => { void refresh(); }, []);
   async function requestShare() {
@@ -37,8 +38,8 @@ export function ConnectionSharesPanel({ apiFetch, apiUrl, isAdmin }: { apiFetch:
   return <article className="settings-box"><h3>Compartilhamento da conexão Google</h3><p>Peça acesso para outra pessoa; um admin precisa aprovar.</p>
     <div className="security-notice"><select aria-label="Pessoa para compartilhar" value={target} onChange={(e) => setTarget(e.target.value)}><option value="">Escolha uma pessoa</option>{people.map((p) => <option key={p.id} value={p.id}>{p.name}</option>)}</select><button className="btn-primary-gold" onClick={() => void requestShare()}>Compartilhar minha conexão</button></div>
     {message && <p role="status">{message}</p>}
-    <h4>Compartilhado com</h4>{outgoing.map((s) => <div key={s.granteeId}><span>{s.name} · {shareStatusLabel(s.status)}</span>{canRevokeShare(personId, isAdmin, { ...s, ownerId: personId }) && <button onClick={() => void revoke(s)}>Revogar</button>}</div>)}
+    <h4>Compartilhado com</h4>{outgoing.map((s) => <div key={s.granteeId}><span>{s.name} · {shareStatusLabel(s.status)}</span>{canRevokeShare(personId, false, { ...s, ownerId: personId }) && <button onClick={() => void revoke(s)}>Revogar</button>}</div>)}
     <h4>Usando a conexão de</h4>{incoming.map((s) => <div key={s.ownerId ?? s.id}><span>{s.name} · {shareStatusLabel(s.status)}</span></div>)}
-    {isAdmin && <><h4>Pedidos para aprovar</h4>{pending.map((s) => <div key={`${s.ownerId}-${s.granteeId}`}><span>{s.ownerId} → {s.granteeId}</span><button onClick={() => void approve(s)}>Aprovar</button></div>)}</>}
+    {pending.length > 0 && <><h4>Pedidos para aprovar</h4>{pending.map((s) => <div key={`${s.ownerId}-${s.granteeId}`}><span>{s.ownerId} → {s.granteeId}</span><button onClick={() => void approve(s)}>Aprovar</button></div>)}</>}
   </article>;
 }
