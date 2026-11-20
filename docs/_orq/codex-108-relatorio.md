@@ -42,10 +42,11 @@ Novos tokens: `--gj-danger-surface` (com valor claro correspondente). Foram acre
 
 ## Commit
 
-`feat(desktop): telas internas no sistema visual e textos pt-BR revisados (tarefa 108)` — commit local, sem push.
+`feat(desktop): telas internas no sistema visual e textos pt-BR revisados (tarefa 108)` — `3cca7a57f28c63bd70e637c5cc678f6d4abc7faa`, commit local, sem push.
 
 ## Fora do escopo e pendências
 
 - `ChatPage`, `RichComponent.tsx`, `AgentAvatar.tsx`, backend, web-admin e mensagens de erro vindas do backend permaneceram sem revisão conforme a especificação.
 - Capturas visuais das telas internas ficaram pendentes porque o backend local não estava disponível e a autenticação não foi contornada.
 - Permanecem intocados e fora do commit: alteração local de `apps/desktop/src-tauri/build.rs` e `apps/desktop/src-tauri/crates/grupo-core/Cargo.lock`, além dos arquivos locais de orquestração não pertencentes à tarefa.
+
