@@ -7,7 +7,7 @@ import { choosePtBrVoice, cleanForSpeech, loadAutoReadPreference, saveAutoReadPr
 import { canEditAgent, canShareAgent, visibleAgentIds } from "./lib/agent-access";
 import { agentPayload } from "./lib/agent-endpoint";
 import { canShowSharing, needsSignIn, parseEditionResponse, startupScreen, type Edition } from "./lib/edition";
-import { plainPreview } from "./lib/preview";
+import { conversationRowPreview, avatarInitials } from "./lib/conversation-list";
 import { splitRichComponents } from "./lib/rich-components";
 import { RichComponent } from "./components/RichComponent";
 import { openExternal } from "./lib/external";
@@ -281,12 +281,6 @@ const SIDEBAR_MAX_WIDTH = 420;
 
 function clampSidebarWidth(value: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(value)));
-}
-
-/** Prévia de uma linha: o último texto da conversa, sem quebras de linha. */
-function lastMessagePreview(conversation: Conversation): string {
-  const last = [...conversation.messages].reverse().find((message) => message.content.trim().length > 0);
-  return last ? plainPreview(last.content) : "Sem mensagens";
 }
 
 function readStoredValue(key: string): string | null {
@@ -800,7 +794,7 @@ function Workspace({ edition }: { edition: Edition }) {
   const visibleSidebarAgents = agents.filter((agent) => agent.name.toLocaleLowerCase().includes(agentSearch.trim().toLocaleLowerCase())).sort((a, b) => Number(favoriteAgentIds.includes(b.id)) - Number(favoriteAgentIds.includes(a.id))).slice(0, 6);
   function agentPreview(agentId: string): string {
     const last = conversations.filter((c) => c.agentId === agentId && c.messages.length > 0).sort((a, b) => b.updatedAt - a.updatedAt)[0];
-    return last ? lastMessagePreview(last) : "Sem conversas ainda";
+    return last ? conversationRowPreview(last) : "Sem conversas ainda";
   }
   const railCollapsed = sidebarCollapsed && !sidebarHover;
   function toggleFavoriteAgent(id: string) { setFavoriteAgentIds((current) => current.includes(id) ? current.filter((item) => item !== id) : [...current, id]); }
@@ -897,7 +891,7 @@ function Workspace({ edition }: { edition: Edition }) {
                       <span className="agent-avatar">{group.avatar ? <img src={group.avatar} alt="" style={{ width: "100%", height: "100%", objectFit: "cover", borderRadius: "inherit" }} /> : group.name.trim().slice(0, 1).toUpperCase() || "E"}</span>
                       <span className="history-copy">
                         <strong>{group.name}<span className="agent-role-chip">Equipe · {group.agentIds.length} bots</span></strong>
-                        <small>{last ? lastMessagePreview(last) : "Sem mensagens ainda"}</small>
+                        <small>{last ? conversationRowPreview(last) : "Sem mensagens ainda"}</small>
                       </span>
                     </button>
                   );
@@ -942,10 +936,10 @@ function Workspace({ edition }: { edition: Edition }) {
                     onContextMenu={(event) => { event.preventDefault(); setHistoryMenu({ id: item.id, x: event.clientX, y: event.clientY }); }}
                     title={item.title}
                   >
-                    <MessageSquare size={14} />
+                    <span className="history-conversation-avatar" aria-hidden="true">{item.agentId && agents.some((agent) => agent.id === item.agentId) ? <AgentAvatar agent={agents.find((agent) => agent.id === item.agentId)!} /> : avatarInitials(item.title || "Nova conversa")}</span>
                     <span className="history-copy">
                       <strong>{item.title || "Nova conversa"}</strong>
-                      <small>{lastMessagePreview(item)}</small>
+                      <small>{conversationRowPreview(item)}</small>
                     </span>
                   </button>
                 ))}

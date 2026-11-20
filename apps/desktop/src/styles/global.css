@@ -141,28 +141,6 @@ button{
 .history .section-label{
   padding:7px 10px
 }
-.history-item{
-  display:flex;
-  gap:8px;
-  align-items:center;
-  border:0;
-  border-radius:6px;
-  background:transparent;
-  color:#9d9b94;
-  padding:8px 10px;
-  text-align:left;
-  font-size:11px;
-  cursor:pointer
-}
-.history-item span{
-  overflow:hidden;
-  text-overflow:ellipsis;
-  white-space:nowrap
-}
-.history-active{
-  color:#e3c86f;
-  background:#211c11
-}
 .sidebar-bottom{
   margin-top:auto;
   border-top:1px solid #28241c;
