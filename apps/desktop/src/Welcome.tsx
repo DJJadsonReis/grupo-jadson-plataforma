@@ -138,7 +138,7 @@ export function Welcome({ apiUrl, onComplete }: Props) {
       <section className="login-card welcome-card" aria-labelledby="welcome-title">
         <img src={logo} alt="" className="login-logo" />
         <h1 id="welcome-title">Vamos preparar o Grupo Jadson</h1>
-        <p>Este assistente verifica os serviços locais e salva a configuração mínima neste computador.</p>
+        <p>Este assistente verifica os serviços locais e salva a configuração neste computador.</p>
 
         {windowsRequirement?.status === "bloqueado" && <div className="gallery-notice-pill" role="alert">{windowsRequirement.message}</div>}
         {windowsRequirement?.status === "indisponivel" && <small role="status">{windowsRequirement.message}</small>}
@@ -159,11 +159,11 @@ export function Welcome({ apiUrl, onComplete }: Props) {
         </div>
 
         {!databaseReady && <form className="welcome-setup-form" onSubmit={(event) => void save(event)}>
-          <label htmlFor="welcome-database-url">Endereço PostgreSQL</label>
+          <label htmlFor="welcome-database-url">Endereço do PostgreSQL</label>
           <input id="welcome-database-url" type="password" autoComplete="off" spellCheck={false} placeholder="postgres://grupo_jadson:change_me@localhost:5432/grupo_jadson" value={databaseUrl} onChange={(event) => setDatabaseUrl(event.target.value)} />
-          <small>A senha fica no arquivo local de configuração do aplicativo e não é exibida novamente.</small>
+          <small>A senha fica salva neste computador e não será exibida novamente.</small>
           <small>Para iniciar o PostgreSQL de desenvolvimento do projeto, execute <code>docker compose up -d postgres</code> na pasta do projeto.</small>
-          <button className="btn-primary-gold" type="submit" disabled={saving || !databaseUrl.trim()}>{saving ? "Salvando…" : "Salvar configuração local"}</button>
+          <button className="btn-primary-gold" type="submit" disabled={saving || !databaseUrl.trim()}>{saving ? "Salvando…" : "Salvar configuração"}</button>
         </form>}
 
         {!databaseReady && postgresInstallInfo?.destinationEmpty && <section className="welcome-setup-form" aria-label="Instalação portátil do PostgreSQL">

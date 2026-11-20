@@ -149,9 +149,9 @@ export function TasksPage({ apiFetch, apiUrl }: TasksPageProps) {
       </form>
 
       {actionError && <p role="alert">{actionError}</p>}
-      {loading ? <p>Carregando tarefas...</p> : loadError ? (
+      {loading ? <p>Carregando tarefas…</p> : loadError ? (
         <div role="alert"><p>{loadError}</p><button type="button" onClick={() => void loadTasks()}>Tentar de novo</button></div>
-      ) : tasks.length === 0 ? <p>Nenhuma tarefa ainda.</p> : (
+      ) : tasks.length === 0 ? <p>Ainda não há tarefas.</p> : (
         <ul>
           {tasks.map((task) => (
             <li key={task.id}>

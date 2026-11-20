@@ -177,7 +177,7 @@ function LoginScreen({ onSignedIn }: { onSignedIn: (token: string) => void }) {
       <div className="login-card">
         <img src={logo} alt="" className="login-logo" />
         <h1>Entrar no Grupo Jadson</h1>
-        <p>Use a mesma conta cadastrada para você no sistema.</p>
+        <p>Use a conta cadastrada para você no sistema.</p>
         {error && <div className="gallery-notice-pill" role="alert">{error}</div>}
         {providers.map((provider) => (
           <button key={provider.id} className="btn-primary-gold login-button" onClick={() => void signIn(provider.id)} disabled={busy !== null}>
@@ -1295,7 +1295,7 @@ function Dashboard({
             <span>CONTROLADOR DE IA • GRUPO JADSON</span>
           </div>
           <h1>{greeting}</h1>
-          <p className="home-subtitle">O que você gostaria de explorar, orquestrar ou construir agora?</p>
+          <p className="home-subtitle">O que você gostaria de fazer agora?</p>
         </div>
         <div className={"home-presence-badge " + (busy ? "is-working" : "")}>
           <i />
@@ -1313,7 +1313,7 @@ function Dashboard({
             value={task}
             onChange={(event) => setTask(event.target.value)}
             rows={2}
-            placeholder="Como o Grupo Jadson pode ajudar você agora? Digite sua ideia ou comando…"
+            placeholder="O que você quer fazer? Escreva uma ideia ou comando…"
             aria-label="Descreva sua tarefa"
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -1331,7 +1331,7 @@ function Dashboard({
                   value={agentId}
                   onChange={(event) => setAgentId(event.target.value)}
                 >
-                  <option value="">Assistente Geral (Padrão)</option>
+                  <option value="">Assistente geral (padrão)</option>
                   {agents.filter((agent) => agent.enabled).map((agent) => (
                     <option value={agent.id} key={agent.id}>{agent.name}</option>
                   ))}
@@ -1369,8 +1369,8 @@ function Dashboard({
         <section className="home-card team-card">
           <div className="home-card-header">
             <div>
-              <span className="section-label">EQUIPE DE IA</span>
-              <h2>Agentes Especialistas</h2>
+              <span className="section-label">Equipe de IA</span>
+              <h2>Agentes especialistas</h2>
             </div>
             <button className="view-all-link" onClick={() => onNavigate("agents")}>
               Ver galeria <ArrowUpRight size={14} />
@@ -1380,7 +1380,7 @@ function Dashboard({
           {agents.length === 0 ? (
             <div className="home-card-empty">
               <Bot size={22} />
-              <span>Nenhum perfil de agente criado ainda.</span>
+              <span>Ainda não há agentes.</span>
               <button className="btn-secondary-sm" onClick={() => onNavigate("agents")}>
                 Criar primeiro agente <Plus size={13} />
               </button>
@@ -1417,8 +1417,8 @@ function Dashboard({
         <section className="home-card recent-card">
           <div className="home-card-header">
             <div>
-              <span className="section-label">HISTÓRICO</span>
-              <h2>Continuar Conversas</h2>
+              <span className="section-label">Histórico</span>
+              <h2>Continuar conversas</h2>
             </div>
             <button className="view-all-link" onClick={() => onNavigate("conversations")}>
               Ver todas <ArrowUpRight size={14} />
@@ -1528,7 +1528,7 @@ function DictateButton({ draft, onText, onSendText }: { draft: string; onText: (
   useEffect(() => () => { void session.cancel(); }, [session]);
   const recording = state === "recording" || state === "stopping" || state === "sending";
   return <>
-    <button type="button" className={"toolbar-btn" + (recording ? " is-listening" : "") + (!local ? " is-unavailable" : "")} disabled={!local || state !== "idle"} onClick={() => { setError(null); void session.begin(callbacks.current.draft); }} title={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."} aria-label={local ? "Ditar mensagem localmente" : "O ditado precisa do serviço local neste computador."}>
+    <button type="button" className={"toolbar-btn" + (recording ? " is-listening" : "") + (!local ? " is-unavailable" : "")} disabled={!local || state !== "idle"} onClick={() => { setError(null); void session.begin(callbacks.current.draft); }} title={local ? "Ditar mensagem" : "O ditado precisa do serviço local neste computador."} aria-label={local ? "Ditar mensagem" : "O ditado precisa do serviço local neste computador."}>
       {state === "checking" || state === "downloading" ? <LoaderCircle className="spin" size={16} /> : <Mic size={16} />}{recording && <span>Escutando…</span>}
     </button>
     {recording && <div className="dictation-controls"><button type="button" onClick={() => void session.stop()}>Parar</button><button type="button" onClick={() => void session.sendText()}>Enviar</button><button type="button" onClick={() => void session.cancel()}>Cancelar</button></div>}
@@ -1560,10 +1560,10 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
       <div className="cmdk" role="dialog" aria-label="Buscar" onClick={(event) => event.stopPropagation()}>
         <div className="cmdk-input">
           <Search size={16} />
-          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar bots, chats, configurações..." />
+          <input autoFocus value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Buscar agentes, conversas e configurações…" />
         </div>
         <div className="cmdk-list">
-          {bots.length > 0 && <small className="cmdk-group">Bots</small>}
+          {bots.length > 0 && <small className="cmdk-group">Agentes</small>}
           {bots.map((agent) => (
             <button key={agent.id} className="cmdk-item" onClick={() => done(() => onChatWithAgent(agent.id))}>
               <AgentAvatar agent={agent} size="sm" />
@@ -1579,7 +1579,7 @@ function CommandPalette({ open, onClose, agents, conversations, onOpenConversati
           ))}
           <small className="cmdk-group">Ações</small>
           <button className="cmdk-item" onClick={() => done(onNewConversation)}><Plus size={16} /><span className="cmdk-copy"><strong>Nova conversa</strong></span></button>
-          <button className="cmdk-item" onClick={() => done(() => onNavigate("settings"))}><Plug size={16} /><span className="cmdk-copy"><strong>Conectar aplicativos</strong><small>Chaves de serviços e modelo de IA em Configurações</small></span></button>
+          <button className="cmdk-item" onClick={() => done(() => onNavigate("settings"))}><Plug size={16} /><span className="cmdk-copy"><strong>Conectar aplicativos</strong><small>Chaves de serviços e modelos de IA em Configurações</small></span></button>
           {pages.length > 0 && <small className="cmdk-group">Telas</small>}
           {pages.map((page) => (
             <button key={page.id} className="cmdk-item" onClick={() => done(() => onNavigate(page.id))}>
@@ -1852,7 +1852,7 @@ function ChatPage({
             <div className="gx-empty">
               <img src={logo} alt="" className="gx-empty-logo" />
               <h2>O que vamos construir hoje?</h2>
-              <p>Envie instruções, analise dados ou peça ajuda a um agente da equipe.</p>
+              <p>Envie instruções, analise dados ou peça ajuda a um agente.</p>
               <div className="gx-prompts">
                 {[
                   { title: "Verificar serviços", desc: "Consultar conexões e APIs disponíveis", prompt: "Quais serviços e bancos de dados estão conectados no momento?" },
@@ -1970,7 +1970,7 @@ function ChatPage({
               ref={messageTextareaRef}
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="Mensagem para o Grupo Jadson"
+              placeholder="Escreva uma mensagem…"
               rows={1}
               aria-label="Mensagem"
               onKeyDown={(event) => {
@@ -2022,9 +2022,9 @@ function ChatPage({
                     {isAdmin && <option value="ignorar_permissoes">Ignorar permissões</option>}
                   </select>
                 </label>
-                <label className="gx-pill" title="Modelo usado nesta conversa">
+                <label className="gx-pill" title="Modelo desta conversa">
                   <Sparkles size={13} />
-                  <select className="gx-pill-select" aria-label="Modelo usado nesta conversa" value={modelSelection} onChange={(event) => void changeModelSelection(event.target.value)}>
+                  <select className="gx-pill-select" aria-label="Modelo desta conversa" value={modelSelection} onChange={(event) => void changeModelSelection(event.target.value)}>
                     <option value="">{selectedAgent ? "Padrão do agente" : "Padrão"}</option>
                     {selectableProviders.filter((provider) => provider.models.length).map((provider) => <optgroup key={provider.providerId} label={provider.providerName}>{provider.models.map((item) => <option key={`${provider.providerId}:${item.id}`} value={`${provider.providerId}:${item.id}`}>{provider.providerName} · {item.label}</option>)}</optgroup>)}
                   </select>
@@ -2071,7 +2071,7 @@ function ChatPage({
               </section>
             </div>
           )}
-          <p className="gx-disclaimer">O histórico fica neste dispositivo. As respostas dependem do modelo configurado em Configurações.</p>
+          <p className="gx-disclaimer">O histórico fica neste dispositivo. As respostas usam o modelo configurado em Configurações.</p>
         </div>
       </div>
 
