@@ -36,7 +36,7 @@ Durante a edição, uma execução intermediária de `backend test -- chat` falh
 
 ## Commit
 
-`COMMIT_SHA_PENDENTE` — `fix(chat): Refazer não duplica a pergunta no servidor nem perde os anexos (tarefa 107)`
+`5957b89` — `fix(chat): Refazer não duplica a pergunta no servidor nem perde os anexos (tarefa 107)`
 
 ## Pendente / limites
 
