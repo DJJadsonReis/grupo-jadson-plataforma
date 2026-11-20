@@ -12,3 +12,5 @@ Na busca, `action` e `actor` fazem correspondência exata (até 80 caracteres). 
 Os resultados são ordenados por `created_at DESC, id DESC`. O cursor é uma string Base64 URL-safe opaca que contém a data de criação e o UUID do último evento da página; o cliente deve devolvê-la sem interpretar. O servidor usa ambos os campos para continuar a busca sem pular eventos com timestamps iguais.
 
 No desktop, a seção Auditoria em Atividades só consulta a API para administradores. Aprovações seguem as permissões existentes: decidir se `GET /approvals` também deve ser restrito a administradores permanece pendente para o dono.
+
+No desktop, o filtro “Até” inclui o dia inteiro; o cliente envia o início local do dia seguinte, mantendo exclusivo o limite `to` do contrato da API.
