@@ -1,5 +1,53 @@
 import { AuditService, configuredRetentionDays } from "./audit.service";
 
+describe("sweep retention regression", () => {
+  it.each(["automatic", "manual"]) ("preserves AUDIT_RETENTION_DAYS when the first %s sweep creates the row", async (kind) => {
+    const previous = process.env.AUDIT_RETENTION_DAYS;
+    process.env.AUDIT_RETENTION_DAYS = "30";
+    let retentionDays: number | null | undefined;
+    const persisted = { updatedAt: null, updatedBy: null, lastSweepAt: null, lastSweepDeleted: 0 };
+    const query = jest.fn(async (sql: string, args?: unknown[]) => {
+      if (sql.includes("SELECT retention_days")) {
+        return retentionDays === undefined ? { rows: [], rowCount: 0 } : { rows: [{ ...persisted, retentionDays }], rowCount: 1 };
+      }
+      if (sql.includes("INSERT INTO audit_settings")) {
+        retentionDays = args?.[0] as number | null;
+        return { rows: [], rowCount: 1 };
+      }
+      return sql.includes("SELECT pg_try_advisory") ? { rows: [{ acquired: true }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    });
+    const client = { query, release: jest.fn() };
+    const service = new AuditService({ getPool: () => ({ query, connect: async () => client }) } as never);
+    try {
+      if (kind === "automatic") await (service as unknown as { runAutomaticSweep(): Promise<void> }).runAutomaticSweep();
+      else await service.sweepConfiguredNow("admin");
+      await expect(service.getRetentionSettings()).resolves.toMatchObject({ retentionDays: 30 });
+    } finally {
+      if (previous === undefined) delete process.env.AUDIT_RETENTION_DAYS; else process.env.AUDIT_RETENTION_DAYS = previous;
+    }
+  });
+
+  it("keeps an admin configured NULL disabled during manual sweep", async () => {
+    const previous = process.env.AUDIT_RETENTION_DAYS;
+    process.env.AUDIT_RETENTION_DAYS = "30";
+    let retentionDays: number | null = null;
+    const query = jest.fn(async (sql: string, args?: unknown[]) => {
+      if (sql.includes("SELECT retention_days")) return { rows: [{ retentionDays, updatedAt: null, updatedBy: "admin", lastSweepAt: null, lastSweepDeleted: null }], rowCount: 1 };
+      if (sql.includes("INSERT INTO audit_settings")) retentionDays = args?.[0] as number | null;
+      return sql.includes("SELECT pg_try_advisory") ? { rows: [{ acquired: true }], rowCount: 1 } : { rows: [], rowCount: 0 };
+    });
+    const client = { query, release: jest.fn() };
+    const service = new AuditService({ getPool: () => ({ query, connect: async () => client }) } as never);
+    try {
+      await expect(service.sweepConfiguredNow("admin")).resolves.toMatchObject({ deleted: 0 });
+      expect(retentionDays).toBeNull();
+      expect(query.mock.calls.some(([sql]) => String(sql).includes("DELETE FROM audit_events"))).toBe(false);
+    } finally {
+      if (previous === undefined) delete process.env.AUDIT_RETENTION_DAYS; else process.env.AUDIT_RETENTION_DAYS = previous;
+    }
+  });
+});
+
 describe("retenção de auditoria", () => {
   it("só aceita configuração inteira positiva e mantém desativado por padrão", () => {
     expect(configuredRetentionDays(undefined)).toBeNull();

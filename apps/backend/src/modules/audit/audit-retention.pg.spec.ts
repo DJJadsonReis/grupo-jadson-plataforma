@@ -12,6 +12,36 @@ describeWithPostgres("retenção de auditoria no PostgreSQL", () => {
   beforeAll(async () => { process.env.DATABASE_URL = databaseUrl; database = new DatabaseService(); await database.onModuleInit(); });
   afterAll(async () => { await database.onModuleDestroy(); });
 
+  it("preserves the environment fallback across repeated sweeps when the settings row is first created", async () => {
+    const schema = `audit_retention_fallback_${randomUUID().replace(/-/g, "")}`;
+    const adminPool = database.getPool();
+    const priorRetention = process.env.AUDIT_RETENTION_DAYS;
+    let isolated: Pool | undefined;
+    await adminPool.query(`CREATE SCHEMA ${schema}`);
+    process.env.AUDIT_RETENTION_DAYS = "30";
+    try {
+      isolated = new Pool({ connectionString: databaseUrl, options: `-c search_path=${schema}` });
+      await isolated.query(`CREATE TABLE approvals(id uuid PRIMARY KEY, status text NOT NULL)`);
+      await isolated.query(`CREATE TABLE audit_events(id uuid PRIMARY KEY, actor text NOT NULL, action text NOT NULL, subject text NULL, details jsonb NOT NULL DEFAULT '{}', created_at timestamptz NOT NULL DEFAULT now())`);
+      await createAuditRetentionSetting(isolated);
+      const service = new AuditService({ getPool: () => isolated! } as never);
+      const firstEvent = randomUUID();
+      await isolated.query(`INSERT INTO audit_events(id,actor,action,created_at) VALUES($1,'pg-test','fallback.first',now()-interval '40 days')`, [firstEvent]);
+      await expect(service.sweepConfiguredNow("pg-test")).resolves.toMatchObject({ deleted: 1, settings: { retentionDays: 30 } });
+      expect((await isolated.query("SELECT retention_days FROM audit_settings WHERE id=1")).rows[0]?.retention_days).toBe(30);
+
+      const secondEvent = randomUUID();
+      await isolated.query(`INSERT INTO audit_events(id,actor,action,created_at) VALUES($1,'pg-test','fallback.second',now()-interval '40 days')`, [secondEvent]);
+      await expect(service.sweepConfiguredNow("pg-test")).resolves.toMatchObject({ deleted: 1, settings: { retentionDays: 30 } });
+      expect((await isolated.query("SELECT retention_days FROM audit_settings WHERE id=1")).rows[0]?.retention_days).toBe(30);
+      expect((await isolated.query("SELECT id FROM audit_events WHERE id = ANY($1::uuid[])", [[firstEvent, secondEvent]])).rowCount).toBe(0);
+    } finally {
+      if (priorRetention === undefined) delete process.env.AUDIT_RETENTION_DAYS; else process.env.AUDIT_RETENTION_DAYS = priorRetention;
+      await isolated?.end();
+      await adminPool.query(`DROP SCHEMA ${schema} CASCADE`);
+    }
+  });
+
   it("cria a tabela de configuração idempotentemente e persiste o singleton", async () => {
     const pool = database.getPool();
     await createAuditRetentionSetting(pool);

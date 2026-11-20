@@ -72,7 +72,7 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
       }
       const settings = await this.getRetentionSettings();
       const deleted = settings.retentionDays === null ? 0 : await this.sweepOldEvents(settings.retentionDays, 500, 100, client);
-      await this.saveSweepResult(deleted, client);
+      await this.saveSweepResult(deleted, settings.retentionDays, client);
       await this.record({ actor, action: "audit.retention.swept", details: { deleted } }, client);
       await client.query("COMMIT");
       transactionOpen = false;
@@ -87,14 +87,15 @@ export class AuditService implements OnModuleInit, OnModuleDestroy {
     const settings = await this.getRetentionSettings();
     if (settings.retentionDays === null) return;
     const deleted = await this.sweepOldEvents(settings.retentionDays);
-    await this.saveSweepResult(deleted);
+    await this.saveSweepResult(deleted, settings.retentionDays);
   }
 
-  private async saveSweepResult(deleted: number, client?: PoolClient): Promise<void> {
+  private async saveSweepResult(deleted: number, retentionDays: number | null, client?: PoolClient): Promise<void> {
     await (client ?? this.database.getPool()).query(
       `INSERT INTO audit_settings(id, retention_days, last_sweep_at, last_sweep_deleted)
-       VALUES (1, NULL, now(), $1)
-       ON CONFLICT (id) DO UPDATE SET last_sweep_at = now(), last_sweep_deleted = EXCLUDED.last_sweep_deleted`, [deleted],
+       VALUES (1, $1, now(), $2)
+       ON CONFLICT (id) DO UPDATE SET last_sweep_at = now(), last_sweep_deleted = EXCLUDED.last_sweep_deleted`,
+      [retentionDays, deleted],
     );
   }
 
