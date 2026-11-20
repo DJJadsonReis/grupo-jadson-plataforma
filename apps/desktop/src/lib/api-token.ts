@@ -8,6 +8,21 @@ export function shouldShowReconnectNotice(status: number | null, code?: string):
   return status === 401 && (code === undefined || code === "UNAUTHORIZED");
 }
 
+/** Executa a checagem agora e continua a cada intervalo até o componente desmontar. */
+export function monitorBackendHealth<T>(check: () => Promise<T>, onResult?: (result: T) => void, intervalMs = 10_000): () => void {
+  let active = true;
+  let inFlight = false;
+  const poll = async () => {
+    if (!active || inFlight) return;
+    inFlight = true;
+    try { onResult?.(await check()); } catch { /* a próxima checagem ocorre no intervalo normal */ }
+    finally { inFlight = false; }
+  };
+  void poll();
+  const timer = globalThis.setInterval(() => { void poll(); }, intervalMs);
+  return () => { active = false; globalThis.clearInterval(timer); };
+}
+
 export async function requestWithTokenRefresh(
   request: (refresh: boolean) => Promise<Response>,
   onUnauthorized: () => void,
@@ -28,8 +43,10 @@ export async function reconnectAndRetryRequest(
   retry: () => Promise<Response>,
   refreshSystemToken: () => Promise<unknown>,
   clearUserSession: () => void,
+  repairSetup: () => Promise<unknown> = async () => undefined,
 ): Promise<Response> {
   clearUserSession();
+  await repairSetup();
   await refreshSystemToken();
   return retry();
 }

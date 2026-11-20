@@ -4,6 +4,9 @@ import { ADMIN_ONLY_ROUTE } from "./roles";
 import { ApiTokenGuard } from "./api-token.guard";
 import { IS_PUBLIC_ROUTE } from "./public.decorator";
 import { Principal, UsersService } from "./users.service";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 type Flags = { isPublic?: boolean; adminOnly?: boolean };
 
@@ -32,16 +35,32 @@ const SYSTEM_TOKEN = "test-token-with-enough-length-123456";
 
 describe("ApiTokenGuard", () => {
   const original = process.env.API_TOKEN;
-  beforeEach(() => { process.env.API_TOKEN = SYSTEM_TOKEN; });
+  const originalSetupPath = process.env.GJ_DESKTOP_SETUP_PATH;
+  let setupDirectory: string;
+  beforeEach(() => {
+    process.env.API_TOKEN = SYSTEM_TOKEN;
+    setupDirectory = mkdtempSync(join(tmpdir(), "gj-api-token-"));
+    process.env.GJ_DESKTOP_SETUP_PATH = join(setupDirectory, "setup.json");
+  });
   afterEach(() => {
+    rmSync(setupDirectory, { recursive: true, force: true });
     if (original === undefined) delete process.env.API_TOKEN;
     else process.env.API_TOKEN = original;
+    if (originalSetupPath === undefined) delete process.env.GJ_DESKTOP_SETUP_PATH;
+    else process.env.GJ_DESKTOP_SETUP_PATH = originalSetupPath;
   });
 
   it("aceita o token do sistema como administrador", async () => {
     const { ctx, reflector, request } = contextWith(`Bearer ${SYSTEM_TOKEN}`);
     expect(await new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
     expect(request.principal?.role).toBe("admin");
+  });
+
+  it("recarrega o token do setup local atualizado durante a reconexão", async () => {
+    const refreshedToken = "f".repeat(64);
+    writeFileSync(process.env.GJ_DESKTOP_SETUP_PATH!, JSON.stringify({ databaseUrl: "postgres://localhost/app", apiToken: refreshedToken }));
+    const { ctx, reflector } = contextWith(`Bearer ${refreshedToken}`);
+    expect(await new ApiTokenGuard(reflector).canActivate(ctx)).toBe(true);
   });
 
   it("recusa requisição sem cabeçalho", async () => {

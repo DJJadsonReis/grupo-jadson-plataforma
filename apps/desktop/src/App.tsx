@@ -35,7 +35,7 @@ import { MicrophoneRecorder } from "./lib/dictation-capture";
 import { DictationSession, isLoopbackBackend, type DictationState, type ModelStatus } from "./lib/dictation-session";
 import { HumanSupportApi } from "./lib/human-support-api";
 import { OperationModesApi, operationModeForShortcut, type DesktopOperationMode } from "./lib/operation-modes";
-import { reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
+import { monitorBackendHealth, reconnectAndRetryRequest, requestWithTokenRefresh } from "./lib/api-token";
 import {
   Activity, ArrowUp, ArrowUpRight, Image, Mic, Plug, Bot, Boxes, BrainCircuit, Check, ChevronDown, ChevronLeft, ChevronRight,
   CircleHelp, Clock3, Cpu, Bell, FileText, FolderOpen, Gauge, Layers, ListTodo, LoaderCircle, MessageSquare, Paperclip,
@@ -120,6 +120,7 @@ async function reconnectAndRetry(): Promise<void> {
     () => apiFetch(failed.input, failed.init),
     () => localSystemToken(true),
     clearSession,
+    () => invoke("ensure_desktop_setup"),
   );
 }
 
@@ -220,9 +221,14 @@ export default function App() {
 
   useEffect(() => {
     let active = true;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 3000);
-    fetch(`${API_URL}/edition`, { signal: controller.signal })
+    let controller: AbortController | null = null;
+    let timeout: number | null = null;
+    const initialize = async () => {
+      if (!import.meta.env.DEV) await invoke("ensure_desktop_setup").catch(() => undefined);
+      if (!active) return;
+      controller = new AbortController();
+      timeout = window.setTimeout(() => controller?.abort(), 3000);
+      void fetch(`${API_URL}/edition`, { signal: controller.signal })
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("edition"))))
       .then((body: unknown) => parseEditionResponse(body))
       .catch(() => "equipe" as const)
@@ -247,8 +253,10 @@ export default function App() {
       })
       .catch(() => { /* backend fora do ar: mantém o que já sabíamos */ });
       })
-      .finally(() => window.clearTimeout(timeout));
-    return () => { active = false; };
+      .finally(() => { if (timeout !== null) window.clearTimeout(timeout); });
+    };
+    void initialize();
+    return () => { active = false; controller?.abort(); if (timeout !== null) window.clearTimeout(timeout); };
   }, []);
 
   const initialScreen = startupScreen({
@@ -526,17 +534,36 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
   }
 
   useEffect(() => {
-    const controller = new AbortController();
-    apiFetch(`${API_URL}/health`, { signal: controller.signal })
-      .then(async (response) => {
+    let active = true;
+    const checkHealth = async () => {
+      try {
+        const response = await apiFetch(`${API_URL}/health`)
         if (!response.ok) throw new Error();
         const data = await response.json() as { dependencies?: { postgres?: string; pgvector?: string; redis?: string } };
-        setHealth("connected");
-        setPostgresHealth(data.dependencies?.postgres === "connected" ? "connected" : "unavailable");
-        setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
-        setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
-      })
-      .then(() => apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal }))
+        if (active) {
+          setHealth("connected");
+          setPostgresHealth(data.dependencies?.postgres === "connected" ? "connected" : "unavailable");
+          setVectorHealth(data.dependencies?.pgvector === "connected" ? "connected" : "unavailable");
+          setRedisHealth(data.dependencies?.redis === "connected" ? "connected" : "unavailable");
+        }
+      } catch {
+        if (active) {
+          setHealth("unavailable");
+          setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
+          setVectorHealth((value) => value === "checking" ? "unavailable" : value);
+          setRedisHealth((value) => value === "checking" ? "unavailable" : value);
+        }
+      }
+    };
+    const stop = monitorBackendHealth(checkHealth, undefined, 10_000);
+    return () => { active = false; stop(); };
+  }, []);
+
+  /* Catálogo acompanha a reconexão, para a tela sair do estado de inicialização. */
+  useEffect(() => {
+    if (health !== "connected") return;
+    const controller = new AbortController();
+    apiFetch(`${API_URL}/providers/catalogue`, { signal: controller.signal })
       .then(async (response) => {
         if (!response.ok) throw new Error();
         const catalogue = groupCatalogue(await response.json());
@@ -544,17 +571,10 @@ function Workspace({ edition, isAdmin }: { edition: Edition; isAdmin: boolean })
         const status = catalogue.map(({ id, name, configured }) => ({ id, name, configured }));
         setProviders(status);
         setConfiguredProviders(status.filter((provider) => provider.configured).length);
-      })
-      .catch(() => {
-        if (!controller.signal.aborted) {
-          setHealth((value) => value === "checking" ? "unavailable" : value);
-          setPostgresHealth((value) => value === "checking" ? "unavailable" : value);
-          setVectorHealth((value) => value === "checking" ? "unavailable" : value);
-          setRedisHealth((value) => value === "checking" ? "unavailable" : value);
-        }
-      });
+      }).catch(() => undefined);
     return () => controller.abort();
-  }, []);
+  }, [health]);
+
 
   useEffect(() => {
     const client = new ModelProvidersApi(apiFetch, API_URL);

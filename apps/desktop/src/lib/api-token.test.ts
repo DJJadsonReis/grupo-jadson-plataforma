@@ -1,7 +1,23 @@
 import { describe, expect, it, vi } from "vitest";
-import { reconnectAndRetryRequest, requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
+import { monitorBackendHealth, reconnectAndRetryRequest, requestWithTokenRefresh, shouldShowReconnectNotice } from "./api-token";
 
 describe("reconexão do token local", () => {
+  it("retoma a checagem de saúde a cada 10 segundos até o backend voltar", async () => {
+    vi.useFakeTimers();
+    const health = vi.fn(async (): Promise<number> => 0).mockResolvedValueOnce(401).mockResolvedValueOnce(200);
+    const observedStatuses: number[] = [];
+    const stop = monitorBackendHealth(health, (status) => observedStatuses.push(status));
+    try {
+      await vi.waitFor(() => expect(health).toHaveBeenCalledTimes(1));
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(health).toHaveBeenCalledTimes(2);
+      expect(observedStatuses).toEqual([401, 200]);
+    } finally {
+      stop();
+      vi.useRealTimers();
+    }
+  });
+
   it("repete a chamada depois de reler o token e preserva o aviso se continuar em 401", async () => {
     const request = vi.fn().mockResolvedValueOnce(new Response(null, { status: 401 })).mockResolvedValueOnce(new Response(null, { status: 401 }));
     const notice = vi.fn();
@@ -38,13 +54,16 @@ describe("reconexão do token local", () => {
     }, vi.fn());
     expect(first.status).toBe(401);
     const clearSession = vi.fn(() => { token = ""; });
+    const repairSetup = vi.fn().mockResolvedValue(undefined);
     const retried = await reconnectAndRetryRequest(
       request,
       async () => { token = "token-do-sistema"; },
       clearSession,
+      repairSetup,
     );
     expect(clearSession).toHaveBeenCalledOnce();
     expect(request).toHaveBeenCalledTimes(3);
+    expect(repairSetup).toHaveBeenCalledOnce();
     expect(retried.status).toBe(200);
   });
 });
