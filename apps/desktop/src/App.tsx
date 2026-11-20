@@ -26,6 +26,7 @@ import { formatModelPriceUsd, parsePriceField } from "./lib/usage-prices";
 import { groupCatalogue, type CatalogueProvider } from "./lib/model-catalogue";
 import { groupSelectableProviders, hasLegacyProviderKey, validateProviderDraft, type ProviderDraft } from "./lib/model-providers";
 import { ModelProvidersApi, type ManagedProvider } from "./lib/model-providers-api";
+import { providerLastTestLabel, providerModelCountLabel, providerStatusLabel, providerStatusTone } from "./lib/provider-status";
 import { addFallback, moveFallback, removeFallback, type AgentModelTarget } from "./lib/agent-model-routing";
 import { groupIdentityProviders, type IdentityProvider } from "./lib/identity-providers";
 import { StatusPanel } from "./components/status/StatusPanel";
@@ -2556,6 +2557,8 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
   const [notice, setNotice] = useState<string | null>(null);
   const [testing, setTesting] = useState<string | null>(null);
   const [editing, setEditing] = useState<string | null>(null);
+  const [formOpen, setFormOpen] = useState(false);
+  const [removing, setRemoving] = useState<ManagedProvider | null>(null);
   const api = new ModelProvidersApi(apiFetch, API_URL);
   async function submit(event: FormEvent) {
     event.preventDefault(); setError(null); setNotice(null);
@@ -2564,7 +2567,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     try {
       const body = { ...(editing ? {} : { kind: draft.kind }), name: draft.name, ...(draft.kind === "custom" ? { baseUrl: draft.baseUrl, allowLocal: draft.allowLocal } : {}), ...(draft.apiKey ? { apiKey: draft.apiKey } : {}) };
       const saved = editing ? await api.patch(editing, body) : await api.create(body);
-      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setNotice(saved.discoveryMessage ? `Provedor salvo, mas não foi possível listar os modelos: ${saved.discoveryMessage}` : "Provedor salvo com segurança."); await onRefresh();
+      setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setEditing(null); setFormOpen(false); setNotice(saved.discoveryMessage ? `Provedor salvo, mas não foi possível listar os modelos: ${saved.discoveryMessage}` : "Provedor salvo com segurança."); await onRefresh();
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível salvar o provedor."); }
   }
   async function test(id: string) {
@@ -2580,7 +2583,7 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
     finally { setTesting(null); }
   }
   async function toggle(provider: ManagedProvider) { try { await api.patch(provider.id, { enabled: !provider.enabled }); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível atualizar o provedor."); } }
-  async function remove(provider: ManagedProvider) { if (!window.confirm(`Remover o provedor “${provider.name}”?`)) return; try { await api.remove(provider.id); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
+  async function remove(provider: ManagedProvider) { setError(null); try { await api.remove(provider.id); setRemoving(null); await onRefresh(); } catch (cause) { setError(cause instanceof Error ? cause.message : "Não foi possível remover o provedor."); } }
   return (
     <div className="page-content">
       <div className="page-header-row">
@@ -2589,26 +2592,28 @@ function ModelsPage({ providers, legacyExists, onModelsTested, onRefresh, onOpen
           <h1>Modelos & Provedores</h1>
           <p className="page-subtitle">Cadastre provedores e escolha modelos no chat. As chaves ficam cifradas no banco.</p>
         </div>
-        <button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button>
+        <div className="model-provider-header-actions"><button type="button" className="btn-primary-gold" onClick={() => { setError(null); setNotice(null); setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); setFormOpen(true); }}>Adicionar provedor</button><button className="btn-primary-gold" onClick={onOpenChat}><MessageSquare size={15} /> Abrir Chat</button></div>
       </div>
       {legacyExists && <div className="model-provider-notice"><strong>Configuração anterior</strong><span>A chave legada continua ativa e não pode ser exibida nem editada nesta tela.</span></div>}
       {error && <div className="gx-notice" role="alert">{error}</div>}{notice && <div className="model-provider-notice" role="status">{notice}</div>}
       <div className="model-provider-grid">
         {providers.filter((provider) => provider.id !== "legacy").map((provider) => <article className="provider-card-box" key={provider.id}>
-          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"status-pill " + (provider.enabled && provider.hasKey ? "online" : "offline")}>{provider.enabled ? provider.hasKey ? "Ativo · chave salva" : "Sem chave" : "Desativado"}</span></div>
+          <div className="provider-card-top"><BrainCircuit size={22} className="text-gold" /><span className={"provider-key-status " + providerStatusTone(provider.keyStatus)}>{providerStatusLabel(provider.keyStatus)}</span></div>
           <h2>{provider.name}</h2><p>{provider.kind}{provider.kind === "custom" && provider.baseUrl ? ` · ${provider.baseUrl}` : ""}</p>
-          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); }}>Editar</button><button type="button" onClick={() => void remove(provider)}>Remover</button></div>
+          <div className="provider-summary"><span>Último teste: {providerLastTestLabel(provider.lastTestAt)}</span><span>{providerModelCountLabel(provider.modelCount)}</span></div>
+          <div className="model-provider-actions"><button type="button" onClick={() => void test(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Testando…" : "Testar conexão"}</button><button type="button" onClick={() => void verifyModels(provider.id)} disabled={testing === provider.id}>{testing === provider.id ? "Verificando…" : "Verificar modelos"}</button><button type="button" onClick={() => void toggle(provider)}>{provider.enabled ? "Desligar" : "Ligar"}</button><button type="button" onClick={() => { setError(null); setEditing(provider.id); setDraft({ kind: provider.kind as ProviderDraft["kind"], name: provider.name, baseUrl: provider.baseUrl ?? "", apiKey: "", allowLocal: false }); setFormOpen(true); }}>Editar</button><button type="button" onClick={() => setRemoving(provider)}>Remover</button></div>
           <ul>{(provider.models ?? []).map((model) => <li key={model.id}>{model.label} ({model.id}) — <strong>{model.availability === "disponivel" ? "Disponível" : model.availability === "indisponivel" ? "Indisponível" : "Não verificado"}</strong>{model.checkedAt ? ` · ${new Date(model.checkedAt).toLocaleString()}` : ""}</li>)}</ul>
         </article>)}
       </div>
-      <form className="model-provider-form" onSubmit={(event) => void submit(event)}>
-        <h2>{editing ? "Editar provedor" : "Cadastrar provedor"}</h2>
+      {formOpen && <div className="provider-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) { setFormOpen(false); setEditing(null); setError(null); } }}><form className="model-provider-form provider-dialog" role="dialog" aria-modal="true" aria-labelledby="provider-form-title" onSubmit={(event) => void submit(event)}>
+        <h2 id="provider-form-title">{editing ? "Editar provedor" : "Adicionar provedor"}</h2>
         <label>Tipo<select value={draft.kind} disabled={Boolean(editing)} onChange={(event) => setDraft({ ...draft, kind: event.target.value as ProviderDraft["kind"], baseUrl: "" })}><option value="openai">OpenAI</option><option value="anthropic">Anthropic</option><option value="gemini">Google Gemini</option><option value="xai">xAI</option><option value="custom">Custom compatível com OpenAI</option></select></label>
         <label>Nome<input value={draft.name} maxLength={80} onChange={(event) => setDraft({ ...draft, name: event.target.value })} /></label>
         {draft.kind === "custom" && <><label>URL base<input value={draft.baseUrl} maxLength={500} placeholder="https://provedor.invalid/v1" onChange={(event) => setDraft({ ...draft, baseUrl: event.target.value })} /></label><label className="model-provider-local"><input type="checkbox" checked={draft.allowLocal} onChange={(event) => setDraft({ ...draft, allowLocal: event.target.checked })} /> Este endpoint é local (localhost)</label></>}
         <label>Chave de API<input type="password" autoComplete="new-password" value={draft.apiKey} placeholder={editing ? "Deixe vazio para manter a chave atual" : "Chave do provedor"} onChange={(event) => setDraft({ ...draft, apiKey: event.target.value })} /></label>
-        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button>{editing && <button type="button" onClick={() => { setEditing(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar edição</button>}</div>
-      </form>
+        <div className="model-provider-actions"><button type="submit">{editing ? "Salvar alterações" : "Cadastrar provedor"}</button><button type="button" onClick={() => { setFormOpen(false); setEditing(null); setError(null); setDraft({ kind: "openai", name: "", baseUrl: "", apiKey: "", allowLocal: false }); }}>Cancelar</button></div>
+      </form></div>}
+      {removing && <div className="provider-dialog-backdrop" role="presentation"><section className="provider-remove-dialog" role="alertdialog" aria-modal="true" aria-labelledby="provider-remove-title" aria-describedby="provider-remove-copy"><h2 id="provider-remove-title">Remover provedor</h2><p id="provider-remove-copy">Remover o provedor “{removing.name}”? Os modelos e chaves dele saem da lista. Não dá para desfazer.</p><div className="model-provider-actions"><button type="button" className="provider-remove-action" onClick={() => void remove(removing)}>Remover</button><button type="button" onClick={() => setRemoving(null)}>Cancelar</button></div></section></div>}
     </div>
   );
 }

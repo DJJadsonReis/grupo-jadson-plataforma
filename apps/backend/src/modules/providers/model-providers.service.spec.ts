@@ -15,7 +15,7 @@ function setup(useDefaultFetcher = false) {
   const availability: Record<string, unknown>[] = [];
   const query = jest.fn(async (sql: string, values: unknown[] = []) => {
     if (sql.startsWith("INSERT INTO model_providers")) {
-      const row = { id: values[0], kind: values[1], name: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")), enabled: true, createdAt: new Date(), updatedAt: new Date() };
+      const row = { id: values[0], kind: values[1], name: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")), enabled: true, lastTestStatus: values[6], lastTestAt: new Date(), createdAt: new Date(), updatedAt: new Date() };
       rows.push(row); return { rows: [row], rowCount: 1 };
     }
     if (sql.startsWith("SELECT model_id,status,checked_at")) return { rows: availability.filter((row) => row.provider_id === values[0]), rowCount: availability.length };
@@ -23,14 +23,18 @@ function setup(useDefaultFetcher = false) {
     if (sql.startsWith("INSERT INTO model_availability")) { const [provider_id, model_id, status] = values; const old = availability.find((row) => row.provider_id === provider_id && row.model_id === model_id); if (old) old.status = status; else availability.push({ provider_id, model_id, status, checked_at: new Date() }); return { rows: [], rowCount: 1 }; }
     if (sql.startsWith("SELECT id,kind,name,models_json")) return { rows: rows.filter((row) => row.enabled === true && row.secretCiphertext !== "").map(({ id, kind, name, models }) => ({ id, kind, name, models })), rowCount: rows.length };
     if (sql.startsWith("SELECT id,kind,name,base_url AS \"baseUrl\"")) {
-      const found = sql.includes("WHERE id=$1") ? rows.filter((row) => row.id === values[0]) : rows.filter((row) => row.enabled === true && row.secretCiphertext !== "");
+      const found = sql.includes("WHERE id=$1") ? rows.filter((row) => row.id === values[0]) : sql.includes("WHERE enabled=true") ? rows.filter((row) => row.enabled === true && row.secretCiphertext !== "") : rows;
       return { rows: found.map((row) => ({ ...row, models: rows.find((item) => item.id === row.id)?.models })), rowCount: found.length };
     }
     if (sql.startsWith("SELECT name FROM integrations")) return { rows: [], rowCount: 0 };
     if (sql.startsWith("UPDATE model_providers")) {
       const row = rows.find((item) => item.id === values[0]); if (!row) return { rows: [], rowCount: 0 };
+      if (sql.includes("SET models_json=$2,last_test_status=$3")) { row.models = JSON.parse(String(values[1])); row.lastTestStatus = values[2]; row.lastTestAt = new Date(); return { rows: [row], rowCount: 1 }; }
+      if (sql.includes("SET last_test_status=$2")) { row.lastTestStatus = values[1]; row.lastTestAt = new Date(); return { rows: [row], rowCount: 1 }; }
       if (sql.includes("SET models_json")) { row.models = JSON.parse(String(values[1])); return { rows: [row], rowCount: 1 }; }
-      Object.assign(row, { name: values[1], enabled: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")) }); return { rows: [row], rowCount: 1 };
+      Object.assign(row, { name: values[1], enabled: values[2], baseUrl: values[3], secretCiphertext: values[4], models: JSON.parse(String(values[5] ?? "[]")) });
+      if (sql.includes("last_test_status=$7")) { row.lastTestStatus = values[6]; row.lastTestAt = new Date(); }
+      return { rows: [row], rowCount: 1 };
     }
     if (sql.startsWith("DELETE FROM model_providers")) { const index = rows.findIndex((item) => item.id === values[0]); if (index >= 0) rows.splice(index, 1); return { rows: [], rowCount: index >= 0 ? 1 : 0 }; }
     throw new Error(`unexpected query ${sql}`);
@@ -49,6 +53,7 @@ describe("ModelProvidersService", () => {
     expect(result).not.toHaveProperty("apiKey"); expect(JSON.stringify(result)).not.toContain(fakeKey);
     expect(rows[0]?.secretCiphertext).not.toBe(fakeKey); expect(new TestSecretBox().decrypt(String(rows[0]?.secretCiphertext))).toBe(fakeKey);
     expect(JSON.stringify(await service.list())).not.toContain(fakeKey);
+    expect(await service.list()).toEqual([expect.objectContaining({ keyStatus: "valida", lastTestAt: expect.any(Date), modelCount: 1 })]);
   });
   it("discovers models on create, persists them, and exposes them for chat and agents", async () => {
     const { service, rows } = setup();
@@ -168,6 +173,22 @@ describe("ModelProvidersService", () => {
       await jest.advanceTimersByTimeAsync(10_000);
       await expect(pending).resolves.toMatchObject({ ok: false, message: expect.stringMatching(/10 segundos/i) });
     } finally { jest.useRealTimers(); }
+  });
+  it.each([
+    ["ok", 200, { data: [{ id: "m" }] }, "valida"],
+    ["empty", 200, { data: [] }, "sem_modelos"],
+    ["unauthorized", 401, {}, "invalida"],
+    ["forbidden", 403, {}, "invalida"],
+    ["rate limited", 429, {}, "limite_atingido"],
+    ["server error", 500, {}, "erro"],
+  ] as const)("persists provider status after %s response", async (_name, status, payload, keyStatus) => {
+    const { service, rows } = setup();
+    const created = await service.create({ kind: "openai", name: "Provider fake", apiKey: "chave-falsa-provider-93" });
+    service.setTestDependencies(jest.fn(async () => new Response(JSON.stringify(payload), { status })));
+    await service.test(created.id);
+    expect(rows[0]).toMatchObject({ lastTestStatus: keyStatus, lastTestAt: expect.any(Date) });
+    expect(await service.list()).toEqual([expect.objectContaining({ id: created.id, keyStatus, lastTestAt: expect.any(Date) })]);
+    expect(JSON.stringify(await service.list())).not.toContain("chave-falsa-provider-93");
   });
   it("pins discovery to the just-validated address, blocks rebinding, and rejects redirects", async () => {
     const { service } = setup();

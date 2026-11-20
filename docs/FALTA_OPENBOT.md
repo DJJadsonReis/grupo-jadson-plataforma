@@ -1,6 +1,6 @@
 # O que falta migrar do OpenBot
 
-Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91 e troca de IA por conversa na tarefa 92). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
+Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código e testes; esforço por conversa atualizado na tarefa 91, troca de IA por conversa na tarefa 92 e tela de provedores na tarefa 93). Referência: `OpenBot/` (fora do Git, licença MIT, CopilotKit), conforme `docs/PLANO_MIGRACAO_REFERENCIAS.md`.
 
 ## Método e limites
 
@@ -27,6 +27,7 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 - **Token único app-backend (tarefa 81, commit `83d89d1`):** implementado no código. A reprodução no PC está pendente (ação do dono).
 - **Esforço por conversa (tarefa 91):** valores baixo/médio/alto persistidos por conversa, suporte explícito por modelo no backend, parâmetros por provedor, seletor desktop condicionado a `supportsEffort` e fluxo de chat coberto. Evidências: `docs/MODELO_E_ESFORCO_POR_CHAT.md`, `apps/backend/src/modules/chat/model-effort.ts`, `apps/backend/src/modules/database/migrations/044-conversation-effort.ts`, `apps/backend/src/modules/chat/effort.e2e.spec.ts` e `apps/desktop/src/lib/conversation-effort.test.ts`.
 - **Troca de IA por conversa (tarefa 92):** escolha de provedor/modelo salva no servidor, precedência sobre agente e fallback quando indisponível. Evidências: `docs/TROCA_DE_IA_POR_CHAT.md`, `apps/backend/src/modules/database/migrations/045-conversation-model.ts`, `apps/backend/src/modules/chat/conversations.controller.ts`, `apps/backend/src/modules/chat/conversation-model.e2e.spec.ts` e `apps/desktop/src/lib/conversation-model.test.ts`.
+- **Tela de provedores com lista sempre visível (tarefa 93):** status por chave, data do último teste, contagem de modelos, formulário independente e diálogo de remoção. Evidências: `apps/backend/src/modules/database/migrations/046-provider-test-status.ts`, `apps/backend/src/modules/providers/provider-key-status.ts`, `apps/backend/src/modules/providers/model-providers.service.ts`, `apps/backend/src/modules/providers/provider-status.e2e.spec.ts`, `apps/desktop/src/lib/provider-status.ts` e `apps/desktop/src/App.tsx` (`ModelsPage`).
 
 ### Parcial
 
@@ -38,7 +39,6 @@ Data: 2026-11-12. Auditoria de status revisada em 2026-11-20 (leitura de código
 Decisão 29, na ordem obrigatória:
 
 1. **Modos de operação por conversa/agente** (Decisão 27) — Feito nesta tarefa 85: backend aplica os cinco modos, persistência por conversa/padrão de agente, seletor no composer e confirmação/auditoria admin. Evidência: `docs/MODOS_DE_OPERACAO.md`; testes `operation-modes.spec.ts` e `conversations.controller.spec.ts`.
-4. **Tela de provedores com lista sempre visível** (Decisão 28b) — INTERNO.
 5. **MCP server do Grupo Jadson** (Decisão 24) — INTERNO.
 6. **Design no estilo Grok com revisão de textos** (Decisões 23 e 23b), mantendo a marca do Grupo Jadson — INTERNO.
 

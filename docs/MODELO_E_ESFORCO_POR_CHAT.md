@@ -39,4 +39,4 @@ No composer do desktop, o seletor de esforço aparece ao lado do seletor de mode
 
 ## Tela de provedores (Decisão 28b)
 
-A tarefa 91 não altera essa tela. O cadastro já mostra os provedores persistidos, com ações de adicionar, editar, testar e remover. O esforço é uma característica dos modelos no seletor do chat, não uma configuração de chave ou de provedor.
+A tela mantém a lista persistida visível durante cadastro e edição. Cada linha exibe nome, tipo, estado da chave, instante do último teste e quantidade de modelos disponíveis, com ações de editar, testar, ativar/desativar e remover. O cadastro e a edição abrem em painel próprio; remoção pede confirmação no diálogo da aplicação. O backend persiste apenas a categoria do resultado e a data, sem guardar resposta do serviço ou credenciais. O esforço continua sendo característica do modelo no seletor do chat, não configuração de chave ou provedor. Implementação: migrations `036-model-providers`, `040-model-availability` e `046-provider-test-status`, `ModelProvidersService` e `ModelsPage`.

@@ -1,4 +1,5 @@
-export interface ManagedProvider { id: string; kind: string; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: string; models: ModelOption[]; discoveryMessage?: string }
+export type ProviderKeyStatus = "nao_testada" | "valida" | "sem_modelos" | "invalida" | "limite_atingido" | "erro";
+export interface ManagedProvider { id: string; kind: string; name: string; baseUrl: string | null; enabled: boolean; hasKey: boolean; createdAt: string; models: ModelOption[]; keyStatus: ProviderKeyStatus; lastTestAt: string | null; modelCount: number; discoveryMessage?: string }
 export interface ModelOption { id: string; label: string; availability?: "disponivel" | "indisponivel" | "nao_verificado"; checkedAt?: string | null }
 export interface ModelTestResult { ok: boolean; models?: ModelOption[]; message?: string }
 export class ModelProvidersApi {

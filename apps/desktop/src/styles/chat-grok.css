@@ -386,6 +386,20 @@
 .model-provider-form label { display: grid; gap: 6px; color: var(--gx-ink-2); font-size: 13px; }
 .model-provider-form input:not([type="checkbox"]), .model-provider-form select { padding: 10px 12px; border: 1px solid var(--gx-line); border-radius: 8px; color: var(--gx-ink); background: #111; font: inherit; }
 .model-provider-form .model-provider-local { display: flex; align-items: center; }
+.model-provider-header-actions { display: flex; gap: 10px; }
+.provider-summary { display: flex; justify-content: space-between; gap: 12px; color: var(--gx-ink-2); font-size: 13px; margin: 10px 0; }
+.provider-key-status { display: inline-flex; border-radius: 999px; padding: 4px 9px; font-size: 12px; font-weight: 650; }
+.provider-key-status.neutral { color: var(--gx-ink-2); background: #292929; }
+.provider-key-status.success { color: #b7ebc2; background: #173522; }
+.provider-key-status.warning { color: #f3d494; background: #392d16; }
+.provider-key-status.danger { color: #ffc0bb; background: #451e1b; }
+.provider-dialog-backdrop { position: fixed; inset: 0; z-index: 1000; display: grid; place-items: center; padding: 24px; background: #000b; }
+.provider-dialog { width: min(650px, 100%); max-height: min(90vh, 900px); overflow: auto; margin: 0; box-shadow: 0 20px 70px #000a; }
+.provider-remove-dialog { width: min(480px, 100%); padding: 22px; border: 1px solid var(--gx-line); border-radius: 14px; color: var(--gx-ink); background: var(--gx-panel); box-shadow: 0 20px 70px #000a; }
+.provider-remove-dialog h2 { margin: 0 0 10px; }
+.provider-remove-dialog p { color: var(--gx-ink-2); line-height: 1.55; }
+.provider-remove-action { color: #fff; background: #a82d27; border-color: #a82d27; }
+@media (max-width: 600px) { .model-provider-header-actions { flex-wrap: wrap; } .provider-dialog-backdrop { padding: 12px; } }
 .model-provider-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
 .model-provider-actions button { padding: 8px 11px; border: 1px solid var(--gx-line); border-radius: 8px; color: var(--gx-ink); background: #191919; cursor: pointer; }
 .model-provider-actions button:disabled { opacity: .6; cursor: progress; }
