@@ -5,7 +5,9 @@ const PRIVATE_KEY_BEGIN = /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/;
 const PRIVATE_KEY_END_SOURCE = "-----END (?:[A-Z0-9 ]+ )?PRIVATE KEY-----";
 const PRIVATE_KEY_MAX_BUFFER = 16 * 1024;
 const BEGIN_PREFIX = "-----BEGIN ";
-const END_OVERLAP = " PRIVATE KEY-----".length - 1;
+const END_PREFIX = "-----END ";
+const END_SUFFIX = " PRIVATE KEY-----";
+const END_MAX_TYPE_LENGTH = 64;
 
 export class MaskedTextStream {
   private buffer = "";
@@ -74,7 +76,7 @@ export class MaskedTextStream {
       if (this.discardingPrivateKey) {
         const end = new RegExp(PRIVATE_KEY_END_SOURCE).exec(this.buffer);
         if (!end) {
-          this.buffer = this.buffer.slice(-END_OVERLAP);
+          this.buffer = this.buffer.slice(-END_PREFIX.length - END_MAX_TYPE_LENGTH - END_SUFFIX.length);
           return;
         }
         this.buffer = this.buffer.slice(end.index + end[0].length);

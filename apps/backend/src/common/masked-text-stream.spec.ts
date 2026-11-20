@@ -9,6 +9,17 @@ function fakeRsaPem(bodyLength: number, includeEnd = true): string {
   return `-----BEGIN RSA PRIVATE KEY-----\n${body}\nCORPO-FALSO-PEM\n${includeEnd ? "-----END RSA PRIVATE KEY-----" : ""}`;
 }
 
+function fakePem(begin: string, end: string, bodyLength: number): string {
+  const line = "MIIFAKE-FALSO-" + "A".repeat(50);
+  const body = Array.from({ length: Math.ceil(bodyLength / line.length) }, () => line).join("\n");
+  return `${begin}\n${body}\nCORPO-FALSO-PEM\n${end}`;
+}
+
+function runChunks(text: string, size: number): string {
+  const chunks = text.match(new RegExp(`.{1,${size}}`, "gs")) ?? [];
+  return runWithHold(chunks);
+}
+
 function runWithHold(chunks: string[], hold = DEFAULT_HOLD_CHARS): string {
   const out: string[] = [];
   const stream = new MaskedTextStream((text) => maskSecrets(text, []), (piece) => out.push(piece), hold);
@@ -114,6 +125,54 @@ describe("MaskedTextStream", () => {
     expect(output.endsWith("[REDACTED]")).toBe(true);
     expect(output).not.toContain("MIIFAKE-FALSO");
     expect(output).not.toContain("CORPO-FALSO-PEM");
+  });
+
+  it("preserva o texto depois de PEM RSA FALSO longo em todos os cortes de END", () => {
+    const end = "-----END RSA PRIVATE KEY-----";
+    const trailing = " depois do bloco FALSO, texto normal que deve sair";
+    const prefix = fakePem("-----BEGIN RSA PRIVATE KEY-----", "", 18 * 1024);
+    const cuts = Array.from({ length: end.length - 1 }, (_, index) => index + 1);
+    for (const cut of cuts) {
+      const output = runChunks(`${prefix}${end.slice(0, cut)}${end.slice(cut)}${trailing}`, 100);
+      expect(output).toContain(trailing);
+    expect(output).not.toContain("MIIFAKE-FALSO");
+    expect(output).not.toContain("CORPO-FALSO-PEM");
+    }
+  });
+
+  it.each([1, 7])("preserva texto depois de PEM RSA FALSO longo com chunks de %i", (size) => {
+    const end = "-----END RSA PRIVATE KEY-----";
+    const trailing = " depois do bloco FALSO, texto normal que deve sair";
+    const prefix = fakePem("-----BEGIN RSA PRIVATE KEY-----", "", 18 * 1024);
+    const text = `${prefix}${end}${trailing}`;
+    const output = runChunks(text, size);
+    expect(output).toContain(trailing);
+    expect(output).not.toContain("MIIFAKE-FALSO");
+    expect(output).not.toContain("CORPO-FALSO-PEM");
+  });
+
+  it.each([
+    ["-----BEGIN PRIVATE KEY-----", "-----END PRIVATE KEY-----"],
+    ["-----BEGIN EC PRIVATE KEY-----", "-----END EC PRIVATE KEY-----"],
+  ])("preserva texto depois de PEM FALSO longo %s em todos os cortes", (begin, end) => {
+    const trailing = " depois do bloco FALSO, texto normal que deve sair";
+    const prefix = fakePem(begin, "", 18 * 1024);
+    for (let cut = 1; cut < end.length; cut += 1) {
+      const output = runChunks(`${prefix}${end.slice(0, cut)}${end.slice(cut)}${trailing}`, 100);
+      expect(output).toContain(trailing);
+      expect(output).not.toContain("MIIFAKE-FALSO");
+      expect(output).not.toContain("CORPO-FALSO-PEM");
+    }
+  });
+
+  it("emite prefixo mascarado e uma única redação antes do texto posterior ao PEM FALSO", () => {
+    const end = "-----END RSA PRIVATE KEY-----";
+    const text = `prefixo legível. ${fakePem("-----BEGIN RSA PRIVATE KEY-----", "", 18 * 1024)}${end} sufixo legível. ${"continuação normal. ".repeat(40)}`;
+    const output = runChunks(text, 100);
+    expect(output).toContain("prefixo legível.");
+    expect(output.match(/\[REDACTED\]/g)).toHaveLength(1);
+    expect(output).toContain(" sufixo legível.");
+    expect(output).not.toContain("MIIFAKE-FALSO");
   });
 
   it("maskea PEM FALSO truncado ao receber flush", () => {
